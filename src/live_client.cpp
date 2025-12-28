@@ -155,8 +155,12 @@ void LiveClient::Start() {
 
     if (protocol_) {
         protocol_->StartStreaming();
+
+        // Only update state if protocol actually transitioned
+        if (protocol_->GetState() == LiveProtocolState::Streaming) {
+            state_ = State::Streaming;
+        }
     }
-    state_ = State::Streaming;
 }
 
 void LiveClient::Stop() {

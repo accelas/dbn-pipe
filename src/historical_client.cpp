@@ -217,30 +217,19 @@ void HistoricalClient::TeardownPipeline() {
         sink_->Invalidate();
     }
 
-    // Close TCP socket first
-    if (tcp_) {
-        tcp_->Close();
-        tcp_.reset();
-    }
+    // Close components before reset to handle callback reentrancy
+    if (parser_) parser_->Close();
+    if (zstd_) zstd_->Close();
+    if (http_) http_->Close();
+    if (tls_) tls_->Close();
+    if (tcp_) tcp_->Close();
 
-    // Close pipeline components
-    if (tls_) {
-        tls_.reset();
-    }
-
-    if (http_) {
-        http_.reset();
-    }
-
-    if (zstd_) {
-        zstd_.reset();
-    }
-
-    if (parser_) {
-        parser_->Close();
-        parser_.reset();
-    }
-
+    // Now safe to reset
+    tcp_.reset();
+    tls_.reset();
+    http_.reset();
+    zstd_.reset();
+    parser_.reset();
     sink_.reset();
 }
 
