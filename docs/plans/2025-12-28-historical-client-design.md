@@ -1070,7 +1070,16 @@ This distinguishes:
 
 **Close-delimited response handling:**
 HTTP/1.0 and HTTP/1.1 with `Connection: close` may use EOF as message terminator.
-`llhttp_finish()` tells the parser EOF arrived and triggers `OnMessageComplete` if valid.
+`llhttp_finish()` tells the parser EOF arrived.
+
+llhttp behavior on close-delimited responses:
+- Response has no `Content-Length` or `Transfer-Encoding: chunked`
+- Parser is in "consume until EOF" mode
+- `llhttp_finish()` triggers `on_message_complete` callback
+- Our `OnMessageComplete` callback fires, calling `downstream_->OnDone()`
+
+If llhttp_finish() returns `HPE_OK` without calling `on_message_complete` (no pending data),
+the response was empty or already complete - no downstream signal needed.
 
 **Double OnDone prevention:**
 Each message gets exactly one terminal signal:
