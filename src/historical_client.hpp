@@ -4,12 +4,17 @@
 #include <netinet/in.h>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <memory_resource>
+#include <span>
 #include <string>
 #include <string_view>
 
-#include "data_source.hpp"
+#include <databento/record.hpp>
+
+#include "dbn_parser_component.hpp"
+#include "error.hpp"
 #include "http_client.hpp"
 #include "reactor.hpp"
 #include "tcp_socket.hpp"
@@ -18,30 +23,10 @@
 
 namespace databento_async {
 
-// Forward declaration
-class HistoricalClient;
-
-// ApplicationSink is the final downstream in the pipeline.
-// It receives decompressed data and forwards it to HistoricalClient for parsing.
-class ApplicationSink {
-public:
-    explicit ApplicationSink(HistoricalClient* client) : client_(client) {}
-
-    // Invalidate the sink (called before client cleanup)
-    void Invalidate() { valid_ = false; }
-
-    // Downstream interface
-    void Read(std::pmr::vector<std::byte> data);
-    void OnError(const Error& e);
-    void OnDone();
-
-private:
-    HistoricalClient* client_;
-    bool valid_ = true;
-};
-
 // HistoricalClient fetches historical data from the Databento Historical API.
-// Uses HTTPS (TLS) + HTTP + zstd decompression pipeline.
+// Uses HTTPS (TLS) + HTTP + zstd decompression + DBN parsing pipeline.
+//
+// Architecture: TcpSocket -> TlsSocket -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> Sink
 //
 // Lifecycle:
 // 1. Construct with reactor and API key
@@ -50,7 +35,7 @@ private:
 // 4. Call Start() to begin streaming data
 // 5. Receive records via OnRecord() callback
 // 6. Call Stop() to close connection
-class HistoricalClient : public DataSource {
+class HistoricalClient {
 public:
     enum class State {
         Disconnected,       // Initial state, not connected
@@ -63,8 +48,32 @@ public:
         Error               // An error occurred
     };
 
+    // Sink class - RecordDownstream that bridges to HistoricalClient callbacks
+    class Sink {
+    public:
+        explicit Sink(HistoricalClient* client) : client_(client) {}
+
+        // Invalidate sink (called when client is being destroyed)
+        void Invalidate() { valid_ = false; }
+
+        // RecordDownstream interface
+        void OnRecord(const databento::Record& rec);
+        void OnError(const Error& e);
+        void OnDone();
+
+    private:
+        HistoricalClient* client_;
+        bool valid_ = true;
+    };
+
+    // Pipeline type aliases
+    using ParserType = DbnParserComponent<Sink>;
+    using ZstdType = ZstdDecompressor<ParserType>;
+    using HttpType = HttpClient<ZstdType>;
+    using TlsType = TlsSocket<HttpType>;
+
     HistoricalClient(Reactor& reactor, std::string api_key);
-    ~HistoricalClient() override;
+    ~HistoricalClient();
 
     // Non-copyable, non-movable
     HistoricalClient(const HistoricalClient&) = delete;
@@ -83,26 +92,49 @@ public:
     // Connection (caller responsible for DNS resolution)
     void Connect(const sockaddr_storage& addr);
 
-    // DataSource interface
-    void Start() override;
-    void Stop() override;
+    // Control
+    void Start();
+    void Stop();
+
+    // Backpressure control
+    void Pause();
+    void Resume();
 
     // State accessor
     State GetState() const { return state_; }
 
+    // Callbacks
+    template <typename Handler>
+    void OnRecord(Handler&& h) {
+        record_handler_ = std::forward<Handler>(h);
+    }
+
+    template <typename Handler>
+    void OnError(Handler&& h) {
+        error_handler_ = std::forward<Handler>(h);
+    }
+
+    template <typename Handler>
+    void OnComplete(Handler&& h) {
+        complete_handler_ = std::forward<Handler>(h);
+    }
+
 private:
-    friend class ApplicationSink;
+    friend class Sink;
 
     // Pipeline setup
     void BuildPipeline();
+
+    // Clean up pipeline components
+    void TeardownPipeline();
 
     // TCP socket callbacks
     void HandleTcpConnect();
     void HandleTcpRead(std::span<const std::byte> data);
     void HandleTcpError(std::error_code ec);
 
-    // Pipeline event handlers
-    void HandleDecompressedData(std::pmr::vector<std::byte> data);
+    // Pipeline event handlers (called from Sink)
+    void HandleRecord(const databento::Record& rec);
     void HandlePipelineError(const Error& e);
     void HandlePipelineComplete();
 
@@ -113,7 +145,6 @@ private:
     Reactor& reactor_;
     std::string api_key_;
     State state_ = State::Disconnected;
-    bool stopped_ = false;  // Guards against callbacks after Stop()
 
     // Request parameters
     std::string dataset_;
@@ -122,24 +153,21 @@ private:
     std::uint64_t start_ = 0;
     std::uint64_t end_ = 0;
 
-    // Pipeline components (bottom-up: decompressor -> http -> tls -> tcp)
-    // The sink receives decompressed data and forwards to HistoricalClient
-    std::shared_ptr<ApplicationSink> sink_;
-
-    // ZstdDecompressor receives HTTP body and decompresses
-    std::shared_ptr<ZstdDecompressor<ApplicationSink>> decompressor_;
-
-    // HttpClient parses HTTP response and extracts body
-    std::shared_ptr<HttpClient<ZstdDecompressor<ApplicationSink>>> http_;
-
-    // TlsSocket handles TLS encryption/decryption
-    std::shared_ptr<TlsSocket<HttpClient<ZstdDecompressor<ApplicationSink>>>> tls_;
-
-    // TcpSocket handles raw TCP I/O
+    // Pipeline components (data flow: tcp -> tls -> http -> zstd -> parser -> sink)
     std::unique_ptr<TcpSocket> tcp_;
+    std::shared_ptr<TlsType> tls_;
+    std::shared_ptr<HttpType> http_;
+    std::shared_ptr<ZstdType> zstd_;
+    std::shared_ptr<ParserType> parser_;
+    std::shared_ptr<Sink> sink_;
 
     // PMR pool for TLS write buffers
     std::pmr::unsynchronized_pool_resource pool_;
+
+    // Callbacks
+    std::function<void(const databento::Record&)> record_handler_;
+    std::function<void(const Error&)> error_handler_;
+    std::function<void()> complete_handler_;
 };
 
 }  // namespace databento_async

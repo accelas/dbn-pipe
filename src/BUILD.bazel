@@ -122,12 +122,14 @@ cc_library(
     hdrs = ["historical_client.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":data_source",
+        ":dbn_parser_component",
+        ":error",
         ":http_client",
         ":reactor",
         ":tcp_socket",
         ":tls_socket",
         ":zstd_decompressor",
+        "@databento_cpp//:databento_headers",
     ],
 )
 
