@@ -112,6 +112,10 @@ private:
     // ZSTD_DStreamOutSize() returns 128KB (131072) but is not constexpr
     static constexpr size_t kOutputBufferSize = 128 * 1024;
     static constexpr size_t kMaxPendingInput = 16 * 1024 * 1024;  // 16MB
+
+    // Track the last return value from ZSTD_decompressStream
+    // 0 means frame is complete, non-zero means more data expected
+    size_t last_decompress_result_ = 0;
 };
 
 // Implementation - must be in header due to template
@@ -231,6 +235,9 @@ bool ZstdDecompressor<D>::DecompressAndForward(const std::byte* input, size_t in
             return false;
         }
 
+        // Track result for incomplete frame detection in OnDone()
+        last_decompress_result_ = result;
+
         // Forward decompressed data to downstream
         if (out_buf.pos > 0) {
             output.resize(out_buf.pos);
@@ -260,12 +267,16 @@ void ZstdDecompressor<D>::OnDone() {
         pending_input_.clear();
     }
 
-    // Note: ZSTD streams can end mid-frame if the connection is closed.
-    // We don't treat incomplete frames as errors since the HTTP layer
-    // determines message boundaries. If the HTTP message was complete,
-    // then any remaining ZSTD state is expected.
-
-    this->EmitDone(*downstream_);
+    // Check for incomplete zstd frame:
+    // If last_decompress_result_ is non-zero, the stream expects more data
+    // to complete the current frame. A return value of 0 indicates the frame
+    // was fully decoded.
+    if (last_decompress_result_ != 0) {
+        this->EmitError(*downstream_,
+            Error{ErrorCode::DecompressionError, "Incomplete zstd frame"});
+    } else {
+        this->EmitDone(*downstream_);
+    }
     this->RequestClose();
 }
 
