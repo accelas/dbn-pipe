@@ -54,9 +54,13 @@ TEST(TcpSocketTest, ConnectSuccess) {
     TcpSocket sock(&reactor);
 
     bool connected = false;
-    sock.OnConnect([&](std::error_code ec) {
-        EXPECT_FALSE(ec);
+    sock.OnConnect([&]() {
         connected = true;
+        reactor.Stop();
+    });
+
+    sock.OnError([&](std::error_code ec) {
+        ADD_FAILURE() << "Unexpected error: " << ec.message();
         reactor.Stop();
     });
 
@@ -82,7 +86,12 @@ TEST(TcpSocketTest, ConnectFail) {
     TcpSocket sock(&reactor);
 
     bool got_error = false;
-    sock.OnConnect([&](std::error_code ec) {
+    sock.OnConnect([&]() {
+        ADD_FAILURE() << "Connect should have failed";
+        reactor.Stop();
+    });
+
+    sock.OnError([&](std::error_code ec) {
         EXPECT_TRUE(ec);
         got_error = true;
         reactor.Stop();
@@ -106,18 +115,20 @@ TEST(TcpSocketTest, ReadWrite) {
 
     std::string received;
 
-    sock.OnConnect([&](std::error_code ec) {
-        ASSERT_FALSE(ec);
+    sock.OnConnect([&]() {
         sock.Write(std::as_bytes(std::span{"hello", 5}));
     });
 
-    sock.OnRead([&](std::span<const std::byte> data, std::error_code ec) {
-        if (!ec && !data.empty()) {
-            received.append(reinterpret_cast<const char*>(data.data()), data.size());
-            if (received == "world") {
-                reactor.Stop();
-            }
+    sock.OnRead([&](std::span<const std::byte> data) {
+        received.append(reinterpret_cast<const char*>(data.data()), data.size());
+        if (received == "world") {
+            reactor.Stop();
         }
+    });
+
+    sock.OnError([&](std::error_code ec) {
+        ADD_FAILURE() << "Unexpected error: " << ec.message();
+        reactor.Stop();
     });
 
     reactor.Add(listener, EPOLLIN, [&](uint32_t) {

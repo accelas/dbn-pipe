@@ -52,8 +52,9 @@ public:
     const std::string& GetSessionId() const { return session_id_; }
 
 private:
-    void HandleRead(std::span<const std::byte> data, std::error_code ec);
-    void HandleConnect(std::error_code ec);
+    void HandleConnect();
+    void HandleSocketError(std::error_code ec);
+    void HandleRead(std::span<const std::byte> data);
 
     void ProcessLine(std::string_view line);
     void HandleGreeting(std::string_view line);
