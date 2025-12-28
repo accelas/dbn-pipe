@@ -71,3 +71,17 @@ cc_library(
         ":reactor",
     ],
 )
+
+cc_library(
+    name = "tls_socket",
+    srcs = ["tls_socket.cpp"],
+    hdrs = ["tls_socket.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":pipeline",
+        ":reactor",
+        "@openssl_sys//:ssl",
+        "@openssl_sys//:crypto",
+    ],
+)
