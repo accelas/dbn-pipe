@@ -8,3 +8,9 @@ cc_library(
         "@databento_cpp//:databento_headers",
     ],
 )
+
+cc_library(
+    name = "error",
+    hdrs = ["error.hpp"],
+    visibility = ["//visibility:public"],
+)
