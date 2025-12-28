@@ -47,3 +47,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "cram_auth_test",
+    srcs = ["cram_auth_test.cpp"],
+    deps = [
+        "//src:cram_auth",
+        "@googletest//:gtest_main",
+    ],
+)
