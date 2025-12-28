@@ -166,11 +166,11 @@ void DbnParserComponent<D>::DrainBuffer() {
                 ? alignof(std::max_align_t)
                 : sizeof(void*);
 
-        // Verify alignment assumptions at compile time
+        // Verify aligned_alloc preconditions at compile time
         static_assert((alignment & (alignment - 1)) == 0,
             "alignment must be power of 2");
-        static_assert(alignment >= sizeof(void*),
-            "alignment must be >= sizeof(void*) for aligned_alloc");
+        static_assert(alignment % sizeof(void*) == 0,
+            "alignment must be multiple of sizeof(void*) for aligned_alloc");
 
         // record_size is bounded by kMaxBufferSize (16MB), so no overflow possible
         static_assert(kMaxBufferSize <= SIZE_MAX - alignment,
