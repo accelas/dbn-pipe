@@ -1,0 +1,42 @@
+"""Bazel module configuration for databento-async."""
+
+module(
+    name = "databento-async",
+    version = "0.1.0",
+)
+
+# ============================================================================
+# Core Build Rules
+# ============================================================================
+
+bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "rules_pkg", version = "1.0.1")
+
+# ============================================================================
+# Testing
+# ============================================================================
+
+bazel_dep(name = "googletest", version = "1.15.2")
+
+# ============================================================================
+# Dependencies
+# ============================================================================
+
+# Event loop
+bazel_dep(name = "libuv", version = "1.48.0")
+
+# TLS/Crypto (for CRAM auth SHA256)
+bazel_dep(name = "openssl", version = "3.3.1.bcr.9")
+
+# ============================================================================
+# Databento C++ headers (type definitions only)
+# ============================================================================
+
+databento = use_extension("//third_party/databento:databento.bzl", "databento")
+use_repo(databento, "databento_cpp")
+
+# ============================================================================
+# C++ Toolchain
+# ============================================================================
+
+register_toolchains("//toolchain:cc_toolchain_for_k8")

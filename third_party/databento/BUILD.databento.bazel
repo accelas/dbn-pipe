@@ -1,0 +1,201 @@
+# Header-only library for databento types (records, enums, constants)
+# We compile only the minimal subset needed for type definitions
+
+# Generate version.hpp from cmake template
+genrule(
+    name = "generate_version_hpp",
+    srcs = ["cmake/version.hpp.in"],
+    outs = ["generated/databento/version.hpp"],
+    cmd = """
+        sed -e 's/@PROJECT_VERSION@/0.45.0/g' \
+            -e 's/@PROJECT_VERSION_MAJOR@/0/g' \
+            -e 's/@PROJECT_VERSION_MINOR@/45/g' \
+            -e 's/@PROJECT_VERSION_PATCH@/0/g' \
+            $(location cmake/version.hpp.in) > $@
+    """,
+)
+
+# Generate system.hpp from cmake template
+genrule(
+    name = "generate_system_hpp",
+    srcs = ["cmake/system.hpp.in"],
+    outs = ["generated/databento/system.hpp"],
+    cmd = """
+        sed -e 's/@CMAKE_CXX_COMPILER_ID@/GCC/g' \
+            -e 's/@CMAKE_CXX_COMPILER_VERSION@/14/g' \
+            -e 's/@CMAKE_SYSTEM_NAME@/Linux/g' \
+            -e 's/@CMAKE_SYSTEM_VERSION@/6.0/g' \
+            $(location cmake/system.hpp.in) > $@
+    """,
+)
+
+# Generate minimal exceptions.hpp (strips HTTP/JSON dependencies we don't need)
+genrule(
+    name = "generate_exceptions_hpp",
+    outs = ["generated/databento/exceptions.hpp"],
+    cmd = """
+cat > $@ << 'EOF'
+#pragma once
+// Minimal exceptions.hpp for header-only usage (no HTTP/JSON dependencies)
+
+#include <exception>
+#include <string>
+#include <utility>
+
+namespace databento {
+
+class Exception : public std::exception {
+ public:
+  explicit Exception(std::string message) : message_{std::move(message)} {}
+  const char* what() const noexcept override { return message_.c_str(); }
+  const std::string& Message() const { return message_; }
+ private:
+  const std::string message_;
+};
+
+class InvalidArgumentError : public Exception {
+ public:
+  InvalidArgumentError(std::string method_name, std::string param_name,
+                       std::string details)
+      : Exception{method_name + ": invalid " + param_name + " - " + details},
+        method_name_{std::move(method_name)},
+        param_name_{std::move(param_name)},
+        details_{std::move(details)} {}
+  const std::string& MethodName() const { return method_name_; }
+  const std::string& ArgumentName() const { return param_name_; }
+  const std::string& Details() const { return details_; }
+ private:
+  const std::string method_name_;
+  const std::string param_name_;
+  const std::string details_;
+};
+
+}  // namespace databento
+EOF
+    """,
+)
+
+# Generate minimal implementations for record and enum functions
+# This avoids pulling in pretty.hpp, stream_op_helper.hpp and other deps
+genrule(
+    name = "generate_impl_cpp",
+    outs = ["generated/databento_impl.cpp"],
+    cmd = """
+cat > $@ << 'EOF'
+// Minimal implementations for databento types
+// Only includes what's needed for record parsing (no debug printing)
+
+#include <databento/record.hpp>
+#include <databento/enums.hpp>
+
+namespace databento {
+
+std::size_t RecordHeader::Size() const {
+  return static_cast<std::size_t>(length) * kLengthMultiplier;
+}
+
+std::size_t Record::Size() const { return record_->Size(); }
+
+std::size_t Record::SizeOfSchema(const Schema schema) {
+  switch (schema) {
+    case Schema::Mbo: return sizeof(MboMsg);
+    case Schema::Mbp1: return sizeof(Mbp1Msg);
+    case Schema::Mbp10: return sizeof(Mbp10Msg);
+    case Schema::Trades: return sizeof(TradeMsg);
+    case Schema::Tbbo: return sizeof(TbboMsg);
+    case Schema::Ohlcv1S:
+    case Schema::Ohlcv1M:
+    case Schema::Ohlcv1H:
+    case Schema::Ohlcv1D:
+    case Schema::OhlcvEod: return sizeof(OhlcvMsg);
+    case Schema::Definition: return sizeof(InstrumentDefMsg);
+    case Schema::Statistics: return sizeof(StatMsg);
+    case Schema::Status: return sizeof(StatusMsg);
+    case Schema::Imbalance: return sizeof(ImbalanceMsg);
+    case Schema::Cmbp1:
+    case Schema::Cbbo1S:
+    case Schema::Cbbo1M:
+    case Schema::Tcbbo:
+    case Schema::Bbo1S:
+    case Schema::Bbo1M: return sizeof(CbboMsg);
+  }
+  return 0;
+}
+
+RType Record::RTypeFromSchema(const Schema schema) {
+  switch (schema) {
+    case Schema::Mbo: return RType::Mbo;
+    case Schema::Mbp1: return RType::Mbp1;
+    case Schema::Mbp10: return RType::Mbp10;
+    case Schema::Trades: return RType::Mbp0;
+    case Schema::Tbbo: return RType::Mbp1;
+    case Schema::Ohlcv1S:
+    case Schema::Ohlcv1M:
+    case Schema::Ohlcv1H:
+    case Schema::Ohlcv1D:
+    case Schema::OhlcvEod: return RType::OhlcvDeprecated;
+    case Schema::Definition: return RType::InstrumentDef;
+    case Schema::Statistics: return RType::Statistics;
+    case Schema::Status: return RType::Status;
+    case Schema::Imbalance: return RType::Imbalance;
+    case Schema::Cmbp1:
+    case Schema::Cbbo1S:
+    case Schema::Cbbo1M:
+    case Schema::Tcbbo:
+    case Schema::Bbo1S:
+    case Schema::Bbo1M: return RType::Cmbp1;
+  }
+  return RType::Mbo;
+}
+
+const char* ToString(RType r_type) {
+  switch (r_type) {
+    case RType::Mbp0: return "mbp-0";
+    case RType::Mbp1: return "mbp-1";
+    case RType::Mbp10: return "mbp-10";
+    case RType::OhlcvDeprecated: return "ohlcv-deprecated";
+    case RType::Ohlcv1S: return "ohlcv-1s";
+    case RType::Ohlcv1M: return "ohlcv-1m";
+    case RType::Ohlcv1H: return "ohlcv-1h";
+    case RType::Ohlcv1D: return "ohlcv-1d";
+    case RType::OhlcvEod: return "ohlcv-eod";
+    case RType::Status: return "status";
+    case RType::InstrumentDef: return "instrument-def";
+    case RType::Imbalance: return "imbalance";
+    case RType::Error: return "error";
+    case RType::SymbolMapping: return "symbol-mapping";
+    case RType::System: return "system";
+    case RType::Statistics: return "statistics";
+    case RType::Mbo: return "mbo";
+    case RType::Cmbp1: return "cmbp-1";
+    case RType::Cbbo1S: return "cbbo-1s";
+    case RType::Cbbo1M: return "cbbo-1m";
+    case RType::Tcbbo: return "tcbbo";
+    case RType::Bbo1S: return "bbo-1s";
+    case RType::Bbo1M: return "bbo-1m";
+  }
+  return "unknown";
+}
+
+}  // namespace databento
+EOF
+    """,
+)
+
+cc_library(
+    name = "databento_headers",
+    srcs = ["generated/databento_impl.cpp"],
+    hdrs = glob(
+        ["include/**/*.hpp"],
+        exclude = ["include/databento/exceptions.hpp"],
+    ) + [
+        "generated/databento/version.hpp",
+        "generated/databento/system.hpp",
+        "generated/databento/exceptions.hpp",
+    ],
+    includes = [
+        "include",
+        "generated",
+    ],
+    visibility = ["//visibility:public"],
+)
