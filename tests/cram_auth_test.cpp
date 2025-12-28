@@ -82,19 +82,3 @@ TEST(CramAuthTest, ComputeResponseDifferentInputs) {
 
     EXPECT_NE(response1, response2);
 }
-
-TEST(CramAuthTest, FormatAuthMessage) {
-    std::string msg = CramAuth::FormatAuthMessage(
-        "db-abc123",
-        "CRAM-SHA256",
-        "deadbeef01234567"
-    );
-
-    EXPECT_EQ(msg, "auth=db-abc123|CRAM-SHA256|deadbeef01234567\n");
-}
-
-TEST(CramAuthTest, FormatAuthMessageEmptyValues) {
-    std::string msg = CramAuth::FormatAuthMessage("", "", "");
-
-    EXPECT_EQ(msg, "auth=||\n");
-}

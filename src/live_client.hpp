@@ -60,7 +60,6 @@ private:
     void HandleGreeting(std::string_view line);
     void HandleChallenge(std::string_view line);
     void HandleAuthResponse(std::string_view line);
-    void HandleRecord();
 
     void SendAuth(std::string_view challenge);
     void SendSubscription();
