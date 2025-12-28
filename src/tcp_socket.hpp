@@ -15,9 +15,10 @@ class Reactor;
 
 class TcpSocket {
 public:
-    using ConnectCallback = std::function<void(std::error_code)>;
-    using ReadCallback = std::function<void(std::span<const std::byte>, std::error_code)>;
-    using WriteCallback = std::function<void(std::error_code)>;
+    using ConnectCallback = std::function<void()>;
+    using ReadCallback = std::function<void(std::span<const std::byte>)>;
+    using WriteCallback = std::function<void()>;
+    using ErrorCallback = std::function<void(std::error_code)>;
 
     explicit TcpSocket(Reactor* reactor);
     ~TcpSocket();
@@ -41,6 +42,7 @@ public:
     void OnConnect(ConnectCallback cb) { on_connect_ = std::move(cb); }
     void OnRead(ReadCallback cb) { on_read_ = std::move(cb); }
     void OnWrite(WriteCallback cb) { on_write_ = std::move(cb); }
+    void OnError(ErrorCallback cb) { on_error_ = std::move(cb); }
 
     // State
     bool IsConnected() const { return connected_; }
@@ -61,6 +63,7 @@ private:
     ConnectCallback on_connect_;
     ReadCallback on_read_;
     WriteCallback on_write_;
+    ErrorCallback on_error_;
 
     static constexpr size_t kReadBufferSize = 65536;
 };
