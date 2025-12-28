@@ -202,8 +202,9 @@ class ExampleComponent
     friend Base;
 
 public:
-    // Hot path - static dispatch, inlined, guarded
+    // Hot path - static dispatch, inlined, ALL GUARDED
     void Read(std::pmr::vector<std::byte> data) {
+        if (this->IsClosed()) return;  // early exit if closing
         typename Base::ProcessingGuard guard(*this);
         std::pmr::vector<std::byte> processed{&output_pool_};
         // process...
@@ -211,24 +212,38 @@ public:
     }
 
     void OnError(const Error& e) {
+        if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
         downstream_->OnError(e);
     }
 
     void OnDone() {
+        if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
         downstream_->OnDone();
     }
 
     void Write(std::pmr::vector<std::byte> data) {
+        if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
         upstream_->Write(std::move(data));
     }
 
-    // Cold path - virtual dispatch
-    void Suspend() override { upstream_->Suspend(); }
-    void Resume() override { upstream_->Resume(); }
+    // Cold path - virtual dispatch, also guarded
+    void Suspend() override {
+        if (this->IsClosed()) return;
+        typename Base::ProcessingGuard guard(*this);
+        upstream_->Suspend();
+    }
+    void Resume() override {
+        if (this->IsClosed()) return;
+        typename Base::ProcessingGuard guard(*this);
+        upstream_->Resume();
+    }
     void Close() override { this->RequestClose(); }
+
+    // Required by PipelineComponent
+    void DisableWatchers() { /* no-op for non-I/O components */ }
 
 private:
     void DoClose() {
@@ -293,13 +308,15 @@ void ZstdDecompressor::Read(std::pmr::vector<std::byte> data) {
 upstream_->Close();  // UB - `this` destroyed mid-call
 ```
 
-**Solution:** CRTP base class provides processing guard:
+**Solution:** CRTP base class with deferred DoClose():
 
 ```cpp
 // CRTP base - provides reentrancy-safe close
 template<typename Derived>
 class PipelineComponent {
 public:
+    PipelineComponent(Reactor& reactor) : reactor_(reactor) {}
+
     // RAII guard for public API entry
     class ProcessingGuard {
     public:
@@ -308,7 +325,7 @@ public:
         }
         ~ProcessingGuard() {
             if (--comp_.processing_count_ == 0 && comp_.close_pending_) {
-                comp_.ExecuteClose();
+                comp_.ScheduleClose();
             }
         }
     private:
@@ -317,28 +334,82 @@ public:
 
     void RequestClose() {
         if (closed_) return;
+        closed_ = true;  // mark closed immediately (reject further calls)
+
+        // Derived class must disable I/O watchers here
+        static_cast<Derived*>(this)->DisableWatchers();
+
         if (processing_count_ > 0) {
             close_pending_ = true;  // defer until processing complete
             return;
         }
-        ExecuteClose();  // execute immediately
+        ScheduleClose();  // schedule on reactor
     }
 
     bool IsClosed() const { return closed_; }
 
 protected:
-    void ExecuteClose() {
-        closed_ = true;
+    // Always defer DoClose to reactor - ensures stack fully unwinds
+    void ScheduleClose() {
+        if (close_scheduled_) return;  // prevent duplicate deferrals
+        close_scheduled_ = true;
         close_pending_ = false;
-        static_cast<Derived*>(this)->DoClose();  // CRTP: call derived
+        reactor_.Defer([this]() {
+            static_cast<Derived*>(this)->DoClose();
+        });
     }
 
 private:
+    Reactor& reactor_;
     int processing_count_ = 0;
     bool close_pending_ = false;
     bool closed_ = false;
+    bool close_scheduled_ = false;  // guards against duplicate Defer() calls
 };
 ```
+
+**Lifetime Invariant (why `this` capture is safe):**
+
+The ownership chain guarantees lifetime:
+```
+TcpSocket (stack/unique_ptr owned by app)
+  └─ shared_ptr<TlsSocket>         ← upstream holds this
+       └─ shared_ptr<HttpClient>   ← upstream holds this
+            └─ ...
+```
+
+1. Component can only be destroyed by `upstream->downstream_.reset()`
+2. `downstream_.reset()` only happens inside `DoClose()`
+3. `DoClose()` only runs via `Reactor::Defer()` callback
+4. Until that callback executes, upstream still holds `shared_ptr`
+
+**Invariant**: A component's `RequestClose()` can only be called while:
+- Its upstream still exists and holds `shared_ptr` to it, OR
+- It is TcpSocket (head), which is destroyed by application, not via `shared_ptr`
+
+For TcpSocket (head), the application must ensure no calls after destruction.
+This is the standard "don't use after delete" contract for stack/unique_ptr objects.
+
+**DisableWatchers() requirement:**
+
+Each component must implement `DisableWatchers()` to stop receiving I/O events:
+
+```cpp
+// TcpSocket - has actual epoll registration
+void DisableWatchers() {
+    if (event_) {
+        event_->Remove();  // deregister from epoll
+    }
+}
+
+// TlsSocket, HttpClient, etc. - no direct I/O watchers
+void DisableWatchers() {
+    // No-op: these components don't own epoll registrations
+    // They receive data via Read() from upstream
+}
+```
+
+This ensures no I/O callbacks fire between `RequestClose()` and deferred `DoClose()`.
 
 **Component inherits via CRTP:**
 
@@ -353,6 +424,7 @@ class ZstdDecompressor
 
 public:
     void Read(std::pmr::vector<std::byte> data) {
+        if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
 
         size_t ret = ZSTD_decompressStream(...);
@@ -365,17 +437,31 @@ public:
     }
 
     void OnError(const Error& e) {
+        if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
         downstream_->OnError(e);
     }
 
     void OnDone() {
+        if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
         downstream_->OnDone();
     }
 
-    // Suspendable interface
+    // Suspendable interface - all guarded
+    void Suspend() override {
+        if (this->IsClosed()) return;
+        typename Base::ProcessingGuard guard(*this);
+        upstream_->Suspend();
+    }
+    void Resume() override {
+        if (this->IsClosed()) return;
+        typename Base::ProcessingGuard guard(*this);
+        upstream_->Resume();
+    }
     void Close() override { this->RequestClose(); }
+
+    void DisableWatchers() { /* no-op */ }
 
 private:
     // Called by CRTP base when processing_count == 0
@@ -395,6 +481,24 @@ private:
 - CRTP avoids virtual dispatch for DoClose()
 - Works for both internal and external (app-triggered) Close calls
 - Single-threaded model - no atomics needed
+
+**IsClosed() early return pattern:**
+
+All public methods check `IsClosed()` before acquiring ProcessingGuard:
+
+```cpp
+void Read(std::pmr::vector<std::byte> data) {
+    if (this->IsClosed()) return;  // reject new work after close requested
+    typename Base::ProcessingGuard guard(*this);
+    // ...
+}
+```
+
+This ensures:
+1. No new processing starts after `RequestClose()` is called
+2. In-flight operations (already holding guard) complete normally
+3. Flush logic in OnDone() still runs if called before close
+4. Data passed to rejected calls is simply dropped (ownership transferred, then destroyed)
 
 ### EOF Handling
 
@@ -423,6 +527,8 @@ Both terminal states (done/error) end with `Close()`.
 
 ```cpp
 void ZstdDecompressor::OnDone() {
+    typename Base::ProcessingGuard guard(*this);
+
     // Flush remaining decompressed data
     if (!buffered_.empty()) {
         downstream_->Read(std::move(buffered_));
@@ -430,6 +536,7 @@ void ZstdDecompressor::OnDone() {
     // Check for incomplete frame
     if (!zstd_frame_complete_) {
         downstream_->OnError({ErrorCode::DecompressionError, "truncated"});
+        this->RequestClose();  // error triggers close
         return;
     }
     downstream_->OnDone();
@@ -441,13 +548,47 @@ void ZstdDecompressor::OnDone() {
 
 After `OnDone()`, next `Read()` starts new message.
 
+### Reactor::Defer()
+
+Reactor provides deferred callback queue for safe close:
+
+```cpp
+class Reactor {
+public:
+    void Defer(std::function<void()> fn) {
+        deferred_.push_back(std::move(fn));
+    }
+
+    int Poll(int timeout_ms) {
+        int n = epoll_wait(epoll_fd_, events_.data(), kMaxEvents, timeout_ms);
+        // ... handle epoll events ...
+
+        // Drain deferred queue after event processing
+        while (!deferred_.empty()) {
+            auto fn = std::move(deferred_.front());
+            deferred_.pop_front();
+            fn();
+        }
+        return n;
+    }
+
+private:
+    std::deque<std::function<void()>> deferred_;
+};
+```
+
+**Key properties:**
+- Deferred callbacks run after current event processing
+- Stack fully unwound before DoClose() executes
+- Single-threaded - no races
+
 ### Message Boundary Reset
 
 Each component resets per-message state after `OnDone()`:
 
 | Component | State to Reset |
 |-----------|----------------|
-| HttpClient | `llhttp_init()`, clear status_code, headers_done |
+| HttpClient | `llhttp_init()`, clear status_code, headers_done, error_body_ |
 | ZstdDecompressor | `ZSTD_initDStream()`, clear buffered data |
 | DbnParser | Clear partial record buffer |
 | CramAuth | No reset needed (bypass mode is stateless) |
@@ -457,6 +598,7 @@ void HttpClient::ResetMessageState() {
     llhttp_init(&parser_, HTTP_RESPONSE, &settings_);
     status_code_ = 0;
     headers_done_ = false;
+    error_body_.clear();  // clear error buffer for next message
 }
 ```
 
