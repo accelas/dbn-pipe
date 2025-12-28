@@ -1,0 +1,11 @@
+load("@rules_cc//cc:defs.bzl", "cc_test")
+
+cc_test(
+    name = "parser_test",
+    srcs = ["parser_test.cpp"],
+    deps = [
+        "//src:parser",
+        "@databento_cpp//:databento_headers",
+        "@googletest//:gtest_main",
+    ],
+)
