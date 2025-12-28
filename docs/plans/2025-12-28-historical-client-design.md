@@ -1041,13 +1041,21 @@ void OnDone() {  // from upstream (EOF)
         case MessageState::Idle:
             // Connection closed between messages (keep-alive close)
             // No downstream OnDone - message already completed via OnMessageComplete
-            // Just close the connection silently
             break;
-        case MessageState::InProgress:
-            // Truncated - EOF mid-message
-            downstream_->OnError({ErrorCode::HttpParseError, "truncated"});
-            this->RequestClose();
+        case MessageState::InProgress: {
+            // EOF while message in progress - try to finalize
+            // llhttp_finish() handles close-delimited responses (HTTP/1.0, Connection: close)
+            llhttp_errno_t err = llhttp_finish(&parser_);
+            if (err == HPE_OK) {
+                // Parser accepted EOF as valid end-of-message
+                // OnMessageComplete callback already fired via llhttp_finish
+            } else {
+                // Truncated - parser rejected EOF
+                downstream_->OnError({ErrorCode::HttpParseError, llhttp_errno_name(err)});
+                this->RequestClose();
+            }
             break;
+        }
         case MessageState::Complete:
             // Already handled in OnMessageComplete
             break;
@@ -1056,9 +1064,13 @@ void OnDone() {  // from upstream (EOF)
 ```
 
 This distinguishes:
-- **Idle EOF**: Connection closed after response complete - silent close, no downstream OnDone (already sent by OnMessageComplete)
-- **InProgress EOF**: Truncation error (message started but not finished) - downstream OnError
+- **Idle EOF**: Connection closed after response complete - silent close
+- **InProgress EOF**: Calls `llhttp_finish()` to handle close-delimited responses; truncation error only if parser rejects EOF
 - **Complete EOF**: Already handled by OnMessageComplete
+
+**Close-delimited response handling:**
+HTTP/1.0 and HTTP/1.1 with `Connection: close` may use EOF as message terminator.
+`llhttp_finish()` tells the parser EOF arrived and triggers `OnMessageComplete` if valid.
 
 **Double OnDone prevention:**
 Each message gets exactly one terminal signal:
