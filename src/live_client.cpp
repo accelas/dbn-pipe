@@ -12,12 +12,16 @@ LiveClient::LiveClient(Reactor* reactor, std::string api_key)
       socket_(reactor),
       api_key_(std::move(api_key)) {
 
-    socket_.OnConnect([this](std::error_code ec) {
-        HandleConnect(ec);
+    socket_.OnConnect([this]() {
+        HandleConnect();
     });
 
-    socket_.OnRead([this](std::span<const std::byte> data, std::error_code ec) {
-        HandleRead(data, ec);
+    socket_.OnRead([this](std::span<const std::byte> data) {
+        HandleRead(data);
+    });
+
+    socket_.OnError([this](std::error_code ec) {
+        HandleSocketError(ec);
     });
 }
 
@@ -66,24 +70,16 @@ void LiveClient::Stop() {
     Close();
 }
 
-void LiveClient::HandleConnect(std::error_code ec) {
-    if (ec) {
-        DeliverError(Error{ErrorCode::ConnectionFailed,
-                           "Connect failed: " + ec.message()});
-        state_ = State::Disconnected;
-        return;
-    }
-
+void LiveClient::HandleConnect() {
     state_ = State::WaitingGreeting;
 }
 
-void LiveClient::HandleRead(std::span<const std::byte> data, std::error_code ec) {
-    if (ec) {
-        DeliverError(Error{ErrorCode::ConnectionFailed,
-                           "Read failed: " + ec.message()});
-        return;
-    }
+void LiveClient::HandleSocketError(std::error_code ec) {
+    DeliverError(Error{ErrorCode::ConnectionFailed, ec.message()});
+    state_ = State::Disconnected;
+}
 
+void LiveClient::HandleRead(std::span<const std::byte> data) {
     if (state_ == State::Streaming) {
         // Binary DBN data - pass directly to DataSource
         DeliverBytes(data);
