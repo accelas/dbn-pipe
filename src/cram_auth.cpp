@@ -65,17 +65,4 @@ std::string CramAuth::ComputeResponse(std::string_view challenge,
     return oss.str();
 }
 
-std::string CramAuth::FormatAuthMessage(std::string_view api_key,
-                                        std::string_view method,
-                                        std::string_view response) {
-    std::string msg = "auth=";
-    msg += api_key;
-    msg += '|';
-    msg += method;
-    msg += '|';
-    msg += response;
-    msg += '\n';
-    return msg;
-}
-
 }  // namespace databento_async

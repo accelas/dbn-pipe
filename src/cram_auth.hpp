@@ -23,11 +23,6 @@ public:
     // Compute SHA256(challenge + '|' + api_key) as hex
     static std::string ComputeResponse(std::string_view challenge,
                                        std::string_view api_key);
-
-    // Format "auth=api_key|method|response\n"
-    static std::string FormatAuthMessage(std::string_view api_key,
-                                         std::string_view method,
-                                         std::string_view response);
 };
 
 }  // namespace databento_async
