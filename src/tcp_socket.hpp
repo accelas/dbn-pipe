@@ -6,13 +6,14 @@
 #include <concepts>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <span>
 #include <system_error>
 #include <vector>
 
-namespace databento_async {
+#include "reactor.hpp"
 
-class Reactor;
+namespace databento_async {
 
 // Callback concepts
 template<typename F>
@@ -34,7 +35,7 @@ public:
     using WriteCallback = std::function<void()>;
     using ErrorCallback = std::function<void(std::error_code)>;
 
-    explicit TcpSocket(Reactor* reactor);
+    explicit TcpSocket(Reactor& reactor);
     ~TcpSocket();
 
     // Non-copyable, non-movable
@@ -67,15 +68,15 @@ public:
 
     // State
     bool IsConnected() const { return connected_; }
-    int fd() const { return fd_; }
+    int fd() const { return event_ ? event_->fd() : -1; }
 
 private:
     void HandleEvents(uint32_t events);
     void HandleReadable();
     void HandleWritable();
 
-    Reactor* reactor_;
-    int fd_ = -1;
+    Reactor& reactor_;
+    std::unique_ptr<Event> event_;
     bool connected_ = false;
 
     std::vector<std::byte> write_buffer_;

@@ -222,7 +222,7 @@ TEST_F(LiveClientTest, ConnectAndAuth) {
     MockLsgServer server;
     server.RunAuthFlow(true);
 
-    LiveClient client(&reactor, "db-test-api-key-12345");
+    LiveClient client(reactor, "db-test-api-key-12345");
 
     bool reached_ready = false;
 
@@ -254,7 +254,7 @@ TEST_F(LiveClientTest, ReceiveRecord) {
     MockLsgServer server;
     server.RunStreamingFlow();
 
-    LiveClient client(&reactor, "db-test-api-key-12345");
+    LiveClient client(reactor, "db-test-api-key-12345");
 
     bool record_received = false;
     std::uint32_t received_instrument_id = 0;
@@ -302,7 +302,7 @@ TEST_F(LiveClientTest, ReceiveRecord) {
 
 TEST_F(LiveClientTest, ConnectionError) {
     Reactor reactor;
-    LiveClient client(&reactor, "db-test-api-key");
+    LiveClient client(reactor, "db-test-api-key");
 
     bool got_error = false;
 
@@ -331,7 +331,7 @@ TEST_F(LiveClientTest, AuthenticationFailure) {
     MockLsgServer server;
     server.RunAuthFlow(false, "Invalid API key");
 
-    LiveClient client(&reactor, "db-invalid-api-key");
+    LiveClient client(reactor, "db-invalid-api-key");
 
     bool got_error = false;
 
@@ -361,7 +361,7 @@ TEST_F(LiveClientTest, CloseWhileConnected) {
     MockLsgServer server;
     server.RunAuthFlow(true);
 
-    LiveClient client(&reactor, "db-test-api-key-12345");
+    LiveClient client(reactor, "db-test-api-key-12345");
 
     client.Subscribe("test.dbn", "AAPL", "trades");
     client.Connect(make_addr("127.0.0.1", server.port()));
@@ -391,7 +391,7 @@ TEST_F(LiveClientTest, StateTransitions) {
     MockLsgServer server;
     server.RunAuthFlow(true);
 
-    LiveClient client(&reactor, "db-test-api-key-12345");
+    LiveClient client(reactor, "db-test-api-key-12345");
 
     EXPECT_EQ(client.GetState(), LiveClient::State::Disconnected);
 

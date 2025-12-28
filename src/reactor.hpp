@@ -3,17 +3,94 @@
 
 #include <sys/epoll.h>
 
+#include <concepts>
 #include <cstdint>
 #include <functional>
-#include <unordered_map>
 #include <vector>
 
 namespace databento_async {
 
-class Reactor {
+class Reactor;
+
+// Callback concept
+template<typename F>
+concept EventHandler = std::invocable<F, uint32_t>;
+
+// Event wraps fd + callback, registered with Reactor
+class Event {
 public:
     using Callback = std::function<void(uint32_t events)>;
 
+    Event(Reactor& reactor, int fd, uint32_t events);
+    ~Event();
+
+    // Non-copyable, non-movable (registered with epoll)
+    Event(const Event&) = delete;
+    Event& operator=(const Event&) = delete;
+    Event(Event&&) = delete;
+    Event& operator=(Event&&) = delete;
+
+    // Set callback
+    template<EventHandler F>
+    void OnEvent(F&& cb) { callback_ = std::forward<F>(cb); }
+
+    // Modify watched events
+    void Modify(uint32_t events);
+
+    // Remove from reactor
+    void Remove();
+
+    int fd() const { return fd_; }
+
+private:
+    friend class Reactor;
+    void Handle(uint32_t events) { callback_(events); }
+
+    Reactor& reactor_;
+    int fd_;
+    Callback callback_ = [](uint32_t) {};
+};
+
+// Timer callback concept
+template<typename F>
+concept TimerHandler = std::invocable<F>;
+
+// Timer wraps timerfd, integrated with Reactor
+class Timer {
+public:
+    using Callback = std::function<void()>;
+
+    explicit Timer(Reactor& reactor);
+    ~Timer();
+
+    // Non-copyable, non-movable
+    Timer(const Timer&) = delete;
+    Timer& operator=(const Timer&) = delete;
+    Timer(Timer&&) = delete;
+    Timer& operator=(Timer&&) = delete;
+
+    // Set callback
+    template<TimerHandler F>
+    void OnTimer(F&& cb) { callback_ = std::forward<F>(cb); }
+
+    // Arm timer (milliseconds). Set interval_ms > 0 for repeating.
+    void Start(int delay_ms, int interval_ms = 0);
+
+    // Disarm timer
+    void Stop();
+
+    bool IsArmed() const { return armed_; }
+
+private:
+    void HandleEvent(uint32_t events);
+
+    Event event_;
+    Callback callback_ = []() {};
+    bool armed_ = false;
+};
+
+class Reactor {
+public:
     Reactor();
     ~Reactor();
 
@@ -23,17 +100,7 @@ public:
     Reactor(Reactor&&) = delete;
     Reactor& operator=(Reactor&&) = delete;
 
-    // Register fd with events and callback
-    void Add(int fd, uint32_t events, Callback cb);
-
-    // Modify events for existing fd
-    void Modify(int fd, uint32_t events);
-
-    // Remove fd from reactor
-    void Remove(int fd);
-
     // Poll for events, returns number handled
-    // timeout_ms: -1 = block, 0 = non-blocking, >0 = timeout
     int Poll(int timeout_ms = -1);
 
     // Run until Stop() called
@@ -42,10 +109,11 @@ public:
     // Signal Run() to stop
     void Stop();
 
+    int epoll_fd() const { return epoll_fd_; }
+
 private:
     int epoll_fd_;
     bool running_ = false;
-    std::unordered_map<int, Callback> callbacks_;
     std::vector<epoll_event> events_;
 
     static constexpr int kMaxEvents = 64;
