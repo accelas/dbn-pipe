@@ -22,9 +22,7 @@ void TcpSocket::Connect(const sockaddr_storage& addr) {
     int family = addr.ss_family;
     fd_ = socket(family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd_ < 0) {
-        if (on_error_) {
-            on_error_(std::error_code(errno, std::system_category()));
-        }
+        on_error_(std::error_code(errno, std::system_category()));
         return;
     }
 
@@ -41,9 +39,7 @@ void TcpSocket::Connect(const sockaddr_storage& addr) {
         auto ec = std::error_code(errno, std::system_category());
         close(fd_);
         fd_ = -1;
-        if (on_error_) {
-            on_error_(ec);
-        }
+        on_error_(ec);
         return;
     }
 
@@ -78,11 +74,7 @@ void TcpSocket::HandleEvents(uint32_t events) {
         int err = 0;
         socklen_t len = sizeof(err);
         getsockopt(fd_, SOL_SOCKET, SO_ERROR, &err, &len);
-        auto ec = std::error_code(err ? err : ECONNRESET, std::system_category());
-
-        if (on_error_) {
-            on_error_(ec);
-        }
+        on_error_(std::error_code(err ? err : ECONNRESET, std::system_category()));
         Close();
         return;
     }
@@ -100,22 +92,16 @@ void TcpSocket::HandleReadable() {
     while (true) {
         ssize_t n = read(fd_, read_buffer_.data(), read_buffer_.size());
         if (n > 0) {
-            if (on_read_) {
-                on_read_(std::span{read_buffer_.data(), static_cast<size_t>(n)});
-            }
+            on_read_(std::span{read_buffer_.data(), static_cast<size_t>(n)});
         } else if (n == 0) {
             // EOF
-            if (on_error_) {
-                on_error_(std::make_error_code(std::errc::connection_reset));
-            }
+            on_error_(std::make_error_code(std::errc::connection_reset));
             break;
         } else {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;  // No more data
             }
-            if (on_error_) {
-                on_error_(std::error_code(errno, std::system_category()));
-            }
+            on_error_(std::error_code(errno, std::system_category()));
             break;
         }
     }
@@ -125,9 +111,7 @@ void TcpSocket::HandleWritable() {
     // Complete connection if not yet connected
     if (!connected_) {
         connected_ = true;
-        if (on_connect_) {
-            on_connect_();
-        }
+        on_connect_();
     }
 
     // Drain write buffer
@@ -140,14 +124,12 @@ void TcpSocket::HandleWritable() {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;  // Would block, wait for next EPOLLOUT
             }
-            if (on_error_) {
-                on_error_(std::error_code(errno, std::system_category()));
-            }
+            on_error_(std::error_code(errno, std::system_category()));
             break;
         }
     }
 
-    if (write_buffer_.empty() && on_write_) {
+    if (write_buffer_.empty()) {
         on_write_();
     }
 }
