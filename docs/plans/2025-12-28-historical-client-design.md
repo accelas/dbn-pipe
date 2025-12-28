@@ -363,33 +363,33 @@ public:
 
     bool IsClosed() const { return closed_; }
 
+    // Per-message terminal guard - prevents double OnDone/OnError within one message
+    bool IsFinalized() const { return finalized_; }
+    void SetFinalized() { finalized_ = true; }
+    void ResetFinalized() { finalized_ = false; }  // call in ResetMessageState()
+
 protected:
-    // Always defer DoClose to reactor - ensures stack fully unwinds
-    // Shared-owned components use shared_from_this for safety
-    void ScheduleClose() {
-        if (close_scheduled_) return;  // prevent duplicate deferrals
+    // Virtual so TcpSocket can override with raw this capture
+    virtual void ScheduleClose() {
+        if (close_scheduled_) return;
         close_scheduled_ = true;
         close_pending_ = false;
 
-        // Capture shared_ptr to guarantee lifetime until DoClose runs
+        // Default: shared_from_this for shared-owned components
         auto self = static_cast<Derived*>(this)->shared_from_this();
         reactor_.Defer([self]() {
             static_cast<Derived*>(self.get())->DoClose();
         });
     }
 
-    // Per-message terminal guard - prevents double OnDone/OnError within one message
-    bool IsFinalized() const { return finalized_; }
-    void SetFinalized() { finalized_ = true; }
-    void ResetFinalized() { finalized_ = false; }  // call in ResetMessageState()
+    Reactor& reactor_;
+    bool close_scheduled_ = false;
 
 private:
-    Reactor& reactor_;
     int processing_count_ = 0;
     bool close_pending_ = false;
     bool closed_ = false;
-    bool close_scheduled_ = false;  // guards against duplicate Defer() calls
-    bool finalized_ = false;        // per-message, reset for keep-alive
+    bool finalized_ = false;
 };
 ```
 
@@ -550,6 +550,36 @@ class TlsSocket
     , public std::enable_shared_from_this<TlsSocket<Downstream>> {  // required
     // ...
 };
+```
+
+**Post-construction init pattern:**
+`shared_from_this()` throws if called before the object is owned by `shared_ptr`.
+Components must defer initialization that can fail until after construction:
+
+```cpp
+// WRONG - RequestClose() in constructor, shared_from_this not valid yet
+TlsSocket(...) {
+    if (!InitContext()) {
+        RequestClose();  // THROWS: not owned by shared_ptr yet
+    }
+}
+
+// CORRECT - two-phase init with factory
+static std::shared_ptr<TlsSocket> Create(...) {
+    auto self = std::make_shared<TlsSocket>(...);  // now owned by shared_ptr
+    if (!self->Init()) {
+        return nullptr;  // or throw
+    }
+    return self;
+}
+
+bool Init() {
+    if (!InitContext()) {
+        RequestClose();  // OK: shared_from_this works
+        return false;
+    }
+    return true;
+}
 ```
 
 **Component inherits via CRTP:**
@@ -798,7 +828,7 @@ Each component resets per-message state after `OnDone()`:
 
 | Component | State to Reset |
 |-----------|----------------|
-| HttpClient | `ResetFinalized()`, `llhttp_init()`, status_code, headers_done, error_body_ |
+| HttpClient | `ResetFinalized()`, `llhttp_init()`, status_code, headers_done, error_body_, message_state_=Idle |
 | ZstdDecompressor | `ResetFinalized()`, `ZSTD_initDStream()`, buffered data |
 | DbnParser | `ResetFinalized()`, partial record buffer |
 | TlsSocket | No reset - passthrough only, doesn't know message boundaries |
@@ -980,26 +1010,51 @@ private:
 - On `on_message_complete`, calls `downstream_->OnDone()`
 - Followed by `ResetMessageState()` for keep-alive on next request
 
-**Truncation check in OnDone():**
+**HTTP message state machine:**
 ```cpp
-void HttpClient::OnDone() {
+enum class MessageState { Idle, InProgress, Complete };
+MessageState message_state_ = MessageState::Idle;
+
+// llhttp callbacks
+int OnMessageBegin() { message_state_ = MessageState::InProgress; return 0; }
+int OnMessageComplete() {
+    message_state_ = MessageState::Complete;
+    if (status_code_ >= 400) {
+        downstream_->OnError({ErrorCode::HttpError, status_code_, error_body_});
+        this->RequestClose();
+    } else {
+        downstream_->OnDone();
+        ResetMessageState();  // sets message_state_ = Idle
+    }
+    return 0;
+}
+
+void OnDone() {  // from upstream (EOF)
     if (this->IsFinalized()) return;
     this->SetFinalized();
     typename Base::ProcessingGuard guard(*this);
 
-    // Check if HTTP message was complete when EOF arrived
-    if (!message_complete_) {
-        downstream_->OnError({ErrorCode::HttpParseError, "truncated HTTP response"});
-        this->RequestClose();
-        return;
+    switch (message_state_) {
+        case MessageState::Idle:
+            // Normal keep-alive close, no error
+            downstream_->OnDone();
+            break;
+        case MessageState::InProgress:
+            // Truncated - EOF mid-message
+            downstream_->OnError({ErrorCode::HttpParseError, "truncated"});
+            this->RequestClose();
+            break;
+        case MessageState::Complete:
+            // Already handled in OnMessageComplete
+            break;
     }
-    downstream_->OnDone();
-    ResetMessageState();
 }
 ```
 
-The `message_complete_` flag is set by `on_message_complete` callback from llhttp.
-If upstream (TLS/TCP) sends OnDone() before llhttp saw complete message, it's a truncation error.
+This distinguishes:
+- **Idle EOF**: Normal connection close after response complete (no error)
+- **InProgress EOF**: Truncation error (message started but not finished)
+- **Complete EOF**: Already handled by llhttp callback
 
 ```cpp
 static constexpr size_t kMaxErrorBodySize = 4096;
