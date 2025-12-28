@@ -56,3 +56,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "live_client_test",
+    srcs = ["live_client_test.cpp"],
+    deps = [
+        "//src:live_client",
+        "@databento_cpp//:databento_headers",
+        "@googletest//:gtest_main",
+    ],
+)
