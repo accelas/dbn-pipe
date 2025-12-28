@@ -23,7 +23,7 @@ public:
         Streaming   // after Start()
     };
 
-    LiveClient(Reactor* reactor, std::string api_key);
+    LiveClient(Reactor& reactor, std::string api_key);
     ~LiveClient() override;
 
     // Non-copyable, non-movable
@@ -65,7 +65,7 @@ private:
     void SendSubscription();
     void SendStart();
 
-    Reactor* reactor_;
+    Reactor& reactor_;
     TcpSocket socket_;
     std::string api_key_;
     State state_ = State::Disconnected;

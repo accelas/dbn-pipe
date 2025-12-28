@@ -1,13 +1,90 @@
 // src/reactor.cpp
 #include "reactor.hpp"
 
+#include <sys/timerfd.h>
 #include <unistd.h>
 
-#include <stdexcept>
 #include <system_error>
 
 namespace databento_async {
 
+// Event implementation
+Event::Event(Reactor& reactor, int fd, uint32_t events)
+    : reactor_(reactor), fd_(fd) {
+    epoll_event ev{};
+    ev.events = events;
+    ev.data.ptr = this;
+
+    if (epoll_ctl(reactor_.epoll_fd(), EPOLL_CTL_ADD, fd_, &ev) < 0) {
+        throw std::system_error(errno, std::system_category(), "epoll_ctl ADD");
+    }
+}
+
+Event::~Event() {
+    Remove();
+}
+
+void Event::Modify(uint32_t events) {
+    epoll_event ev{};
+    ev.events = events;
+    ev.data.ptr = this;
+
+    if (epoll_ctl(reactor_.epoll_fd(), EPOLL_CTL_MOD, fd_, &ev) < 0) {
+        throw std::system_error(errno, std::system_category(), "epoll_ctl MOD");
+    }
+}
+
+void Event::Remove() {
+    if (fd_ >= 0) {
+        epoll_ctl(reactor_.epoll_fd(), EPOLL_CTL_DEL, fd_, nullptr);
+        fd_ = -1;
+    }
+}
+
+// Timer implementation
+Timer::Timer(Reactor& reactor)
+    : event_(reactor, timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC), EPOLLIN) {
+    if (event_.fd() < 0) {
+        throw std::system_error(errno, std::system_category(), "timerfd_create");
+    }
+    event_.OnEvent([this](uint32_t events) { HandleEvent(events); });
+}
+
+Timer::~Timer() {
+    int fd = event_.fd();
+    event_.Remove();
+    if (fd >= 0) {
+        close(fd);
+    }
+}
+
+void Timer::Start(int delay_ms, int interval_ms) {
+    itimerspec spec{};
+    spec.it_value.tv_sec = delay_ms / 1000;
+    spec.it_value.tv_nsec = (delay_ms % 1000) * 1000000L;
+    spec.it_interval.tv_sec = interval_ms / 1000;
+    spec.it_interval.tv_nsec = (interval_ms % 1000) * 1000000L;
+
+    if (timerfd_settime(event_.fd(), 0, &spec, nullptr) < 0) {
+        throw std::system_error(errno, std::system_category(), "timerfd_settime");
+    }
+    armed_ = true;
+}
+
+void Timer::Stop() {
+    itimerspec spec{};  // Zero = disarm
+    timerfd_settime(event_.fd(), 0, &spec, nullptr);
+    armed_ = false;
+}
+
+void Timer::HandleEvent(uint32_t /*events*/) {
+    // Read to clear the timer
+    uint64_t expirations;
+    read(event_.fd(), &expirations, sizeof(expirations));
+    callback_();
+}
+
+// Reactor implementation
 Reactor::Reactor() : events_(kMaxEvents) {
     epoll_fd_ = epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd_ < 0) {
@@ -21,33 +98,6 @@ Reactor::~Reactor() {
     }
 }
 
-void Reactor::Add(int fd, uint32_t events, Callback cb) {
-    epoll_event ev{};
-    ev.events = events;
-    ev.data.fd = fd;
-
-    if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &ev) < 0) {
-        throw std::system_error(errno, std::system_category(), "epoll_ctl ADD");
-    }
-
-    callbacks_[fd] = std::move(cb);
-}
-
-void Reactor::Modify(int fd, uint32_t events) {
-    epoll_event ev{};
-    ev.events = events;
-    ev.data.fd = fd;
-
-    if (epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &ev) < 0) {
-        throw std::system_error(errno, std::system_category(), "epoll_ctl MOD");
-    }
-}
-
-void Reactor::Remove(int fd) {
-    epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
-    callbacks_.erase(fd);
-}
-
 int Reactor::Poll(int timeout_ms) {
     int n = epoll_wait(epoll_fd_, events_.data(), kMaxEvents, timeout_ms);
     if (n < 0) {
@@ -58,13 +108,8 @@ int Reactor::Poll(int timeout_ms) {
     }
 
     for (int i = 0; i < n; ++i) {
-        int fd = events_[i].data.fd;
-        auto it = callbacks_.find(fd);
-        if (it != callbacks_.end()) {
-            // Copy callback before invoking, as the callback may Remove() this fd
-            auto cb = it->second;
-            cb(events_[i].events);
-        }
+        auto* event = static_cast<Event*>(events_[i].data.ptr);
+        event->Handle(events_[i].events);
     }
 
     return n;
