@@ -9,3 +9,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "error_test",
+    srcs = ["error_test.cpp"],
+    deps = [
+        "//src:error",
+        "@googletest//:gtest_main",
+    ],
+)
