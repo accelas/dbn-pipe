@@ -281,3 +281,33 @@ TEST(ZstdDecompressorTest, ImplementsUpstreamConcept) {
     static_assert(Upstream<ZstdDecompressor<MockZstdDownstream>>);
     SUCCEED();
 }
+
+TEST(ZstdDecompressorTest, IncompleteZstdFrameEmitsError) {
+    Reactor reactor;
+    auto downstream = std::make_shared<MockZstdDownstream>();
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(reactor, downstream);
+
+    std::string original = "Test data for incomplete frame detection.";
+    auto compressed = CompressData(original);
+
+    // Truncate the compressed data to simulate an incomplete frame
+    // Remove the last few bytes so the frame is incomplete
+    if (compressed.size() > 10) {
+        compressed.resize(compressed.size() - 5);
+    }
+
+    // Feed truncated compressed data
+    std::pmr::vector<std::byte> input;
+    input.assign(compressed.begin(), compressed.end());
+    decompressor->Read(std::move(input));
+
+    // Signal end of stream - should detect incomplete frame
+    decompressor->OnDone();
+
+    // Should emit an error, not call OnDone
+    EXPECT_TRUE(downstream->error_called);
+    EXPECT_EQ(downstream->last_error.code, ErrorCode::DecompressionError);
+    EXPECT_TRUE(downstream->last_error.message.find("Incomplete zstd frame") != std::string::npos ||
+                downstream->last_error.message.find("ZSTD") != std::string::npos);
+    EXPECT_FALSE(downstream->done);
+}
