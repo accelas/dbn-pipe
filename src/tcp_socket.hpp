@@ -48,14 +48,12 @@ public:
 
 private:
     void HandleEvents(uint32_t events);
-    void HandleConnect();
-    void HandleRead();
-    void HandleWrite();
+    void HandleReadable(uint32_t events);
+    void HandleWritable(uint32_t events);
 
     Reactor* reactor_;
     int fd_ = -1;
     bool connected_ = false;
-    bool connecting_ = false;
 
     std::vector<std::byte> write_buffer_;
     std::vector<std::byte> read_buffer_;
