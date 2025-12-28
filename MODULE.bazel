@@ -40,6 +40,10 @@ use_repo(databento, "databento_cpp")
 openssl_sys = use_extension("//third_party/openssl:openssl.bzl", "openssl_sys_ext")
 use_repo(openssl_sys, "openssl_sys")
 
+# llhttp HTTP parser
+llhttp_ext = use_extension("//third_party/llhttp:llhttp.bzl", "llhttp_ext")
+use_repo(llhttp_ext, "llhttp")
+
 # ============================================================================
 # C++ Toolchain
 # ============================================================================

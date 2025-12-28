@@ -85,3 +85,17 @@ cc_library(
         "@openssl_sys//:crypto",
     ],
 )
+
+cc_library(
+    name = "http_client",
+    srcs = ["http_client.cpp"],
+    hdrs = ["http_client.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":pipeline",
+        ":reactor",
+        ":tls_socket",
+        "@llhttp",
+    ],
+)

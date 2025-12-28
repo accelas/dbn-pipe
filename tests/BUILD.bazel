@@ -86,3 +86,14 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "http_client_test",
+    srcs = ["http_client_test.cpp"],
+    deps = [
+        "//src:http_client",
+        "//src:pipeline",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
