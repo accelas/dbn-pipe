@@ -40,3 +40,11 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [":reactor"],
 )
+
+cc_library(
+    name = "cram_auth",
+    srcs = ["cram_auth.cpp"],
+    hdrs = ["cram_auth.hpp"],
+    visibility = ["//visibility:public"],
+    deps = ["@openssl_sys//:crypto"],
+)
