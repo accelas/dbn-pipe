@@ -25,6 +25,10 @@ enum class ErrorCode {
     InvalidDataset,
     InvalidSymbol,
     InvalidSchema,
+    InvalidTimeRange,
+
+    // State
+    InvalidState,
 
     // TLS (Historical)
     TlsHandshakeFailed,
@@ -59,7 +63,10 @@ constexpr std::string_view error_category(ErrorCode code) {
         case ErrorCode::InvalidDataset:
         case ErrorCode::InvalidSymbol:
         case ErrorCode::InvalidSchema:
+        case ErrorCode::InvalidTimeRange:
             return "subscription";
+        case ErrorCode::InvalidState:
+            return "state";
         case ErrorCode::TlsHandshakeFailed:
         case ErrorCode::CertificateError:
             return "tls";
