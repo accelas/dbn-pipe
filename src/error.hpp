@@ -20,6 +20,7 @@ enum class ErrorCode {
     InvalidGreeting,
     InvalidChallenge,
     ParseError,
+    BufferOverflow,
 
     // Subscription
     InvalidDataset,
@@ -59,6 +60,7 @@ constexpr std::string_view error_category(ErrorCode code) {
         case ErrorCode::InvalidGreeting:
         case ErrorCode::InvalidChallenge:
         case ErrorCode::ParseError:
+        case ErrorCode::BufferOverflow:
             return "protocol";
         case ErrorCode::InvalidDataset:
         case ErrorCode::InvalidSymbol:

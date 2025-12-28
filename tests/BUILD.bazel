@@ -118,3 +118,15 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "dbn_parser_component_test",
+    srcs = ["dbn_parser_component_test.cpp"],
+    deps = [
+        "//src:dbn_parser_component",
+        "//src:pipeline",
+        "//src:reactor",
+        "@databento_cpp//:databento_headers",
+        "@googletest//:gtest_main",
+    ],
+)
