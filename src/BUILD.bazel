@@ -69,6 +69,7 @@ cc_library(
     deps = [
         ":error",
         ":reactor",
+        "@databento_cpp//:databento_headers",
     ],
 )
 
@@ -120,6 +121,10 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":data_source",
+        ":http_client",
         ":reactor",
+        ":tcp_socket",
+        ":tls_socket",
+        ":zstd_decompressor",
     ],
 )
