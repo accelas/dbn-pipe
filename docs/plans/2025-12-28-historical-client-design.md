@@ -98,6 +98,27 @@ Each component:
 2. Buffers remainder internally if suspended or partial data
 3. Allocates output from local pool, moves to downstream
 
+### Write() Allocator Lifetime
+
+`Write()` flows upstream. **Critical rule**: receiver must consume or copy immediately.
+
+```cpp
+void Write(std::pmr::vector<std::byte> data) {
+    // Option 1: Consume immediately (TcpSocket does this)
+    socket_write(data.data(), data.size());
+    // data destructs, memory returns to caller's pool
+
+    // Option 2: Copy into local pool if buffering needed
+    pending_writes_.push_back(
+        std::pmr::vector<std::byte>(data.begin(), data.end(), &write_pool_)
+    );
+}
+```
+
+Since Write() data originates from downstream's pool, upstream cannot hold references
+beyond the call without copying. TcpSocket (the sink) writes to socket immediately,
+so no buffering issue. Intermediate components pass through without buffering.
+
 ### Static Dispatch
 
 Hot path uses templates for static dispatch:
@@ -138,7 +159,10 @@ public:
     void Suspend() override { upstream_->Suspend(); }
     void Resume() override { upstream_->Resume(); }
     void Close() override {
+        if (closed_) return;  // idempotent
+        closed_ = true;
         downstream_.reset();  // release downstream
+        upstream_->Close();   // propagate upstream to stop socket
     }
 
 private:
@@ -154,6 +178,8 @@ On `Close()` or EOF, strict ordering to prevent races:
 
 ```cpp
 void TcpSocket::Close() {
+    if (closed_) return;    // idempotent
+    closed_ = true;
     event_.Remove();        // 1. deregister from reactor
     downstream_.reset();    // 2. release downstream chain
     close(fd_);             // 3. close fd last
@@ -161,6 +187,29 @@ void TcpSocket::Close() {
 ```
 
 Single-threaded reactor guarantees no callback between steps.
+
+### Error-Triggered Teardown
+
+When a component detects an error, it propagates error downstream, then closes upstream:
+
+```cpp
+void ZstdDecompressor::Read(std::pmr::vector<std::byte> data) {
+    size_t ret = ZSTD_decompressStream(...);
+    if (ZSTD_isError(ret)) {
+        downstream_->OnError({ErrorCode::DecompressionError, ...});
+        upstream_->Close();  // stop the socket
+        return;
+    }
+    // ...
+}
+```
+
+**Error flow:**
+1. Component detects error
+2. Calls `downstream_->OnError()` - propagates to application
+3. Calls `upstream_->Close()` - stops socket, releases chain
+
+`Close()` is idempotent - safe to call multiple times from different error paths.
 
 ### EOF Handling
 
@@ -199,10 +248,34 @@ void ZstdDecompressor::OnDone() {
         return;
     }
     downstream_->OnDone();
+
+    // Reset for next message (keep-alive scenarios)
+    ResetMessageState();
 }
 ```
 
 After `OnDone()`, next `Read()` starts new message.
+
+### Message Boundary Reset
+
+Each component resets per-message state after `OnDone()`:
+
+| Component | State to Reset |
+|-----------|----------------|
+| HttpClient | `llhttp_init()`, clear status_code, headers_done |
+| ZstdDecompressor | `ZSTD_initDStream()`, clear buffered data |
+| DbnParser | Clear partial record buffer |
+| CramAuth | No reset needed (bypass mode is stateless) |
+
+```cpp
+void HttpClient::ResetMessageState() {
+    llhttp_init(&parser_, HTTP_RESPONSE, &settings_);
+    status_code_ = 0;
+    headers_done_ = false;
+}
+```
+
+This enables HTTP keep-alive and multiple responses on same connection.
 
 ## Components
 
@@ -263,16 +336,31 @@ public:
     void Close() override;
 
 private:
-    void InitContext() {
+    bool InitContext() {
         ctx_ = SSL_CTX_new(TLS_client_method());
-        SSL_CTX_set_default_verify_paths(ctx_);      // system CA
+        if (!ctx_) {
+            downstream_->OnError({ErrorCode::TlsHandshakeFailed, "SSL_CTX_new failed"});
+            return false;
+        }
+        if (SSL_CTX_set_default_verify_paths(ctx_) != 1) {
+            downstream_->OnError({ErrorCode::TlsCertificateError, "Failed to load system CA"});
+            return false;
+        }
         SSL_CTX_set_min_proto_version(ctx_, TLS1_2_VERSION);
+        return true;
     }
 
-    void SetupVerification(const std::string& hostname) {
-        SSL_set_tlsext_host_name(ssl_, hostname.c_str());  // SNI
-        SSL_set1_host(ssl_, hostname.c_str());              // hostname verify
+    bool SetupVerification(const std::string& hostname) {
+        if (SSL_set_tlsext_host_name(ssl_, hostname.c_str()) != 1) {
+            downstream_->OnError({ErrorCode::TlsHandshakeFailed, "SNI setup failed"});
+            return false;
+        }
+        if (SSL_set1_host(ssl_, hostname.c_str()) != 1) {
+            downstream_->OnError({ErrorCode::TlsHandshakeFailed, "Hostname verification setup failed"});
+            return false;
+        }
         SSL_set_verify(ssl_, SSL_VERIFY_PEER, nullptr);
+        return true;
     }
 
     Suspendable* upstream_ = nullptr;
@@ -334,8 +422,24 @@ private:
 };
 ```
 
-On HTTP 4xx/5xx, calls `OnError()` with status and raw body.
+On HTTP 4xx/5xx, calls `OnError()` with status and raw body (capped at 4KB to prevent
+unbounded memory growth on large error responses).
 On `on_message_complete`, calls `OnDone()`.
+
+```cpp
+static constexpr size_t kMaxErrorBodySize = 4096;
+
+void HttpClient::OnBody(const char* data, size_t len) {
+    if (status_code_ >= 400) {
+        // Cap error body size
+        size_t remaining = kMaxErrorBodySize - error_body_.size();
+        error_body_.append(data, std::min(len, remaining));
+    } else {
+        // Normal body - forward to downstream
+        // ...
+    }
+}
+```
 
 ### ZstdDecompressor
 
