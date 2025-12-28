@@ -97,3 +97,15 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "zstd_decompressor_test",
+    srcs = ["zstd_decompressor_test.cpp"],
+    deps = [
+        "//src:pipeline",
+        "//src:reactor",
+        "//src:zstd_decompressor",
+        "@googletest//:gtest_main",
+        "@zstd",
+    ],
+)
