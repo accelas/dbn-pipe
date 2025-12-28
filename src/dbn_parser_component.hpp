@@ -165,6 +165,13 @@ void DbnParserComponent<D>::DrainBuffer() {
             alignof(std::max_align_t) > sizeof(void*)
                 ? alignof(std::max_align_t)
                 : sizeof(void*);
+
+        // Verify alignment assumptions at compile time
+        static_assert((alignment & (alignment - 1)) == 0,
+            "alignment must be power of 2");
+        static_assert(alignment >= sizeof(void*),
+            "alignment must be >= sizeof(void*) for aligned_alloc");
+
         std::size_t aligned_size = (record_size + alignment - 1) & ~(alignment - 1);
 
         auto* aligned_ptr = static_cast<std::byte*>(std::aligned_alloc(alignment, aligned_size));
