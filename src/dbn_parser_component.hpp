@@ -155,10 +155,13 @@ void DbnParserComponent<D>::Read(std::pmr::vector<std::byte> data) {
 template <RecordDownstream D>
 void DbnParserComponent<D>::DrainBuffer() {
     while (!suspended_ && HasCompleteRecord()) {
-        auto* hdr = reinterpret_cast<databento::RecordHeader*>(
-            buffer_.data() + read_pos_);
-        std::size_t record_size = hdr->Size();
+        std::size_t record_size = PeekRecordSize();
 
+        // Create aligned storage for the record
+        alignas(databento::RecordHeader) std::vector<std::byte> aligned_record(record_size);
+        std::memcpy(aligned_record.data(), buffer_.data() + read_pos_, record_size);
+
+        auto* hdr = reinterpret_cast<databento::RecordHeader*>(aligned_record.data());
         databento::Record rec{hdr};
         read_pos_ += record_size;
 
@@ -191,9 +194,10 @@ std::size_t DbnParserComponent<D>::PeekRecordSize() const {
     if (write_pos_ - read_pos_ < sizeof(databento::RecordHeader)) {
         return 0;
     }
-    auto* hdr = reinterpret_cast<const databento::RecordHeader*>(
-        buffer_.data() + read_pos_);
-    return hdr->Size();
+    // Use memcpy to avoid undefined behavior from unaligned access
+    databento::RecordHeader hdr;
+    std::memcpy(&hdr, buffer_.data() + read_pos_, sizeof(hdr));
+    return hdr.Size();
 }
 
 template <RecordDownstream D>

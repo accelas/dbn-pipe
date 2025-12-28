@@ -254,7 +254,20 @@ void LiveProtocolHandler<D>::ProcessLineBuffer() {
             std::pmr::vector<std::byte> remaining(alloc_);
             remaining.assign(line_buffer_.begin(), line_buffer_.end());
             line_buffer_.clear();
-            downstream_->Read(std::move(remaining));
+
+            // Respect suspended_ check for leftover bytes (backpressure)
+            if (this->suspended_) {
+                // Check buffer overflow
+                if (pending_data_.size() + remaining.size() > kMaxPendingData) {
+                    this->EmitError(*downstream_,
+                        Error{ErrorCode::BufferOverflow, "Binary buffer overflow"});
+                    this->RequestClose();
+                    return;
+                }
+                pending_data_.insert(pending_data_.end(), remaining.begin(), remaining.end());
+            } else {
+                downstream_->Read(std::move(remaining));
+            }
             break;
         }
     }
