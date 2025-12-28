@@ -159,9 +159,12 @@ void DbnParserComponent<D>::DrainBuffer() {
         std::size_t record_size = PeekRecordSize();
 
         // Allocate properly aligned storage for the record
-        // Use max_align_t to satisfy all fundamental type alignment requirements
-        // and ensure aligned_alloc preconditions (alignment >= sizeof(void*))
-        constexpr std::size_t alignment = alignof(std::max_align_t);
+        // aligned_alloc requires: alignment is power of 2 AND multiple of sizeof(void*)
+        // Use max of alignof(max_align_t) and sizeof(void*) for portability
+        constexpr std::size_t alignment =
+            alignof(std::max_align_t) > sizeof(void*)
+                ? alignof(std::max_align_t)
+                : sizeof(void*);
         std::size_t aligned_size = (record_size + alignment - 1) & ~(alignment - 1);
 
         auto* aligned_ptr = static_cast<std::byte*>(std::aligned_alloc(alignment, aligned_size));
