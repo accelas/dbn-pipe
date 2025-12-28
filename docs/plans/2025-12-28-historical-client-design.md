@@ -363,9 +363,10 @@ protected:
         });
     }
 
-    // Terminal state guard - prevents double OnDone/OnError
+    // Per-message terminal guard - prevents double OnDone/OnError within one message
     bool IsFinalized() const { return finalized_; }
     void SetFinalized() { finalized_ = true; }
+    void ResetFinalized() { finalized_ = false; }  // call in ResetMessageState()
 
 private:
     Reactor& reactor_;
@@ -373,7 +374,7 @@ private:
     bool close_pending_ = false;
     bool closed_ = false;
     bool close_scheduled_ = false;  // guards against duplicate Defer() calls
-    bool finalized_ = false;        // guards against double OnDone/OnError
+    bool finalized_ = false;        // per-message, reset for keep-alive
 };
 ```
 
@@ -419,30 +420,37 @@ auto tcp = std::make_shared<TcpSocket>(reactor);
 // Now tcp survives until all deferred callbacks complete
 ```
 
-**Rule**: Application must drain `Reactor::Defer()` queue before destroying head TcpSocket.
-The pattern is: `Close()` → drain reactor → destroy.
+**Rule**: Application must ensure all deferred callbacks complete before destroying head TcpSocket.
 
-**Drain is bounded** because:
-1. `Close()` sets `closed_ = true` and `close_scheduled_ = true`
-2. No callback can requeue strong `this` after close (banned by rule)
-3. Only one `DoClose()` is scheduled (guarded by `close_scheduled_`)
-4. `DoClose()` releases downstream chain but does not requeue itself
+**Safe destruction patterns:**
 
 ```cpp
-// Safe destruction pattern
-tcp->Close();                     // schedules DoClose()
-while (reactor.HasPending()) {    // drain until empty
-    reactor.Poll(0);
+// Pattern 1: Single Poll() after Close() (simplest, usually sufficient)
+tcp->Close();    // schedules DoClose() for this pipeline
+reactor.Poll(0); // runs all pending deferred callbacks
+// Safe: DoClose() has run, downstream chain released
+
+// Pattern 2: Run until idle (if other activity possible)
+tcp->Close();
+reactor.Run();   // runs until Stop() called or no more events
+// Safe after Run() returns
+
+// Pattern 3: Let reactor outlive TcpSocket
+{
+    auto tcp = std::make_unique<TcpSocket>(reactor);
+    tcp->Close();
 }
-// All deferred callbacks have run - safe to destroy
+// TcpSocket destroyed, but reactor still has DoClose() pending
+reactor.Poll(0);  // DoClose() runs, accesses destroyed tcp - UAF!
+// UNSAFE: Must Poll() before destroying tcp
 ```
 
-**Reactor::HasPending():**
-```cpp
-bool HasPending() const {
-    return !deferred_.empty();
-}
-```
+**Why one Poll(0) is sufficient after Close():**
+1. `Close()` → `DisableWatchers()` removes epoll registration (no more I/O events)
+2. `Close()` → `ScheduleClose()` queues exactly one `DoClose()`
+3. `DoClose()` releases downstream chain (which schedules their DoClose())
+4. All DoClose() calls run in the same Poll() deferred drain loop
+5. No strong `this` captures remain after (banned by rule)
 
 **DisableWatchers() requirement:**
 
@@ -477,7 +485,7 @@ Any reactor callback that captures `this` must be one of:
 All other deferred work MUST use weak capture:
 
 ```cpp
-// REQUIRED pattern for any deferred work
+// REQUIRED pattern for any deferred work (shared-owned components)
 auto weak = weak_from_this();
 reactor_.Defer([weak]() {
     if (auto self = weak.lock()) {
@@ -493,6 +501,13 @@ reactor_.Defer([this]() {  // ❌ NEVER DO THIS
 
 **Rationale:** `ScheduleClose()` is the only deferred callback with guaranteed lifetime
 (upstream holds `shared_ptr` until `DoClose()` runs). All other callbacks lack this guarantee.
+
+**TcpSocket exception:**
+TcpSocket (head) is not shared-owned, so `weak_from_this()` is unavailable.
+TcpSocket must:
+1. Only use `ScheduleClose()` for deferred work (the strong capture there is safe)
+2. Never schedule arbitrary `Reactor::Defer()` work
+3. Application follows destruction pattern: `Close()` → `Poll()` → destroy
 
 **Component inherits via CRTP:**
 
@@ -624,10 +639,11 @@ void OnError(const Error& e) {
 
 This ensures:
 1. No new data processing after `RequestClose()` is called
-2. Shutdown signals (OnDone/OnError) reach application exactly once
+2. Shutdown signals (OnDone/OnError) reach application exactly once per message
 3. Protocol finalization (zstd frame complete, HTTP trailers) happens correctly
 4. ProcessingGuard still prevents close during propagation
-5. Terminal guard prevents double-finalization if OnDone/OnError arrives after close
+5. Terminal guard prevents double-finalization within one message
+6. `ResetFinalized()` in `ResetMessageState()` enables keep-alive multi-message flows
 
 ### EOF Handling
 
@@ -707,22 +723,29 @@ private:
 ```
 
 **Key properties:**
-- **Never inline**: `Defer()` only queues; callbacks run on next `Poll()` iteration
-- Deferred callbacks run after current event processing
-- Stack fully unwound before DoClose() executes
+- **Never inline at call site**: `Defer()` only queues; callbacks run later in same `Poll()`
+- Deferred callbacks run after all epoll events in current iteration
+- Stack of the original caller is unwound before callback executes
 - Single-threaded - no races
 
-**Execution guarantee:**
+**Execution timing:**
 ```cpp
-void RequestClose() {
-    // ...
-    ScheduleClose();  // queues DoClose() in deferred_
-    // ScheduleClose returns immediately
-    // DoClose() will NOT run until Poll() drains queue
+int Poll() {
+    // 1. Process epoll events (may enqueue deferred work)
+    for (auto& event : events) {
+        callbacks_[event.fd](event.events);  // may call RequestClose()
+    }
+    // 2. Only AFTER all events: drain deferred queue
+    while (!deferred_.empty()) {
+        auto fn = std::move(deferred_.front());
+        deferred_.pop_front();
+        fn();  // DoClose() runs here, not during step 1
+    }
 }
 ```
 
-This ensures `RequestClose()` can be called from any context without reentry.
+**Key guarantee:** `DoClose()` never runs mid-call-stack. The caller of `RequestClose()` returns
+before any deferred callback executes.
 
 ### Message Boundary Reset
 
@@ -730,6 +753,7 @@ Each component resets per-message state after `OnDone()`:
 
 | Component | State to Reset |
 |-----------|----------------|
+| All (via CRTP) | `ResetFinalized()` - re-enable OnDone/OnError for next message |
 | HttpClient | `llhttp_init()`, clear status_code, headers_done, error_body_ |
 | ZstdDecompressor | `ZSTD_initDStream()`, clear buffered data |
 | DbnParser | Clear partial record buffer |
@@ -737,10 +761,11 @@ Each component resets per-message state after `OnDone()`:
 
 ```cpp
 void HttpClient::ResetMessageState() {
+    this->ResetFinalized();  // CRTP base - re-enable OnDone/OnError
     llhttp_init(&parser_, HTTP_RESPONSE, &settings_);
     status_code_ = 0;
     headers_done_ = false;
-    error_body_.clear();  // clear error buffer for next message
+    error_body_.clear();
 }
 ```
 
