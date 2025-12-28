@@ -1,8 +1,6 @@
 // tests/pipeline_test.cpp
 #include <gtest/gtest.h>
 
-#include <memory>
-#include <optional>
 #include <vector>
 
 #include "src/pipeline.hpp"
@@ -22,8 +20,17 @@ struct MockDownstream {
     void OnDone() { done_called = true; }
 };
 
+// Mock upstream that satisfies Upstream concept
+struct MockUpstream {
+    void Write(std::pmr::vector<std::byte>) {}
+    void Suspend() {}
+    void Resume() {}
+    void Close() {}
+};
+
 // Verify concepts compile
 static_assert(Downstream<MockDownstream>);
+static_assert(Upstream<MockUpstream>);
 
 TEST(PipelineTest, ConceptsSatisfied) {
     MockDownstream ds;
