@@ -32,3 +32,11 @@ cc_library(
         "@databento_cpp//:databento_headers",
     ],
 )
+
+cc_library(
+    name = "tcp_socket",
+    srcs = ["tcp_socket.cpp"],
+    hdrs = ["tcp_socket.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [":reactor"],
+)

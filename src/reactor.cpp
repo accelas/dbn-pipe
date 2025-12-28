@@ -61,7 +61,9 @@ int Reactor::Poll(int timeout_ms) {
         int fd = events_[i].data.fd;
         auto it = callbacks_.find(fd);
         if (it != callbacks_.end()) {
-            it->second(events_[i].events);
+            // Copy callback before invoking, as the callback may Remove() this fd
+            auto cb = it->second;
+            cb(events_[i].events);
         }
     }
 
