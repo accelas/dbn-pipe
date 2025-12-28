@@ -99,3 +99,16 @@ cc_library(
         "@llhttp",
     ],
 )
+
+cc_library(
+    name = "zstd_decompressor",
+    hdrs = ["zstd_decompressor.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":pipeline",
+        ":reactor",
+        ":tls_socket",
+        "@zstd",
+    ],
+)
