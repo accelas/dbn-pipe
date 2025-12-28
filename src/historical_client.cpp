@@ -14,10 +14,34 @@ HistoricalClient::~HistoricalClient() {
 }
 
 void HistoricalClient::Request(std::string_view dataset,
-                                std::string_view symbols,
-                                std::string_view schema,
-                                std::uint64_t start,
-                                std::uint64_t end) {
+                               std::string_view symbols,
+                               std::string_view schema,
+                               std::uint64_t start,
+                               std::uint64_t end) {
+    if (state_ != State::Disconnected) {
+        DeliverError(Error{ErrorCode::InvalidState,
+                           "Request() can only be called when disconnected"});
+        return;
+    }
+
+    if (dataset.empty()) {
+        DeliverError(Error{ErrorCode::InvalidDataset, "Dataset cannot be empty"});
+        return;
+    }
+    if (symbols.empty()) {
+        DeliverError(Error{ErrorCode::InvalidSymbol, "Symbols cannot be empty"});
+        return;
+    }
+    if (schema.empty()) {
+        DeliverError(Error{ErrorCode::InvalidSchema, "Schema cannot be empty"});
+        return;
+    }
+    if (start >= end) {
+        DeliverError(Error{ErrorCode::InvalidTimeRange,
+                           "Start timestamp must be less than end timestamp"});
+        return;
+    }
+
     dataset_ = dataset;
     symbols_ = symbols;
     schema_ = schema;
@@ -27,6 +51,8 @@ void HistoricalClient::Request(std::string_view dataset,
 
 void HistoricalClient::Connect(const sockaddr_storage& /*addr*/) {
     if (state_ != State::Disconnected) {
+        DeliverError(Error{ErrorCode::InvalidState,
+                           "Connect() can only be called when disconnected"});
         return;
     }
 
