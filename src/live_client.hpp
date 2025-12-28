@@ -32,9 +32,8 @@ public:
     LiveClient(LiveClient&&) = delete;
     LiveClient& operator=(LiveClient&&) = delete;
 
-    // Connection
-    void Connect(std::string_view host = "egress.databento.com",
-                 int port = 13000);
+    // Connection (caller responsible for DNS resolution)
+    void Connect(const sockaddr_storage& addr);
     void Close();
 
     // Subscription (call after authenticated, before Start)
