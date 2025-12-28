@@ -6,49 +6,101 @@ Async historical data download from Databento's Historical API using streaming H
 
 ## Architecture
 
-**Push-based pipeline** - each component receives data via `Read()`, processes it, and pushes to the next component's `Read()`:
+**Push-based pipeline** with ownership flowing same direction as data:
 
 ```
-     Read() / OnError()          Suspend() / Resume()
-     (downstream ▼)              (upstream ▲)
-            │                          │
-┌───────────┴──────────────────────────┴───────────┐
-│                   TcpSocket                       │
-└───────────────────────────────────────────────────┘
-            │ ▼                        ▲ │
-┌───────────┴──────────────────────────┴───────────┐
-│                   TlsSocket                       │
-└───────────────────────────────────────────────────┘
-            │ ▼                        ▲ │
-┌───────────┴──────────────────────────┴───────────┐
-│                   HttpClient                      │
-└───────────────────────────────────────────────────┘
-            │ ▼                        ▲ │
-┌───────────┴──────────────────────────┴───────────┐
-│                 ZstdDecompressor                  │
-└───────────────────────────────────────────────────┘
-            │ ▼                        ▲ │
-┌───────────┴──────────────────────────┴───────────┐
-│                   DbnParser                       │
-└───────────────────────────────────────────────────┘
-            │ ▼                        ▲ │
-┌───────────┴──────────────────────────┴───────────┐
-│                  Application                      │
-│         (handles error, initiates Close)          │
-└───────────────────────────────────────────────────┘
+     Read() / OnError() / OnDone()      Suspend() / Resume() / Close()
+     (downstream ▼)                      (upstream ▲)
+            │                                   │
+┌───────────┴───────────────────────────────────┴───────────┐
+│                   TcpSocket (owns ▼)                       │
+└───────────────────────────────────────────────────────────┘
+            │ ▼                                 ▲ │
+┌───────────┴───────────────────────────────────┴───────────┐
+│                   TlsSocket (owns ▼)                       │
+└───────────────────────────────────────────────────────────┘
+            │ ▼                                 ▲ │
+┌───────────┴───────────────────────────────────┴───────────┐
+│                   HttpClient (owns ▼)                      │
+└───────────────────────────────────────────────────────────┘
+            │ ▼                                 ▲ │
+┌───────────┴───────────────────────────────────┴───────────┐
+│                 ZstdDecompressor (owns ▼)                  │
+└───────────────────────────────────────────────────────────┘
+            │ ▼                                 ▲ │
+┌───────────┴───────────────────────────────────┴───────────┐
+│                   DbnParser (owns ▼)                       │
+└───────────────────────────────────────────────────────────┘
+            │ ▼                                 ▲ │
+┌───────────┴───────────────────────────────────┴───────────┐
+│                  Application                               │
+│           (raw ptr to TcpSocket head)                      │
+└───────────────────────────────────────────────────────────┘
+            │
+            ▼ Write() flows upstream
 ```
 
-**Four operations:**
-- `Read()` - data flows downstream
-- `OnError()` - errors flow downstream to application
-- `Suspend()`/`Resume()` - backpressure flows upstream
-- Teardown via shared_ptr release (RAII)
+**Five downstream operations:**
+- `Read(vector)` - data chunk, ownership transferred
+- `OnError(error)` - error, no more reads
+- `OnDone()` - success/EOF, flush signal, no more reads for this message
+- `Write(vector)` - send data upstream
+
+**Three upstream operations:**
+- `Suspend()` - backpressure, stop sending
+- `Resume()` - resume sending
+- `Close()` - teardown, propagates upstream
 
 ## Design Decisions
 
+### Ownership Model
+
+Upstream owns downstream (same direction as data flow):
+
+```
+TcpSocket
+  └─ shared_ptr<TlsSocket>
+       └─ shared_ptr<HttpClient>
+            └─ shared_ptr<ZstdDecompressor>
+                 └─ shared_ptr<DbnParser>
+```
+
+Application holds raw pointer to TcpSocket (head of chain). Teardown via `Close()`.
+
+### Memory Management (PMR)
+
+Each component owns module-local PMR pools:
+
+```cpp
+template<typename Downstream>
+class TlsSocket : public Suspendable {
+private:
+    std::pmr::unsynchronized_pool_resource decrypt_pool_;
+    std::pmr::unsynchronized_pool_resource encrypt_pool_;
+};
+```
+
+Benefits:
+- No external pool coordination
+- Pools destroyed with component
+- `unsynchronized_pool_resource` recycles buffers in steady state
+
+### Read() Ownership Transfer
+
+`Read()` transfers ownership - callee responsible for data:
+
+```cpp
+void Read(std::pmr::vector<std::byte> data);  // ownership transferred
+```
+
+Each component:
+1. Processes what it can
+2. Buffers remainder internally if suspended or partial data
+3. Allocates output from local pool, moves to downstream
+
 ### Static Dispatch
 
-Hot path uses templates for static dispatch, cold path uses virtual interface:
+Hot path uses templates for static dispatch:
 
 ```cpp
 class Suspendable {
@@ -56,92 +108,191 @@ public:
     virtual ~Suspendable() = default;
     virtual void Suspend() = 0;
     virtual void Resume() = 0;
+    virtual void Close() = 0;
 };
 
 template<typename Downstream>
 class Component : public Suspendable {
 public:
-    // Hot path - static dispatch
-    void Read(std::span<const std::byte> data) {
+    // Hot path - static dispatch, inlined
+    void Read(std::pmr::vector<std::byte> data) {
+        std::pmr::vector<std::byte> processed{&output_pool_};
         // process...
-        downstream_->Read(processed);  // inlined
+        downstream_->Read(std::move(processed));
     }
 
     void OnError(const Error& e) {
-        downstream_->OnError(e);  // inlined
+        downstream_->OnError(e);
+    }
+
+    void OnDone() {
+        // flush any buffered data
+        downstream_->OnDone();
+    }
+
+    void Write(std::pmr::vector<std::byte> data) {
+        upstream_->Write(std::move(data));
     }
 
     // Cold path - virtual dispatch
     void Suspend() override { upstream_->Suspend(); }
     void Resume() override { upstream_->Resume(); }
+    void Close() override {
+        downstream_.reset();  // release downstream
+    }
 
 private:
-    Suspendable* upstream_;                   // type-erased, cold path
-    std::shared_ptr<Downstream> downstream_;  // concrete, hot path
+    Suspendable* upstream_;
+    std::shared_ptr<Downstream> downstream_;
+    std::pmr::unsynchronized_pool_resource output_pool_;
 };
 ```
 
-### Ownership Model
+### Teardown Ordering
 
-Application owns the pipeline top-down (opposite of data flow):
+On `Close()` or EOF, strict ordering to prevent races:
 
+```cpp
+void TcpSocket::Close() {
+    event_.Remove();        // 1. deregister from reactor
+    downstream_.reset();    // 2. release downstream chain
+    close(fd_);             // 3. close fd last
+}
 ```
-Application
-  └─ shared_ptr<DbnParser>
-       └─ shared_ptr<ZstdDecompressor>
-            └─ shared_ptr<HttpClient>
-                 └─ shared_ptr<TlsSocket>
-                      └─ shared_ptr<TcpSocket>
+
+Single-threaded reactor guarantees no callback between steps.
+
+### EOF Handling
+
+When TcpSocket receives EOF:
+
+```cpp
+void TcpSocket::HandleRead() {
+    ssize_t n = read(fd_, buf, size);
+    if (n > 0) {
+        downstream_->Read(std::move(buf));
+    } else if (n == 0) {
+        downstream_->OnDone();  // 1. flush downstream
+        Close();                 // 2. teardown
+    } else {
+        downstream_->OnError(...);
+        Close();
+    }
+}
 ```
 
-Teardown happens automatically when Application releases its reference.
+Both terminal states (done/error) end with `Close()`.
+
+### OnDone() as Flush Signal
+
+`OnDone()` signals EOF and triggers flush:
+
+```cpp
+void ZstdDecompressor::OnDone() {
+    // Flush remaining decompressed data
+    if (!buffered_.empty()) {
+        downstream_->Read(std::move(buffered_));
+    }
+    // Check for incomplete frame
+    if (!zstd_frame_complete_) {
+        downstream_->OnError({ErrorCode::DecompressionError, "truncated"});
+        return;
+    }
+    downstream_->OnDone();
+}
+```
+
+After `OnDone()`, next `Read()` starts new message.
 
 ## Components
 
+### TcpSocket
+
+Entry point, owns the pipeline:
+
+```cpp
+class TcpSocket {
+public:
+    TcpSocket(Reactor& reactor);
+
+    void Connect(const sockaddr_storage& addr);
+    void Write(std::pmr::vector<std::byte> data);
+    void Close();
+
+    template<typename Downstream>
+    void SetDownstream(std::shared_ptr<Downstream> downstream);
+
+private:
+    void HandleRead();
+    void HandleWrite();
+    void HandleError();
+
+    Reactor& reactor_;
+    std::unique_ptr<Event> event_;
+    std::shared_ptr<void> downstream_;  // type-erased
+
+    std::pmr::unsynchronized_pool_resource read_pool_;
+};
+```
+
 ### TlsSocket
 
-Wraps TcpSocket, handles OpenSSL encryption/decryption:
+OpenSSL wrapper with async BIO:
 
 ```cpp
 template<typename Downstream>
 class TlsSocket : public Suspendable {
 public:
-    TlsSocket(std::shared_ptr<TcpSocket> tcp,
-              std::shared_ptr<Downstream> downstream);
+    TlsSocket(std::shared_ptr<Downstream> downstream);
     ~TlsSocket();
 
-    // Initiate TLS handshake (hostname for SNI)
+    void SetUpstream(Suspendable* upstream) { upstream_ = upstream; }
+
+    // Initiate TLS handshake
     void Connect(const std::string& hostname);
 
-    // From upstream (TcpSocket callbacks)
-    void Read(std::span<const std::byte> ciphertext);
+    // From upstream
+    void Read(std::pmr::vector<std::byte> ciphertext);
     void OnError(const Error& e);
+    void OnDone();
 
-    // From downstream (backpressure)
+    // From downstream
+    void Write(std::pmr::vector<std::byte> plaintext);
     void Suspend() override;
     void Resume() override;
-
-    // Write encrypted data
-    void Write(std::span<const std::byte> plaintext);
+    void Close() override;
 
 private:
-    std::shared_ptr<TcpSocket> tcp_;
+    void InitContext() {
+        ctx_ = SSL_CTX_new(TLS_client_method());
+        SSL_CTX_set_default_verify_paths(ctx_);      // system CA
+        SSL_CTX_set_min_proto_version(ctx_, TLS1_2_VERSION);
+    }
+
+    void SetupVerification(const std::string& hostname) {
+        SSL_set_tlsext_host_name(ssl_, hostname.c_str());  // SNI
+        SSL_set1_host(ssl_, hostname.c_str());              // hostname verify
+        SSL_set_verify(ssl_, SSL_VERIFY_PEER, nullptr);
+    }
+
+    Suspendable* upstream_ = nullptr;
     std::shared_ptr<Downstream> downstream_;
 
     SSL_CTX* ctx_ = nullptr;
     SSL* ssl_ = nullptr;
-    BIO* rbio_ = nullptr;  // read bio (network -> SSL)
-    BIO* wbio_ = nullptr;  // write bio (SSL -> network)
+    BIO* rbio_ = nullptr;
+    BIO* wbio_ = nullptr;
 
-    bool handshake_complete_ = false;
+    std::pmr::unsynchronized_pool_resource decrypt_pool_;
+    std::pmr::unsynchronized_pool_resource encrypt_pool_;
 };
 ```
 
-Uses memory BIOs (not socket BIOs) for async integration with Reactor.
+Uses memory BIOs for async integration with Reactor.
 
 ### HttpClient
 
-Handles HTTP/1.1 request/response with llhttp:
+HTTP/1.1 with llhttp:
 
 ```cpp
 template<typename Downstream>
@@ -150,41 +301,45 @@ public:
     HttpClient(std::shared_ptr<Downstream> downstream);
     ~HttpClient();
 
-    void SetUpstream(Suspendable* upstream);
+    void SetUpstream(Suspendable* upstream) { upstream_ = upstream; }
+
+    // From upstream
+    void Read(std::pmr::vector<std::byte> plaintext);
+    void OnError(const Error& e);
+    void OnDone();
+
+    // From downstream
+    void Write(std::pmr::vector<std::byte> data);  // pass-through
+    void Suspend() override;
+    void Resume() override;
+    void Close() override;
 
     // Send HTTP GET request
     void Request(std::string_view host,
                  std::string_view path,
                  std::string_view auth_header);
 
-    // From upstream (TlsSocket)
-    void Read(std::span<const std::byte> plaintext);
-    void OnError(const Error& e);
-
-    // From downstream
-    void Suspend() override;
-    void Resume() override;
-
-    template<typename TlsSocket>
-    void SetWriter(TlsSocket* tls);
-
 private:
+    static int OnBody(llhttp_t* parser, const char* data, size_t len);
+    static int OnMessageComplete(llhttp_t* parser);
+
     Suspendable* upstream_ = nullptr;
     std::shared_ptr<Downstream> downstream_;
-    std::function<void(std::span<const std::byte>)> write_;
 
     llhttp_t parser_;
     llhttp_settings_t settings_;
-
     int status_code_ = 0;
+
+    std::pmr::unsynchronized_pool_resource write_pool_;
 };
 ```
 
-On HTTP 4xx/5xx, calls `downstream_->OnError()` with status and raw body (no JSON parsing).
+On HTTP 4xx/5xx, calls `OnError()` with status and raw body.
+On `on_message_complete`, calls `OnDone()`.
 
 ### ZstdDecompressor
 
-Streaming zstd decompression:
+Streaming zstd:
 
 ```cpp
 template<typename Downstream>
@@ -193,30 +348,30 @@ public:
     ZstdDecompressor(std::shared_ptr<Downstream> downstream);
     ~ZstdDecompressor();
 
-    void SetUpstream(Suspendable* upstream);
+    void SetUpstream(Suspendable* upstream) { upstream_ = upstream; }
 
-    // From upstream (HttpClient body chunks)
-    void Read(std::span<const std::byte> compressed);
+    // From upstream
+    void Read(std::pmr::vector<std::byte> compressed);
     void OnError(const Error& e);
+    void OnDone();
 
     // From downstream
     void Suspend() override;
     void Resume() override;
+    void Close() override;
 
 private:
     Suspendable* upstream_ = nullptr;
     std::shared_ptr<Downstream> downstream_;
 
     ZSTD_DStream* dstream_ = nullptr;
-    std::vector<std::byte> output_buffer_;
+    std::pmr::unsynchronized_pool_resource decompress_pool_;
 };
 ```
 
-Uses `ZSTD_decompressStream()` for streaming decompression.
-
 ### HistoricalClient
 
-Ties the pipeline together:
+Pipeline assembly:
 
 ```cpp
 using HistoricalPipeline = TlsSocket<HttpClient<ZstdDecompressor<DbnParser>>>;
@@ -254,14 +409,14 @@ private:
     std::string api_key_;
     State state_ = State::Idle;
 
-    std::shared_ptr<TcpSocket> tcp_;
+    TcpSocket* tcp_ = nullptr;  // raw ptr to head
     std::shared_ptr<HistoricalPipeline> pipeline_;
 };
 ```
 
 ## LiveClient Refactor
 
-Restructure LiveClient to use the same pattern:
+Same pipeline pattern:
 
 ```
 TcpSocket → CramAuth → DbnParser → Application
@@ -269,7 +424,7 @@ TcpSocket → CramAuth → DbnParser → Application
 
 ### CramAuth
 
-Two-phase component - auth then bypass:
+Two-phase: auth then bypass:
 
 ```cpp
 template<typename Downstream>
@@ -277,26 +432,40 @@ class CramAuth : public Suspendable {
 public:
     CramAuth(std::string api_key, std::shared_ptr<Downstream> downstream);
 
-    void Read(std::span<const std::byte> data) {
+    void SetUpstream(Suspendable* upstream) { upstream_ = upstream; }
+
+    void Read(std::pmr::vector<std::byte> data) {
         if (authenticated_) {
-            downstream_->Read(data);  // bypass: zero overhead
+            downstream_->Read(std::move(data));  // bypass
             return;
         }
-        ProcessAuthData(data);  // auth phase
+        ProcessAuthData(std::move(data));
     }
 
     void OnError(const Error& e);
+    void OnDone();
+
+    // From downstream
+    void Write(std::pmr::vector<std::byte> data);
     void Suspend() override;
     void Resume() override;
+    void Close() override;
 
-    void Subscribe(std::string_view dataset,
-                   std::string_view symbols,
-                   std::string_view schema);
+    void Subscribe(...);
     void Start();
 
 private:
-    void ProcessAuthData(std::span<const std::byte> data);
-    void EnterBypass();
+    void ProcessAuthData(std::pmr::vector<std::byte> data);
+
+    void EnterBypass(std::pmr::vector<std::byte> residual) {
+        authenticated_ = true;
+        line_buffer_.clear();
+        line_buffer_.shrink_to_fit();  // free auth buffers
+
+        if (!residual.empty()) {
+            downstream_->Read(std::move(residual));  // forward residual
+        }
+    }
 
     std::string api_key_;
     std::shared_ptr<Downstream> downstream_;
@@ -304,20 +473,12 @@ private:
 
     bool authenticated_ = false;
     std::string line_buffer_;
+
+    std::pmr::unsynchronized_pool_resource write_pool_;
 };
 ```
 
-Once authenticated, CramAuth becomes a passthrough with single branch check.
-
-### Pipeline Comparison
-
-| Component | HistoricalClient | LiveClient |
-|-----------|------------------|------------|
-| Transport | TcpSocket | TcpSocket |
-| Encryption | TlsSocket | - |
-| Protocol | HttpClient | CramAuth |
-| Compression | ZstdDecompressor | - |
-| Parsing | DbnParser | DbnParser |
+Key: forward residual bytes after auth, free auth buffers.
 
 ## Error Handling
 
@@ -346,7 +507,7 @@ enum class ErrorCode {
 };
 ```
 
-Errors propagate downstream through `OnError()` until they reach the application.
+Errors propagate downstream via `OnError()`, then `Close()` for cleanup.
 
 ## Dependencies
 
