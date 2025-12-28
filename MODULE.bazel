@@ -23,7 +23,8 @@ bazel_dep(name = "googletest", version = "1.15.2")
 # ============================================================================
 
 # TLS/Crypto (for CRAM auth SHA256, Historical TLS)
-bazel_dep(name = "openssl", version = "3.3.1.bcr.9")
+# Note: Using system OpenSSL instead of BCR version due to glibc compatibility issues
+# bazel_dep(name = "openssl", version = "3.3.1.bcr.9")
 
 # Decompression (for Historical API)
 bazel_dep(name = "zstd", version = "1.5.6")
@@ -34,6 +35,10 @@ bazel_dep(name = "zstd", version = "1.5.6")
 
 databento = use_extension("//third_party/databento:databento.bzl", "databento")
 use_repo(databento, "databento_cpp")
+
+# System OpenSSL wrapper
+openssl_sys = use_extension("//third_party/openssl:openssl.bzl", "openssl_sys_ext")
+use_repo(openssl_sys, "openssl_sys")
 
 # ============================================================================
 # C++ Toolchain
