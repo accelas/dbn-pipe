@@ -21,3 +21,14 @@ cc_library(
     hdrs = ["reactor.hpp"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "data_source",
+    hdrs = ["data_source.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":parser",
+        "@databento_cpp//:databento_headers",
+    ],
+)
