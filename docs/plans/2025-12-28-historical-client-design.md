@@ -329,6 +329,13 @@ upstream_->Close();  // UB - `this` destroyed mid-call
 // CRTP base - provides reentrancy-safe close
 template<typename Derived>
 class PipelineComponent {
+    // Compile-time check: Derived must have shared_from_this or override ScheduleClose
+    static_assert(
+        std::is_base_of_v<std::enable_shared_from_this<Derived>, Derived> ||
+        requires { &Derived::ScheduleClose; },  // has override
+        "Derived must inherit enable_shared_from_this or override ScheduleClose()"
+    );
+
 public:
     PipelineComponent(Reactor& reactor) : reactor_(reactor) {}
 
@@ -367,6 +374,23 @@ public:
     bool IsFinalized() const { return finalized_; }
     void SetFinalized() { finalized_ = true; }
     void ResetFinalized() { finalized_ = false; }  // call in ResetMessageState()
+
+    // Terminal emission helpers - centralize finalized_ + guard + downstream call
+    template<typename Downstream>
+    void EmitError(Downstream& downstream, const Error& e) {
+        if (finalized_) return;
+        finalized_ = true;
+        ProcessingGuard guard(*this);
+        downstream.OnError(e);
+    }
+
+    template<typename Downstream>
+    void EmitDone(Downstream& downstream) {
+        if (finalized_) return;
+        finalized_ = true;
+        ProcessingGuard guard(*this);
+        downstream.OnDone();
+    }
 
 protected:
     // Virtual so TcpSocket can override with raw this capture
@@ -660,9 +684,9 @@ private:
 - Works for both internal and external (app-triggered) Close calls
 - Single-threaded model - no atomics needed
 
-**DoClose() idempotency requirement:**
+**DoClose() idempotency and ordering:**
 
-Each component's `DoClose()` must be safe to call multiple times or tolerate reentrancy:
+Each component's `DoClose()` must be safe to call multiple times:
 
 ```cpp
 void DoClose() {
@@ -676,7 +700,14 @@ void DoClose() {
 }
 ```
 
-This handles edge cases where `upstream_->Close()` propagates back through the chain.
+**Why upstream_ is still valid when DoClose() runs:**
+1. Upstream's `DoClose()` calls `downstream_.reset()` first
+2. But downstream's `ScheduleClose()` captured `shared_from_this()`
+3. So downstream survives until its own `DoClose()` callback runs
+4. When downstream's `DoClose()` runs, it calls `upstream_->Close()`
+5. Upstream is still alive (TcpSocket on stack, or its own shared_ptr not yet released)
+
+The `shared_from_this()` capture ensures each component's `DoClose()` runs while upstream is alive.
 
 **IsClosed() early return pattern:**
 
@@ -1023,11 +1054,11 @@ int OnMessageBegin() { message_state_ = MessageState::InProgress; return 0; }
 int OnMessageComplete() {
     message_state_ = MessageState::Complete;
     if (status_code_ >= 400) {
-        downstream_->OnError({ErrorCode::HttpError, status_code_, error_body_});
+        this->EmitError(*downstream_, {ErrorCode::HttpError, status_code_, error_body_});
         this->RequestClose();
     } else {
-        downstream_->OnDone();
-        ResetMessageState();  // sets message_state_ = Idle
+        this->EmitDone(*downstream_);
+        ResetMessageState();  // sets message_state_ = Idle, ResetFinalized()
     }
     return 0;
 }
@@ -1051,7 +1082,7 @@ void OnDone() {  // from upstream (EOF)
                 // OnMessageComplete callback already fired via llhttp_finish
             } else {
                 // Truncated - parser rejected EOF
-                downstream_->OnError({ErrorCode::HttpParseError, llhttp_errno_name(err)});
+                this->EmitError(*downstream_, {ErrorCode::HttpParseError, llhttp_errno_name(err)});
                 this->RequestClose();
             }
             break;
@@ -1092,14 +1123,12 @@ Each message gets exactly one terminal signal:
 If llhttp encounters a parse error (malformed HTTP), it invokes `on_error` callback:
 ```cpp
 int OnParserError(llhttp_t* parser, const char* reason) {
-    if (this->IsFinalized()) return HPE_USER;
-    this->SetFinalized();  // prevent further signals
-    downstream_->OnError({ErrorCode::HttpParseError, reason});
+    this->EmitError(*downstream_, {ErrorCode::HttpParseError, reason});
     RequestClose();
     return HPE_USER;  // stop parsing
 }
 ```
-This uses the terminal guard to ensure single error signal even if EOF follows.
+Uses `EmitError` which sets `finalized_` to ensure single error signal even if EOF follows.
 
 **HTTP close-on-error rationale (4xx/5xx):**
 This design closes connection on HTTP errors because:
