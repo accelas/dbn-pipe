@@ -169,11 +169,12 @@ void DbnParserComponent<D>::DrainBuffer() {
         // Verify alignment assumptions at compile time
         static_assert((alignment & (alignment - 1)) == 0,
             "alignment must be power of 2");
-        static_assert((sizeof(void*) & (sizeof(void*) - 1)) == 0,
-            "sizeof(void*) must be power of 2");
-        static_assert(alignment % sizeof(void*) == 0,
-            "alignment must be multiple of sizeof(void*) for aligned_alloc");
+        static_assert(alignment >= sizeof(void*),
+            "alignment must be >= sizeof(void*) for aligned_alloc");
 
+        // record_size is bounded by kMaxBufferSize (16MB), so no overflow possible
+        static_assert(kMaxBufferSize <= SIZE_MAX - alignment,
+            "kMaxBufferSize too large for safe alignment rounding");
         std::size_t aligned_size = (record_size + alignment - 1) & ~(alignment - 1);
 
         auto* aligned_ptr = static_cast<std::byte*>(std::aligned_alloc(alignment, aligned_size));
