@@ -48,3 +48,16 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = ["@openssl_sys//:crypto"],
 )
+
+cc_library(
+    name = "live_client",
+    srcs = ["live_client.cpp"],
+    hdrs = ["live_client.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":cram_auth",
+        ":data_source",
+        ":reactor",
+        ":tcp_socket",
+    ],
+)
