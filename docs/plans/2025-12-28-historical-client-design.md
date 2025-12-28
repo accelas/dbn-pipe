@@ -211,25 +211,25 @@ public:
         downstream_->Read(std::move(processed));
     }
 
+    // Shutdown signals - ALWAYS propagate (no IsClosed check)
     void OnError(const Error& e) {
-        if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
         downstream_->OnError(e);
     }
 
     void OnDone() {
-        if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
         downstream_->OnDone();
     }
 
+    // Data path - reject after close
     void Write(std::pmr::vector<std::byte> data) {
         if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
         upstream_->Write(std::move(data));
     }
 
-    // Cold path - virtual dispatch, also guarded
+    // Cold path - reject after close
     void Suspend() override {
         if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
@@ -387,8 +387,32 @@ TcpSocket (stack/unique_ptr owned by app)
 - Its upstream still exists and holds `shared_ptr` to it, OR
 - It is TcpSocket (head), which is destroyed by application, not via `shared_ptr`
 
-For TcpSocket (head), the application must ensure no calls after destruction.
-This is the standard "don't use after delete" contract for stack/unique_ptr objects.
+**Head TcpSocket destruction requirements:**
+
+TcpSocket (head) is owned by the application, not via `shared_ptr`. To safely destroy it:
+
+```cpp
+// Option 1: Close and drain before destruction
+tcp->Close();                    // initiates teardown, schedules Defer()
+while (reactor.Poll(0) > 0) {}   // drain deferred queue
+// Now safe to destroy tcp
+
+// Option 2: Use unique_ptr and ensure reactor drains
+{
+    auto tcp = std::make_unique<TcpSocket>(reactor);
+    // ... use tcp ...
+    tcp->Close();
+}
+// tcp destroyed here - ONLY safe if reactor was drained
+
+// Option 3: Shared ownership (if needed for complex scenarios)
+auto tcp = std::make_shared<TcpSocket>(reactor);
+// Now tcp survives until all deferred callbacks complete
+```
+
+**Rule**: Application must drain `Reactor::Defer()` queue before destroying head TcpSocket,
+or ensure TcpSocket is not destroyed while deferred callbacks referencing it are pending.
+The simplest pattern is: `Close()` → drain reactor → destroy.
 
 **DisableWatchers() requirement:**
 
@@ -410,6 +434,26 @@ void DisableWatchers() {
 ```
 
 This ensures no I/O callbacks fire between `RequestClose()` and deferred `DoClose()`.
+
+**Reactor callback cancellation rule:**
+
+Any reactor callback that captures `this` must be one of:
+1. **Epoll events** - cancelled by `Event::Remove()` in `DisableWatchers()`
+2. **Deferred callbacks** - only `ScheduleClose()` uses `Reactor::Defer()`, protected by `close_scheduled_`
+3. **Timers** (if added) - must be cancelled in `DisableWatchers()`
+
+Components must not schedule additional `Reactor::Defer()` calls that capture `this` outside the
+controlled `ScheduleClose()` path. If needed, use weak ownership:
+
+```cpp
+// Safe pattern for additional deferred work
+auto weak = weak_from_this();
+reactor_.Defer([weak]() {
+    if (auto self = weak.lock()) {
+        self->DoWork();
+    }
+});
+```
 
 **Component inherits via CRTP:**
 
@@ -436,19 +480,19 @@ public:
         downstream_->Read(std::move(output));
     }
 
+    // Shutdown signals - ALWAYS propagate (no IsClosed check)
     void OnError(const Error& e) {
-        if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
         downstream_->OnError(e);
     }
 
     void OnDone() {
-        if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
+        // flush remaining data, check frame complete
         downstream_->OnDone();
     }
 
-    // Suspendable interface - all guarded
+    // Suspendable interface - reject after close
     void Suspend() override {
         if (this->IsClosed()) return;
         typename Base::ProcessingGuard guard(*this);
@@ -482,23 +526,62 @@ private:
 - Works for both internal and external (app-triggered) Close calls
 - Single-threaded model - no atomics needed
 
-**IsClosed() early return pattern:**
+**DoClose() idempotency requirement:**
 
-All public methods check `IsClosed()` before acquiring ProcessingGuard:
+Each component's `DoClose()` must be safe to call multiple times or tolerate reentrancy:
 
 ```cpp
+void DoClose() {
+    if (downstream_) {
+        downstream_.reset();  // safe: reset() is idempotent
+    }
+    if (upstream_) {
+        upstream_->Close();   // safe: Close() checks closed_ flag
+        upstream_ = nullptr;  // prevent double-call
+    }
+}
+```
+
+This handles edge cases where `upstream_->Close()` propagates back through the chain.
+
+**IsClosed() early return pattern:**
+
+Public methods check `IsClosed()`, but **OnDone/OnError always pass through** for protocol correctness:
+
+```cpp
+// Data methods - reject after close
 void Read(std::pmr::vector<std::byte> data) {
-    if (this->IsClosed()) return;  // reject new work after close requested
+    if (this->IsClosed()) return;  // reject new work
     typename Base::ProcessingGuard guard(*this);
     // ...
+}
+
+void Write(std::pmr::vector<std::byte> data) {
+    if (this->IsClosed()) return;
+    typename Base::ProcessingGuard guard(*this);
+    // ...
+}
+
+// Shutdown signals - ALWAYS propagate for flush/finalization
+void OnDone() {
+    // No IsClosed() check - must propagate for protocol correctness
+    typename Base::ProcessingGuard guard(*this);
+    // flush buffered data, finalize decompression, etc.
+    downstream_->OnDone();
+}
+
+void OnError(const Error& e) {
+    // No IsClosed() check - must propagate error to application
+    typename Base::ProcessingGuard guard(*this);
+    downstream_->OnError(e);
 }
 ```
 
 This ensures:
-1. No new processing starts after `RequestClose()` is called
-2. In-flight operations (already holding guard) complete normally
-3. Flush logic in OnDone() still runs if called before close
-4. Data passed to rejected calls is simply dropped (ownership transferred, then destroyed)
+1. No new data processing after `RequestClose()` is called
+2. Shutdown signals (OnDone/OnError) always reach application
+3. Protocol finalization (zstd frame complete, HTTP trailers) happens correctly
+4. ProcessingGuard still prevents close during propagation
 
 ### EOF Handling
 
