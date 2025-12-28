@@ -61,3 +61,13 @@ cc_library(
         ":tcp_socket",
     ],
 )
+
+cc_library(
+    name = "pipeline",
+    hdrs = ["pipeline.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":reactor",
+    ],
+)
