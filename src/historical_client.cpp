@@ -6,6 +6,34 @@
 
 namespace databento_async {
 
+namespace {
+
+// URL-encode a string for use in query parameters
+std::string UrlEncode(std::string_view str) {
+    std::string result;
+    result.reserve(str.size());
+
+    for (unsigned char c : str) {
+        // Unreserved characters (RFC 3986): A-Z a-z 0-9 - _ . ~
+        if ((c >= 'A' && c <= 'Z') ||
+            (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') ||
+            c == '-' || c == '_' || c == '.' || c == '~') {
+            result += static_cast<char>(c);
+        } else {
+            // Percent-encode all other characters
+            static const char hex[] = "0123456789ABCDEF";
+            result += '%';
+            result += hex[(c >> 4) & 0x0F];
+            result += hex[c & 0x0F];
+        }
+    }
+
+    return result;
+}
+
+}  // namespace
+
 // ApplicationSink implementation
 void ApplicationSink::Read(std::pmr::vector<std::byte> data) {
     if (!valid_ || !client_) return;
@@ -235,11 +263,11 @@ void HistoricalClient::SendHttpRequest() {
 std::string HistoricalClient::BuildHttpRequest() const {
     std::ostringstream request;
 
-    // Build the path with query parameters
+    // Build the path with query parameters (URL-encoded)
     request << "GET /v0/timeseries.get_range?";
-    request << "dataset=" << dataset_;
-    request << "&symbols=" << symbols_;
-    request << "&schema=" << schema_;
+    request << "dataset=" << UrlEncode(dataset_);
+    request << "&symbols=" << UrlEncode(symbols_);
+    request << "&schema=" << UrlEncode(schema_);
     request << "&start=" << start_;
     request << "&end=" << end_;
     request << "&encoding=dbn";       // DBN binary format

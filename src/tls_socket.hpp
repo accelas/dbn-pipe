@@ -259,6 +259,7 @@ void TlsSocket<D>::Read(std::pmr::vector<std::byte> data) {
     if (written <= 0) {
         this->EmitError(*downstream_,
                         {ErrorCode::TlsHandshakeFailed, "BIO_write failed"});
+        this->RequestClose();
         return;
     }
 
