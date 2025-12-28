@@ -383,13 +383,16 @@ protected:
     }
 
     Reactor& reactor_;
-    bool close_scheduled_ = false;
+    bool close_scheduled_ = false;  // single-threaded: no atomics needed
 
 private:
     int processing_count_ = 0;
     bool close_pending_ = false;
     bool closed_ = false;
     bool finalized_ = false;
+
+    // Note: All state is accessed from reactor thread only.
+    // Single-threaded reactor model eliminates data races.
 };
 ```
 
@@ -1055,6 +1058,30 @@ This distinguishes:
 - **Idle EOF**: Normal connection close after response complete (no error)
 - **InProgress EOF**: Truncation error (message started but not finished)
 - **Complete EOF**: Already handled by llhttp callback
+
+**Double OnDone prevention:**
+The `finalized_` terminal guard prevents double-done semantics:
+- `OnMessageComplete` calls `downstream_->OnDone()` then `ResetMessageState()` (resets finalized_)
+- If EOF arrives later, `OnDone()` checks `IsFinalized()` - won't fire again for same message
+- For keep-alive, `ResetFinalized()` enables next message's OnDone
+
+**Parser error handling:**
+If llhttp encounters a parse error (malformed HTTP), it invokes `on_error` callback:
+```cpp
+int OnError(llhttp_t* parser, const char* reason) {
+    downstream_->OnError({ErrorCode::HttpParseError, reason});
+    RequestClose();
+    return HPE_USER;  // stop parsing
+}
+```
+This fires regardless of `message_state_` - parse errors are always terminal.
+
+**HTTP close-on-error rationale (4xx/5xx):**
+This design closes connection on HTTP errors because:
+1. Historical API makes one request/response per connection
+2. Simplifies error handling (no partial state after error)
+3. Server may send `Connection: close` anyway on errors
+For general HTTP/1.1 keep-alive clients, errors could allow continuation.
 
 ```cpp
 static constexpr size_t kMaxErrorBodySize = 4096;
