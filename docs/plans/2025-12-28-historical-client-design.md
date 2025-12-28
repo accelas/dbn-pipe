@@ -365,12 +365,16 @@ public:
 
 protected:
     // Always defer DoClose to reactor - ensures stack fully unwinds
+    // Shared-owned components use shared_from_this for safety
     void ScheduleClose() {
         if (close_scheduled_) return;  // prevent duplicate deferrals
         close_scheduled_ = true;
         close_pending_ = false;
-        reactor_.Defer([this]() {
-            static_cast<Derived*>(this)->DoClose();
+
+        // Capture shared_ptr to guarantee lifetime until DoClose runs
+        auto self = static_cast<Derived*>(this)->shared_from_this();
+        reactor_.Defer([self]() {
+            static_cast<Derived*>(self.get())->DoClose();
         });
     }
 
@@ -389,24 +393,27 @@ private:
 };
 ```
 
-**Lifetime Invariant (why `this` capture is safe):**
+**Lifetime Invariant:**
 
-The ownership chain guarantees lifetime:
+Shared-owned components use `shared_from_this()` in `ScheduleClose()`:
+```cpp
+auto self = static_cast<Derived*>(this)->shared_from_this();
+reactor_.Defer([self]() { self->DoClose(); });
+```
+
+This guarantees the component stays alive until `DoClose()` runs, even if upstream
+calls `downstream_.reset()` before the deferred callback executes.
+
+The ownership chain:
 ```
 TcpSocket (stack/unique_ptr owned by app)
-  └─ shared_ptr<TlsSocket>         ← upstream holds this
-       └─ shared_ptr<HttpClient>   ← upstream holds this
+  └─ shared_ptr<TlsSocket>         ← upstream + deferred callback hold this
+       └─ shared_ptr<HttpClient>   ← upstream + deferred callback hold this
             └─ ...
 ```
 
-1. Component can only be destroyed by `upstream->downstream_.reset()`
-2. `downstream_.reset()` only happens inside `DoClose()`
-3. `DoClose()` only runs via `Reactor::Defer()` callback
-4. Until that callback executes, upstream still holds `shared_ptr`
-
-**Invariant**: A component's `RequestClose()` can only be called while:
-- Its upstream still exists and holds `shared_ptr` to it, OR
-- It is TcpSocket (head), which is destroyed by application, not via `shared_ptr`
+**TcpSocket (head) exception:**
+Application must follow `Close()` → `Poll()` → destroy pattern. See below.
 
 **Head TcpSocket destruction requirements:**
 
@@ -514,11 +521,36 @@ reactor_.Defer([this]() {  // ❌ NEVER DO THIS
 (upstream holds `shared_ptr` until `DoClose()` runs). All other callbacks lack this guarantee.
 
 **TcpSocket exception:**
-TcpSocket (head) is not shared-owned, so `weak_from_this()` is unavailable.
-TcpSocket must:
-1. Only use `ScheduleClose()` for deferred work (the strong capture there is safe)
-2. Never schedule arbitrary `Reactor::Defer()` work
-3. Application follows destruction pattern: `Close()` → `Poll()` → destroy
+TcpSocket (head) is not shared-owned, so cannot use `shared_from_this()` in `ScheduleClose()`.
+TcpSocket overrides `ScheduleClose()` with raw `this` capture:
+
+```cpp
+class TcpSocket : public PipelineComponent<TcpSocket> {
+protected:
+    void ScheduleClose() override {
+        if (close_scheduled_) return;
+        close_scheduled_ = true;
+        close_pending_ = false;
+        reactor_.Defer([this]() { DoClose(); });  // raw capture OK for head
+    }
+};
+```
+
+This is safe because application follows destruction pattern: `Close()` → `Poll()` → destroy.
+The Poll() drains all deferred callbacks including DoClose() before TcpSocket is destroyed.
+
+**Shared-owned components requirement:**
+All pipeline components except TcpSocket must inherit `std::enable_shared_from_this`:
+
+```cpp
+template<typename Downstream>
+class TlsSocket
+    : public PipelineComponent<TlsSocket<Downstream>>
+    , public Suspendable
+    , public std::enable_shared_from_this<TlsSocket<Downstream>> {  // required
+    // ...
+};
+```
 
 **Component inherits via CRTP:**
 
@@ -939,9 +971,35 @@ private:
 };
 ```
 
-On HTTP 4xx/5xx, calls `OnError()` with status and raw body (capped at 4KB to prevent
-unbounded memory growth on large error responses).
-On `on_message_complete`, calls `OnDone()`.
+**HTTP error handling (4xx/5xx):**
+- On 4xx/5xx status, calls `OnError()` with status and raw body (capped at 4KB)
+- HTTP errors are **terminal** - triggers `RequestClose()` after `OnError()`
+- No keep-alive for error responses (simplifies error handling)
+
+**HTTP success handling (2xx/3xx):**
+- On `on_message_complete`, calls `downstream_->OnDone()`
+- Followed by `ResetMessageState()` for keep-alive on next request
+
+**Truncation check in OnDone():**
+```cpp
+void HttpClient::OnDone() {
+    if (this->IsFinalized()) return;
+    this->SetFinalized();
+    typename Base::ProcessingGuard guard(*this);
+
+    // Check if HTTP message was complete when EOF arrived
+    if (!message_complete_) {
+        downstream_->OnError({ErrorCode::HttpParseError, "truncated HTTP response"});
+        this->RequestClose();
+        return;
+    }
+    downstream_->OnDone();
+    ResetMessageState();
+}
+```
+
+The `message_complete_` flag is set by `on_message_complete` callback from llhttp.
+If upstream (TLS/TCP) sends OnDone() before llhttp saw complete message, it's a truncation error.
 
 ```cpp
 static constexpr size_t kMaxErrorBodySize = 4096;
