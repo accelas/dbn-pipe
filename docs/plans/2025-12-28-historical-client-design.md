@@ -266,12 +266,23 @@ private:
 On `Close()` or EOF, strict ordering to prevent races:
 
 ```cpp
+// TcpSocket uses RequestClose like other components
 void TcpSocket::Close() {
-    if (closed_) return;    // idempotent
-    closed_ = true;
-    event_.Remove();        // 1. deregister from reactor
-    downstream_.reset();    // 2. release downstream chain
-    close(fd_);             // 3. close fd last
+    this->RequestClose();  // deferred via CRTP base
+}
+
+void TcpSocket::DisableWatchers() {
+    if (event_) {
+        event_->Remove();  // deregister from reactor
+    }
+}
+
+void TcpSocket::DoClose() {
+    downstream_.reset();    // release downstream chain (triggers their DoClose)
+    if (fd_ >= 0) {
+        ::close(fd_);       // close fd last
+        fd_ = -1;
+    }
 }
 ```
 
@@ -672,6 +683,8 @@ Both terminal states (done/error) end with `Close()`.
 
 ```cpp
 void ZstdDecompressor::OnDone() {
+    if (this->IsFinalized()) return;  // terminal guard
+    this->SetFinalized();
     typename Base::ProcessingGuard guard(*this);
 
     // Flush remaining decompressed data
@@ -687,7 +700,7 @@ void ZstdDecompressor::OnDone() {
     downstream_->OnDone();
 
     // Reset for next message (keep-alive scenarios)
-    ResetMessageState();
+    ResetMessageState();  // includes ResetFinalized()
 }
 ```
 
@@ -753,11 +766,17 @@ Each component resets per-message state after `OnDone()`:
 
 | Component | State to Reset |
 |-----------|----------------|
-| All (via CRTP) | `ResetFinalized()` - re-enable OnDone/OnError for next message |
-| HttpClient | `llhttp_init()`, clear status_code, headers_done, error_body_ |
-| ZstdDecompressor | `ZSTD_initDStream()`, clear buffered data |
-| DbnParser | Clear partial record buffer |
+| HttpClient | `ResetFinalized()`, `llhttp_init()`, status_code, headers_done, error_body_ |
+| ZstdDecompressor | `ResetFinalized()`, `ZSTD_initDStream()`, buffered data |
+| DbnParser | `ResetFinalized()`, partial record buffer |
+| TlsSocket | No reset - passthrough only, doesn't know message boundaries |
+| TcpSocket | No reset - only sends OnDone() on connection close |
 | CramAuth | No reset needed (bypass mode is stateless) |
+
+**Note:** Only components that originate or process message boundaries call `ResetMessageState()`.
+TlsSocket and TcpSocket are stream-level; they pass through OnDone() but don't reset because:
+- TlsSocket: TLS is a stream protocol, no message boundaries
+- TcpSocket: OnDone() means connection close, no "next message"
 
 ```cpp
 void HttpClient::ResetMessageState() {
