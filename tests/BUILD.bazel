@@ -18,3 +18,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "reactor_test",
+    srcs = ["reactor_test.cpp"],
+    deps = [
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)

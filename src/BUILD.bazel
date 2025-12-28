@@ -14,3 +14,10 @@ cc_library(
     hdrs = ["error.hpp"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "reactor",
+    srcs = ["reactor.cpp"],
+    hdrs = ["reactor.hpp"],
+    visibility = ["//visibility:public"],
+)
