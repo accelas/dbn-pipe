@@ -1,6 +1,7 @@
 // tests/live_client_test.cpp
 #include <gtest/gtest.h>
 
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -18,6 +19,16 @@
 #include "src/reactor.hpp"
 
 using namespace databento_async;
+
+// Helper to create sockaddr_storage from IPv4 address and port
+sockaddr_storage make_addr(const char* ip, int port) {
+    sockaddr_storage storage{};
+    auto* addr = reinterpret_cast<sockaddr_in*>(&storage);
+    addr->sin_family = AF_INET;
+    addr->sin_port = htons(port);
+    inet_pton(AF_INET, ip, &addr->sin_addr);
+    return storage;
+}
 
 // Ignore SIGPIPE at program startup to prevent crashes on socket writes
 namespace {
@@ -221,7 +232,7 @@ TEST_F(LiveClientTest, ConnectAndAuth) {
     });
 
     client.Subscribe("test.dbn", "AAPL", "trades");
-    client.Connect("127.0.0.1", server.port());
+    client.Connect(make_addr("127.0.0.1", server.port()));
 
     // Poll until we reach Ready state or timeout
     auto start = std::chrono::steady_clock::now();
@@ -260,7 +271,7 @@ TEST_F(LiveClientTest, ReceiveRecord) {
     });
 
     client.Subscribe("test.dbn", "AAPL", "trades");
-    client.Connect("127.0.0.1", server.port());
+    client.Connect(make_addr("127.0.0.1", server.port()));
 
     // Wait for Ready state
     auto start = std::chrono::steady_clock::now();
@@ -302,7 +313,7 @@ TEST_F(LiveClientTest, ConnectionError) {
     });
 
     // Connect to port that's not listening
-    client.Connect("127.0.0.1", 59999);
+    client.Connect(make_addr("127.0.0.1", 59999));
 
     // Poll for result with timeout
     auto start = std::chrono::steady_clock::now();
@@ -331,7 +342,7 @@ TEST_F(LiveClientTest, AuthenticationFailure) {
     });
 
     client.Subscribe("test.dbn", "AAPL", "trades");
-    client.Connect("127.0.0.1", server.port());
+    client.Connect(make_addr("127.0.0.1", server.port()));
 
     // Poll for result with timeout
     auto start = std::chrono::steady_clock::now();
@@ -353,7 +364,7 @@ TEST_F(LiveClientTest, CloseWhileConnected) {
     LiveClient client(&reactor, "db-test-api-key-12345");
 
     client.Subscribe("test.dbn", "AAPL", "trades");
-    client.Connect("127.0.0.1", server.port());
+    client.Connect(make_addr("127.0.0.1", server.port()));
 
     // Poll until past Connecting
     auto start = std::chrono::steady_clock::now();
@@ -385,7 +396,7 @@ TEST_F(LiveClientTest, StateTransitions) {
     EXPECT_EQ(client.GetState(), LiveClient::State::Disconnected);
 
     client.Subscribe("test.dbn", "AAPL", "trades");
-    client.Connect("127.0.0.1", server.port());
+    client.Connect(make_addr("127.0.0.1", server.port()));
 
     EXPECT_EQ(client.GetState(), LiveClient::State::Connecting);
 
