@@ -128,3 +128,16 @@ cc_library(
         ":zstd_decompressor",
     ],
 )
+
+cc_library(
+    name = "dbn_parser_component",
+    hdrs = ["dbn_parser_component.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":pipeline",
+        ":reactor",
+        ":tls_socket",
+        "@databento_cpp//:databento_headers",
+    ],
+)
