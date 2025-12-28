@@ -133,6 +133,36 @@
         ]
       }
     },
+    "//third_party/llhttp:llhttp.bzl%llhttp_ext": {
+      "general": {
+        "bzlTransitiveDigest": "WIHfiHlSnpp7b+DThRofkkvRKePY47SehC/Hb4sMyq8=",
+        "usagesDigest": "TqunWvzfcCoVeob6aTamzonIax3tJ8OSb6xwAYR8oBM=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "llhttp": {
+            "bzlFile": "@@bazel_tools//tools/build_defs/repo:http.bzl",
+            "ruleClassName": "http_archive",
+            "attributes": {
+              "urls": [
+                "https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.3.0.tar.gz"
+              ],
+              "strip_prefix": "llhttp-release-v9.3.0",
+              "sha256": "1a2b45cb8dda7082b307d336607023aa65549d6f060da1d246b1313da22b685a",
+              "build_file": "@@//third_party/llhttp:BUILD.llhttp.bazel"
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "",
+            "bazel_tools",
+            "bazel_tools"
+          ]
+        ]
+      }
+    },
     "//third_party/openssl:openssl.bzl%openssl_sys_ext": {
       "general": {
         "bzlTransitiveDigest": "xE7E5XrJLoDzdh/ZGht+lGHi5fn+J+dUi0vZn1lENuo=",
