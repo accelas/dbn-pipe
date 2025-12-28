@@ -3,6 +3,7 @@
 
 #include <netinet/in.h>
 
+#include <concepts>
 #include <cstdint>
 #include <functional>
 #include <span>
@@ -12,6 +13,19 @@
 namespace databento_async {
 
 class Reactor;
+
+// Callback concepts
+template<typename F>
+concept ConnectHandler = std::invocable<F>;
+
+template<typename F>
+concept ReadHandler = std::invocable<F, std::span<const std::byte>>;
+
+template<typename F>
+concept WriteHandler = std::invocable<F>;
+
+template<typename F>
+concept ErrorHandler = std::invocable<F, std::error_code>;
 
 class TcpSocket {
 public:
@@ -39,10 +53,17 @@ public:
     void Close();
 
     // Callbacks
-    void OnConnect(ConnectCallback cb) { on_connect_ = std::move(cb); }
-    void OnRead(ReadCallback cb) { on_read_ = std::move(cb); }
-    void OnWrite(WriteCallback cb) { on_write_ = std::move(cb); }
-    void OnError(ErrorCallback cb) { on_error_ = std::move(cb); }
+    template<ConnectHandler F>
+    void OnConnect(F&& cb) { on_connect_ = std::forward<F>(cb); }
+
+    template<ReadHandler F>
+    void OnRead(F&& cb) { on_read_ = std::forward<F>(cb); }
+
+    template<WriteHandler F>
+    void OnWrite(F&& cb) { on_write_ = std::forward<F>(cb); }
+
+    template<ErrorHandler F>
+    void OnError(F&& cb) { on_error_ = std::forward<F>(cb); }
 
     // State
     bool IsConnected() const { return connected_; }
