@@ -112,6 +112,15 @@ int Reactor::Poll(int timeout_ms) {
         event->Handle(events_[i].events);
     }
 
+    // Run deferred callbacks
+    while (!deferred_.empty()) {
+        auto callbacks = std::move(deferred_);
+        deferred_.clear();
+        for (auto& cb : callbacks) {
+            cb();
+        }
+    }
+
     return n;
 }
 
