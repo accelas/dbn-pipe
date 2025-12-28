@@ -141,3 +141,16 @@ cc_library(
         "@databento_cpp//:databento_headers",
     ],
 )
+
+cc_library(
+    name = "live_protocol_handler",
+    hdrs = ["live_protocol_handler.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":cram_auth",
+        ":error",
+        ":pipeline",
+        ":reactor",
+        ":tls_socket",
+    ],
+)
