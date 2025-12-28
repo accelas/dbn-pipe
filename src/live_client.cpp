@@ -7,7 +7,7 @@
 
 namespace databento_async {
 
-LiveClient::LiveClient(Reactor* reactor, std::string api_key)
+LiveClient::LiveClient(Reactor& reactor, std::string api_key)
     : reactor_(reactor),
       socket_(reactor),
       api_key_(std::move(api_key)) {

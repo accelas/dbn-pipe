@@ -2,10 +2,12 @@
 #include <gtest/gtest.h>
 
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <memory>
 #include <thread>
 
 #include "src/reactor.hpp"
@@ -51,7 +53,7 @@ TEST(TcpSocketTest, ConnectSuccess) {
     int port;
     int listener = create_listener(port);
 
-    TcpSocket sock(&reactor);
+    TcpSocket sock(reactor);
 
     bool connected = false;
     sock.OnConnect([&]() {
@@ -66,8 +68,9 @@ TEST(TcpSocketTest, ConnectSuccess) {
 
     sock.Connect(make_addr("127.0.0.1", port));
 
-    // Accept on server side
-    reactor.Add(listener, EPOLLIN, [&](uint32_t) {
+    // Accept on server side using Event
+    Event listener_event(reactor, listener, EPOLLIN);
+    listener_event.OnEvent([&](uint32_t) {
         int client = accept(listener, nullptr, nullptr);
         EXPECT_GE(client, 0);
         close(client);
@@ -83,7 +86,7 @@ TEST(TcpSocketTest, ConnectSuccess) {
 TEST(TcpSocketTest, ConnectFail) {
     Reactor reactor;
 
-    TcpSocket sock(&reactor);
+    TcpSocket sock(reactor);
 
     bool got_error = false;
     sock.OnConnect([&]() {
@@ -110,7 +113,7 @@ TEST(TcpSocketTest, ReadWrite) {
     int port;
     int listener = create_listener(port);
 
-    TcpSocket sock(&reactor);
+    TcpSocket sock(reactor);
     int server_fd = -1;
 
     std::string received;
@@ -131,25 +134,31 @@ TEST(TcpSocketTest, ReadWrite) {
         reactor.Stop();
     });
 
-    reactor.Add(listener, EPOLLIN, [&](uint32_t) {
-        server_fd = accept4(listener, nullptr, nullptr, SOCK_NONBLOCK);
-        reactor.Remove(listener);
+    // Accept synchronously before starting reactor
+    sock.Connect(make_addr("127.0.0.1", port));
 
-        // Echo server: read "hello", write "world"
-        reactor.Add(server_fd, EPOLLIN, [&](uint32_t) {
-            char buf[16];
-            ssize_t n = read(server_fd, buf, sizeof(buf));
-            if (n > 0) {
-                write(server_fd, "world", 5);
-            }
-        });
+    // Wait for connection and accept
+    server_fd = accept(listener, nullptr, nullptr);
+    ASSERT_GE(server_fd, 0);
+
+    // Make server non-blocking
+    int flags = fcntl(server_fd, F_GETFL, 0);
+    fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
+
+    // Create server event for echo
+    Event server_event(reactor, server_fd, EPOLLIN);
+    server_event.OnEvent([&](uint32_t) {
+        char buf[16];
+        ssize_t n = read(server_fd, buf, sizeof(buf));
+        if (n > 0) {
+            write(server_fd, "world", 5);
+        }
     });
 
-    sock.Connect(make_addr("127.0.0.1", port));
     reactor.Run();
 
     EXPECT_EQ(received, "world");
 
-    if (server_fd >= 0) close(server_fd);
+    close(server_fd);
     close(listener);
 }
