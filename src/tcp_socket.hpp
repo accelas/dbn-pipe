@@ -60,10 +60,10 @@ private:
     std::vector<std::byte> write_buffer_;
     std::vector<std::byte> read_buffer_;
 
-    ConnectCallback on_connect_;
-    ReadCallback on_read_;
-    WriteCallback on_write_;
-    ErrorCallback on_error_;
+    ConnectCallback on_connect_ = []() {};
+    ReadCallback on_read_ = [](std::span<const std::byte>) {};
+    WriteCallback on_write_ = []() {};
+    ErrorCallback on_error_ = [](std::error_code) {};
 
     static constexpr size_t kReadBufferSize = 65536;
 };
