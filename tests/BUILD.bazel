@@ -27,3 +27,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "data_source_test",
+    srcs = ["data_source_test.cpp"],
+    deps = [
+        "//src:data_source",
+        "@databento_cpp//:databento_headers",
+        "@googletest//:gtest_main",
+    ],
+)
