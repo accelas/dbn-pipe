@@ -320,9 +320,9 @@ void LiveProtocolHandler<D>::HandleChallenge(std::string_view line) {
 template <Downstream D>
 void LiveProtocolHandler<D>::HandleAuthResponse(std::string_view line) {
     // Check for auth success or failure
-    // Server responds with various status messages
+    // Server responds with "success=1|session_id=X|" or "success=0|error=msg|"
 
-    // Check for error responses
+    // Check for error responses (legacy format)
     if (line.starts_with("err=")) {
         this->EmitError(*downstream_,
             Error{ErrorCode::AuthFailed,
@@ -331,7 +331,54 @@ void LiveProtocolHandler<D>::HandleAuthResponse(std::string_view line) {
         return;
     }
 
-    // Any non-error response means auth succeeded
+    // Parse key=value pairs separated by |
+    bool found_success = false;
+    bool is_success = false;
+    std::string error_msg;
+
+    std::string_view remaining = line;
+    while (!remaining.empty()) {
+        auto pipe_pos = remaining.find('|');
+        std::string_view kv;
+        if (pipe_pos != std::string_view::npos) {
+            kv = remaining.substr(0, pipe_pos);
+            remaining = remaining.substr(pipe_pos + 1);
+        } else {
+            kv = remaining;
+            remaining = {};
+        }
+
+        if (kv.empty()) continue;
+
+        auto eq_pos = kv.find('=');
+        if (eq_pos == std::string_view::npos) continue;
+
+        auto key = kv.substr(0, eq_pos);
+        auto value = kv.substr(eq_pos + 1);
+
+        if (key == "success") {
+            found_success = true;
+            is_success = (value == "1");
+        } else if (key == "error") {
+            error_msg = value;
+        } else if (key == "session_id") {
+            // Update session_id in greeting if provided
+            greeting_.session_id = value;
+        }
+    }
+
+    if (found_success && !is_success) {
+        std::string msg = "Authentication failed";
+        if (!error_msg.empty()) {
+            msg += ": " + error_msg;
+        }
+        this->EmitError(*downstream_,
+            Error{ErrorCode::AuthFailed, msg});
+        this->RequestClose();
+        return;
+    }
+
+    // Auth succeeded
     state_ = LiveProtocolState::Ready;
 
     // Send any pending subscription
