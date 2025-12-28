@@ -34,23 +34,27 @@ std::string UrlEncode(std::string_view str) {
 
 }  // namespace
 
-// ApplicationSink implementation
-void ApplicationSink::Read(std::pmr::vector<std::byte> data) {
-    if (!valid_ || !client_) return;
-    client_->HandleDecompressedData(std::move(data));
+// Sink implementation
+
+void HistoricalClient::Sink::OnRecord(const databento::Record& rec) {
+    if (!valid_) return;
+    client_->HandleRecord(rec);
 }
 
-void ApplicationSink::OnError(const Error& e) {
-    if (!valid_ || !client_) return;
+void HistoricalClient::Sink::OnError(const Error& e) {
+    if (!valid_) return;
+    valid_ = false;  // Prevent further callbacks
     client_->HandlePipelineError(e);
 }
 
-void ApplicationSink::OnDone() {
-    if (!valid_ || !client_) return;
+void HistoricalClient::Sink::OnDone() {
+    if (!valid_) return;
+    valid_ = false;  // Prevent further callbacks
     client_->HandlePipelineComplete();
 }
 
 // HistoricalClient implementation
+
 HistoricalClient::HistoricalClient(Reactor& reactor, std::string api_key)
     : reactor_(reactor),
       api_key_(std::move(api_key)) {
@@ -67,26 +71,36 @@ void HistoricalClient::Request(std::string_view dataset,
                                std::uint64_t start,
                                std::uint64_t end) {
     if (state_ != State::Disconnected) {
-        DeliverError(Error{ErrorCode::InvalidState,
-                           "Request() can only be called when disconnected"});
+        if (error_handler_) {
+            error_handler_(Error{ErrorCode::InvalidState,
+                               "Request() can only be called when disconnected"});
+        }
         return;
     }
 
     if (dataset.empty()) {
-        DeliverError(Error{ErrorCode::InvalidDataset, "Dataset cannot be empty"});
+        if (error_handler_) {
+            error_handler_(Error{ErrorCode::InvalidDataset, "Dataset cannot be empty"});
+        }
         return;
     }
     if (symbols.empty()) {
-        DeliverError(Error{ErrorCode::InvalidSymbol, "Symbols cannot be empty"});
+        if (error_handler_) {
+            error_handler_(Error{ErrorCode::InvalidSymbol, "Symbols cannot be empty"});
+        }
         return;
     }
     if (schema.empty()) {
-        DeliverError(Error{ErrorCode::InvalidSchema, "Schema cannot be empty"});
+        if (error_handler_) {
+            error_handler_(Error{ErrorCode::InvalidSchema, "Schema cannot be empty"});
+        }
         return;
     }
     if (start >= end) {
-        DeliverError(Error{ErrorCode::InvalidTimeRange,
-                           "Start timestamp must be less than end timestamp"});
+        if (error_handler_) {
+            error_handler_(Error{ErrorCode::InvalidTimeRange,
+                               "Start timestamp must be less than end timestamp"});
+        }
         return;
     }
 
@@ -99,15 +113,19 @@ void HistoricalClient::Request(std::string_view dataset,
 
 void HistoricalClient::Connect(const sockaddr_storage& addr) {
     if (state_ != State::Disconnected) {
-        DeliverError(Error{ErrorCode::InvalidState,
-                           "Connect() can only be called when disconnected"});
+        if (error_handler_) {
+            error_handler_(Error{ErrorCode::InvalidState,
+                               "Connect() can only be called when disconnected"});
+        }
         return;
     }
 
     // Validate that Request() was called
     if (dataset_.empty()) {
-        DeliverError(Error{ErrorCode::InvalidState,
-                           "Request() must be called before Connect()"});
+        if (error_handler_) {
+            error_handler_(Error{ErrorCode::InvalidState,
+                               "Request() must be called before Connect()"});
+        }
         return;
     }
 
@@ -123,57 +141,56 @@ void HistoricalClient::Connect(const sockaddr_storage& addr) {
 void HistoricalClient::Start() {
     // For historical API, data starts flowing after HTTP response is received
     // This method resumes the parser if it was paused
-    if (IsPaused()) {
-        Resume();
+    if (parser_) {
+        parser_->Resume();
     }
 }
 
 void HistoricalClient::Stop() {
-    // Mark as stopped to prevent callbacks from firing
-    stopped_ = true;
-
-    // Invalidate sink before cleanup to prevent dangling pointer access
-    if (sink_) {
-        sink_->Invalidate();
-    }
-
-    // Close pipeline components in order
-    if (tcp_) {
-        tcp_->Close();
-    }
-
-    // Reset pipeline components
-    tcp_.reset();
-    tls_.reset();
-    http_.reset();
-    decompressor_.reset();
-    sink_.reset();
-
+    TeardownPipeline();
     state_ = State::Disconnected;
 }
 
+void HistoricalClient::Pause() {
+    if (state_ != State::Streaming) return;
+    if (parser_) {
+        parser_->Suspend();
+    }
+}
+
+void HistoricalClient::Resume() {
+    if (state_ != State::Streaming) return;
+    if (parser_) {
+        parser_->Resume();
+    }
+}
+
 void HistoricalClient::BuildPipeline() {
-    // Build pipeline from bottom up (data flows: tcp -> tls -> http -> zstd -> sink)
+    // Build pipeline from bottom up (data flows: tcp -> tls -> http -> zstd -> parser -> sink)
 
     // 1. Create the application sink (final downstream)
-    sink_ = std::make_shared<ApplicationSink>(this);
+    sink_ = std::make_shared<Sink>(this);
 
-    // 2. Create ZstdDecompressor with sink as downstream
-    decompressor_ = ZstdDecompressor<ApplicationSink>::Create(reactor_, sink_);
+    // 2. Create DbnParserComponent with sink as downstream
+    parser_ = ParserType::Create(reactor_, sink_);
 
-    // 3. Create HttpClient with decompressor as downstream
-    http_ = HttpClient<ZstdDecompressor<ApplicationSink>>::Create(reactor_, decompressor_);
-    decompressor_->SetUpstream(http_.get());
+    // 3. Create ZstdDecompressor with parser as downstream
+    zstd_ = ZstdType::Create(reactor_, parser_);
+    parser_->SetUpstream(zstd_.get());
 
-    // 4. Create TlsSocket with http as downstream
-    tls_ = TlsSocket<HttpClient<ZstdDecompressor<ApplicationSink>>>::Create(reactor_, http_);
+    // 4. Create HttpClient with zstd as downstream
+    http_ = HttpType::Create(reactor_, zstd_);
+    zstd_->SetUpstream(http_.get());
+
+    // 5. Create TlsSocket with http as downstream
+    tls_ = TlsType::Create(reactor_, http_);
     http_->SetUpstream(tls_.get());
     tls_->SetHostname("hist.databento.com");
 
-    // 5. Create TcpSocket
+    // 6. Create TcpSocket
     tcp_ = std::make_unique<TcpSocket>(reactor_);
 
-    // 6. Wire TcpSocket callbacks
+    // 7. Wire TcpSocket callbacks
     tcp_->OnConnect([this]() {
         HandleTcpConnect();
     });
@@ -186,7 +203,7 @@ void HistoricalClient::BuildPipeline() {
         HandleTcpError(ec);
     });
 
-    // 7. Wire TlsSocket to write encrypted data back through TcpSocket
+    // 8. Wire TlsSocket to write encrypted data back through TcpSocket
     tls_->SetUpstreamWriteCallback([this](std::pmr::vector<std::byte> encrypted) {
         if (tcp_ && tcp_->IsConnected()) {
             tcp_->Write(std::span<const std::byte>(encrypted.data(), encrypted.size()));
@@ -194,15 +211,45 @@ void HistoricalClient::BuildPipeline() {
     });
 }
 
+void HistoricalClient::TeardownPipeline() {
+    // Invalidate sink to prevent callbacks during teardown
+    if (sink_) {
+        sink_->Invalidate();
+    }
+
+    // Close TCP socket first
+    if (tcp_) {
+        tcp_->Close();
+        tcp_.reset();
+    }
+
+    // Close pipeline components
+    if (tls_) {
+        tls_.reset();
+    }
+
+    if (http_) {
+        http_.reset();
+    }
+
+    if (zstd_) {
+        zstd_.reset();
+    }
+
+    if (parser_) {
+        parser_->Close();
+        parser_.reset();
+    }
+
+    sink_.reset();
+}
+
 void HistoricalClient::HandleTcpConnect() {
-    if (stopped_) return;
     state_ = State::TlsHandshaking;
     tls_->StartHandshake();
 }
 
 void HistoricalClient::HandleTcpRead(std::span<const std::byte> data) {
-    if (stopped_) return;
-
     // Convert span to pmr::vector for TlsSocket
     std::pmr::vector<std::byte> buffer(&pool_);
     buffer.assign(data.begin(), data.end());
@@ -218,34 +265,38 @@ void HistoricalClient::HandleTcpRead(std::span<const std::byte> data) {
 }
 
 void HistoricalClient::HandleTcpError(std::error_code ec) {
-    if (stopped_) return;
     state_ = State::Error;
-    DeliverError(Error{ErrorCode::ConnectionFailed, ec.message(), ec.value()});
+    if (error_handler_) {
+        error_handler_(Error{ErrorCode::ConnectionFailed, ec.message(), ec.value()});
+    }
+    // No teardown here - let destructor or Stop() handle it
+    // Synchronous teardown is NOT safe since we're inside TcpSocket callback
 }
 
-void HistoricalClient::HandleDecompressedData(std::pmr::vector<std::byte> data) {
-    if (stopped_) return;
-
-    // Update state if this is the first data received
+void HistoricalClient::HandleRecord(const databento::Record& rec) {
+    // Update state if this is the first record received
     if (state_ == State::SendingRequest || state_ == State::ReceivingResponse) {
         state_ = State::Streaming;
     }
 
-    // Forward decompressed DBN data to the parser
-    DeliverBytes(std::span<const std::byte>(data.data(), data.size()));
+    // Forward parsed record to the application callback
+    if (record_handler_) {
+        record_handler_(rec);
+    }
 }
 
 void HistoricalClient::HandlePipelineError(const Error& e) {
-    if (stopped_) return;
     state_ = State::Error;
-    DeliverError(e);
+    if (error_handler_) {
+        error_handler_(e);
+    }
 }
 
 void HistoricalClient::HandlePipelineComplete() {
-    if (stopped_) return;
     state_ = State::Complete;
-    // The DataSource doesn't have an OnComplete callback, but we could add one
-    // For now, we just update the state
+    if (complete_handler_) {
+        complete_handler_();
+    }
 }
 
 void HistoricalClient::SendHttpRequest() {
