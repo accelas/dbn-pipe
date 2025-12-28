@@ -145,8 +145,11 @@ public:
                 WatchWritable();  // register EPOLLOUT
                 return;
             }
-            // Real error
-            downstream_->OnError({ErrorCode::ConnectionFailed, strerror(errno)});
+            // Real error - use terminal guard to prevent duplicate signals
+            if (!error_signaled_) {
+                error_signaled_ = true;
+                downstream_->OnError({ErrorCode::ConnectionFailed, strerror(errno)});
+            }
             RequestClose();
             return;
         }
@@ -169,6 +172,7 @@ private:
 
     std::deque<std::pmr::vector<std::byte>> pending_writes_;
     std::pmr::unsynchronized_pool_resource write_pool_;
+    bool error_signaled_ = false;  // terminal guard for TcpSocket errors
 };
 ```
 
@@ -1065,13 +1069,14 @@ int OnMessageComplete() {
 
 void OnDone() {  // from upstream (EOF)
     if (this->IsFinalized()) return;
-    this->SetFinalized();
+    // Note: Do NOT set finalized_ here - llhttp_finish may trigger OnMessageComplete
     typename Base::ProcessingGuard guard(*this);
 
     switch (message_state_) {
         case MessageState::Idle:
             // Connection closed between messages (keep-alive close)
             // No downstream OnDone - message already completed via OnMessageComplete
+            this->SetFinalized();  // finalize after we know no more signals needed
             break;
         case MessageState::InProgress: {
             // EOF while message in progress - try to finalize
@@ -1079,7 +1084,8 @@ void OnDone() {  // from upstream (EOF)
             llhttp_errno_t err = llhttp_finish(&parser_);
             if (err == HPE_OK) {
                 // Parser accepted EOF as valid end-of-message
-                // OnMessageComplete callback already fired via llhttp_finish
+                // OnMessageComplete callback fired via llhttp_finish, which called EmitDone
+                // finalized_ was set by EmitDone
             } else {
                 // Truncated - parser rejected EOF
                 this->EmitError(*downstream_, {ErrorCode::HttpParseError, llhttp_errno_name(err)});
@@ -1089,6 +1095,7 @@ void OnDone() {  // from upstream (EOF)
         }
         case MessageState::Complete:
             // Already handled in OnMessageComplete
+            this->SetFinalized();  // ensure finalized for any further EOF
             break;
     }
 }
@@ -1136,6 +1143,13 @@ This design closes connection on HTTP errors because:
 2. Simplifies error handling (no partial state after error)
 3. Server may send `Connection: close` anyway on errors
 For general HTTP/1.1 keep-alive clients, errors could allow continuation.
+
+**No HTTP pipelining:**
+This client does not support HTTP pipelining (multiple requests before responses).
+- One request sent, one response received, then optionally another request
+- `ResetMessageState()` is safe because it's called after response complete
+- `llhttp` reset happens before next request, not during parsing
+- Historical API uses single request/response anyway
 
 ```cpp
 static constexpr size_t kMaxErrorBodySize = 4096;
