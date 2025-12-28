@@ -109,3 +109,12 @@ cc_test(
         "@zstd",
     ],
 )
+
+cc_test(
+    name = "historical_client_test",
+    srcs = ["historical_client_test.cpp"],
+    deps = [
+        "//src:historical_client",
+        "@googletest//:gtest_main",
+    ],
+)

@@ -112,3 +112,14 @@ cc_library(
         "@zstd",
     ],
 )
+
+cc_library(
+    name = "historical_client",
+    srcs = ["historical_client.cpp"],
+    hdrs = ["historical_client.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":data_source",
+        ":reactor",
+    ],
+)
