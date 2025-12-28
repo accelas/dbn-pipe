@@ -55,10 +55,12 @@ cc_library(
     hdrs = ["live_client.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":cram_auth",
-        ":data_source",
+        ":dbn_parser_component",
+        ":error",
+        ":live_protocol_handler",
         ":reactor",
         ":tcp_socket",
+        "@databento_cpp//:databento_headers",
     ],
 )
 

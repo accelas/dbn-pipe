@@ -217,6 +217,84 @@ protected:
     }
 };
 
+// ============================================================================
+// Task 4: New orchestrator tests
+// ============================================================================
+
+TEST_F(LiveClientTest, ConstructsWithApiKey) {
+    // Test: Creating a client should start in Disconnected state
+    Reactor reactor;
+    LiveClient client(reactor, "db-test-api-key");
+
+    EXPECT_EQ(client.GetState(), LiveClient::State::Disconnected);
+}
+
+TEST_F(LiveClientTest, ConnectChangesState) {
+    // Test: Connect() should transition to Connecting state
+    Reactor reactor;
+    MockLsgServer server;
+    server.RunAuthFlow(true);
+
+    LiveClient client(reactor, "db-test-api-key");
+    EXPECT_EQ(client.GetState(), LiveClient::State::Disconnected);
+
+    client.Connect(make_addr("127.0.0.1", server.port()));
+
+    EXPECT_EQ(client.GetState(), LiveClient::State::Connecting);
+
+    server.Stop();
+}
+
+TEST_F(LiveClientTest, StopResetsState) {
+    // Test: Stop() should return to Disconnected state
+    Reactor reactor;
+    MockLsgServer server;
+    server.RunAuthFlow(true);
+
+    LiveClient client(reactor, "db-test-api-key");
+
+    client.Connect(make_addr("127.0.0.1", server.port()));
+    EXPECT_EQ(client.GetState(), LiveClient::State::Connecting);
+
+    client.Stop();
+    EXPECT_EQ(client.GetState(), LiveClient::State::Disconnected);
+
+    server.Stop();
+}
+
+TEST_F(LiveClientTest, ConnectWhenNotDisconnectedErrors) {
+    // Test: Calling Connect() when not disconnected should error with InvalidState
+    Reactor reactor;
+    MockLsgServer server;
+    server.RunAuthFlow(true);
+
+    LiveClient client(reactor, "db-test-api-key");
+
+    bool got_error = false;
+    ErrorCode received_code{};
+
+    client.OnError([&](const Error& e) {
+        got_error = true;
+        received_code = e.code;
+    });
+
+    // First connect should succeed (move to Connecting)
+    client.Connect(make_addr("127.0.0.1", server.port()));
+    EXPECT_EQ(client.GetState(), LiveClient::State::Connecting);
+
+    // Second connect while still connecting should error
+    client.Connect(make_addr("127.0.0.1", server.port()));
+
+    EXPECT_TRUE(got_error);
+    EXPECT_EQ(received_code, ErrorCode::InvalidState);
+
+    server.Stop();
+}
+
+// ============================================================================
+// Original integration tests (may need adaptation for new pipeline architecture)
+// ============================================================================
+
 TEST_F(LiveClientTest, ConnectAndAuth) {
     Reactor reactor;
     MockLsgServer server;
@@ -323,7 +401,7 @@ TEST_F(LiveClientTest, ConnectionError) {
     }
 
     EXPECT_TRUE(got_error);
-    EXPECT_EQ(client.GetState(), LiveClient::State::Disconnected);
+    EXPECT_EQ(client.GetState(), LiveClient::State::Error);
 }
 
 TEST_F(LiveClientTest, AuthenticationFailure) {
@@ -353,7 +431,7 @@ TEST_F(LiveClientTest, AuthenticationFailure) {
 
     server.Stop();
     EXPECT_TRUE(got_error);
-    EXPECT_EQ(client.GetState(), LiveClient::State::Disconnected);
+    EXPECT_EQ(client.GetState(), LiveClient::State::Error);
 }
 
 TEST_F(LiveClientTest, CloseWhileConnected) {
