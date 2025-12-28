@@ -211,13 +211,17 @@ public:
         downstream_->Read(std::move(processed));
     }
 
-    // Shutdown signals - ALWAYS propagate (no IsClosed check)
+    // Shutdown signals - propagate once (terminal guard)
     void OnError(const Error& e) {
+        if (this->IsFinalized()) return;
+        this->SetFinalized();
         typename Base::ProcessingGuard guard(*this);
         downstream_->OnError(e);
     }
 
     void OnDone() {
+        if (this->IsFinalized()) return;
+        this->SetFinalized();
         typename Base::ProcessingGuard guard(*this);
         downstream_->OnDone();
     }
@@ -359,12 +363,17 @@ protected:
         });
     }
 
+    // Terminal state guard - prevents double OnDone/OnError
+    bool IsFinalized() const { return finalized_; }
+    void SetFinalized() { finalized_ = true; }
+
 private:
     Reactor& reactor_;
     int processing_count_ = 0;
     bool close_pending_ = false;
     bool closed_ = false;
     bool close_scheduled_ = false;  // guards against duplicate Defer() calls
+    bool finalized_ = false;        // guards against double OnDone/OnError
 };
 ```
 
@@ -410,9 +419,30 @@ auto tcp = std::make_shared<TcpSocket>(reactor);
 // Now tcp survives until all deferred callbacks complete
 ```
 
-**Rule**: Application must drain `Reactor::Defer()` queue before destroying head TcpSocket,
-or ensure TcpSocket is not destroyed while deferred callbacks referencing it are pending.
-The simplest pattern is: `Close()` → drain reactor → destroy.
+**Rule**: Application must drain `Reactor::Defer()` queue before destroying head TcpSocket.
+The pattern is: `Close()` → drain reactor → destroy.
+
+**Drain is bounded** because:
+1. `Close()` sets `closed_ = true` and `close_scheduled_ = true`
+2. No callback can requeue strong `this` after close (banned by rule)
+3. Only one `DoClose()` is scheduled (guarded by `close_scheduled_`)
+4. `DoClose()` releases downstream chain but does not requeue itself
+
+```cpp
+// Safe destruction pattern
+tcp->Close();                     // schedules DoClose()
+while (reactor.HasPending()) {    // drain until empty
+    reactor.Poll(0);
+}
+// All deferred callbacks have run - safe to destroy
+```
+
+**Reactor::HasPending():**
+```cpp
+bool HasPending() const {
+    return !deferred_.empty();
+}
+```
 
 **DisableWatchers() requirement:**
 
@@ -439,21 +469,30 @@ This ensures no I/O callbacks fire between `RequestClose()` and deferred `DoClos
 
 Any reactor callback that captures `this` must be one of:
 1. **Epoll events** - cancelled by `Event::Remove()` in `DisableWatchers()`
-2. **Deferred callbacks** - only `ScheduleClose()` uses `Reactor::Defer()`, protected by `close_scheduled_`
+2. **ScheduleClose() only** - the ONLY place that may capture strong `this` in `Reactor::Defer()`
 3. **Timers** (if added) - must be cancelled in `DisableWatchers()`
 
-Components must not schedule additional `Reactor::Defer()` calls that capture `this` outside the
-controlled `ScheduleClose()` path. If needed, use weak ownership:
+**RULE: Strong `this` captures are BANNED outside `ScheduleClose()`.**
+
+All other deferred work MUST use weak capture:
 
 ```cpp
-// Safe pattern for additional deferred work
+// REQUIRED pattern for any deferred work
 auto weak = weak_from_this();
 reactor_.Defer([weak]() {
     if (auto self = weak.lock()) {
         self->DoWork();
     }
 });
+
+// BANNED - will cause UAF
+reactor_.Defer([this]() {  // ❌ NEVER DO THIS
+    this->DoWork();
+});
 ```
+
+**Rationale:** `ScheduleClose()` is the only deferred callback with guaranteed lifetime
+(upstream holds `shared_ptr` until `DoClose()` runs). All other callbacks lack this guarantee.
 
 **Component inherits via CRTP:**
 
@@ -480,13 +519,17 @@ public:
         downstream_->Read(std::move(output));
     }
 
-    // Shutdown signals - ALWAYS propagate (no IsClosed check)
+    // Shutdown signals - propagate once (terminal guard)
     void OnError(const Error& e) {
+        if (this->IsFinalized()) return;
+        this->SetFinalized();
         typename Base::ProcessingGuard guard(*this);
         downstream_->OnError(e);
     }
 
     void OnDone() {
+        if (this->IsFinalized()) return;
+        this->SetFinalized();
         typename Base::ProcessingGuard guard(*this);
         // flush remaining data, check frame complete
         downstream_->OnDone();
@@ -562,16 +605,18 @@ void Write(std::pmr::vector<std::byte> data) {
     // ...
 }
 
-// Shutdown signals - ALWAYS propagate for flush/finalization
+// Shutdown signals - ALWAYS propagate, but only once (terminal guard)
 void OnDone() {
-    // No IsClosed() check - must propagate for protocol correctness
+    if (this->IsFinalized()) return;  // prevent double finalization
+    this->SetFinalized();
     typename Base::ProcessingGuard guard(*this);
     // flush buffered data, finalize decompression, etc.
     downstream_->OnDone();
 }
 
 void OnError(const Error& e) {
-    // No IsClosed() check - must propagate error to application
+    if (this->IsFinalized()) return;  // prevent double finalization
+    this->SetFinalized();
     typename Base::ProcessingGuard guard(*this);
     downstream_->OnError(e);
 }
@@ -579,9 +624,10 @@ void OnError(const Error& e) {
 
 This ensures:
 1. No new data processing after `RequestClose()` is called
-2. Shutdown signals (OnDone/OnError) always reach application
+2. Shutdown signals (OnDone/OnError) reach application exactly once
 3. Protocol finalization (zstd frame complete, HTTP trailers) happens correctly
 4. ProcessingGuard still prevents close during propagation
+5. Terminal guard prevents double-finalization if OnDone/OnError arrives after close
 
 ### EOF Handling
 
@@ -661,9 +707,22 @@ private:
 ```
 
 **Key properties:**
+- **Never inline**: `Defer()` only queues; callbacks run on next `Poll()` iteration
 - Deferred callbacks run after current event processing
 - Stack fully unwound before DoClose() executes
 - Single-threaded - no races
+
+**Execution guarantee:**
+```cpp
+void RequestClose() {
+    // ...
+    ScheduleClose();  // queues DoClose() in deferred_
+    // ScheduleClose returns immediately
+    // DoClose() will NOT run until Poll() drains queue
+}
+```
+
+This ensures `RequestClose()` can be called from any context without reentry.
 
 ### Message Boundary Reset
 
