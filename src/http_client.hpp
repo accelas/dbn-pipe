@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <memory_resource>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,8 @@ public:
         this->suspended_ = false;
         // Process any pending body data
         if (!pending_body_.empty()) {
+            auto guard = this->TryGuard();
+            if (!guard) return;
             auto body = std::move(pending_body_);
             pending_body_ = std::pmr::vector<std::byte>{&body_pool_};
             downstream_->Read(std::move(body));
@@ -188,11 +191,10 @@ void HttpClient<D>::Read(std::pmr::vector<std::byte> data) {
 }
 
 template <Downstream D>
-void HttpClient<D>::Write(std::pmr::vector<std::byte> data) {
-    auto guard = this->TryGuard();
-    if (!guard) return;
-    // Pass through to upstream (TLS layer)
-    // This will be wired up when integrated with TlsSocket
+void HttpClient<D>::Write(std::pmr::vector<std::byte> /*data*/) {
+    throw std::logic_error(
+        "HttpClient::Write() is not supported - HttpClient is a receiver-only "
+        "component for HTTP responses. Use TlsSocket directly for sending requests.");
 }
 
 template <Downstream D>
@@ -254,8 +256,8 @@ int HttpClient<D>::OnHeaderValue(llhttp_t*, const char*, size_t) {
 template <Downstream D>
 int HttpClient<D>::OnHeadersComplete(llhttp_t* parser) {
     auto* self = static_cast<HttpClient*>(parser->data);
-    // If status >= 400, we'll capture the body for error message
-    if (self->status_code_ >= 400) {
+    // If status >= 300, we'll capture the body for error message
+    if (self->status_code_ >= 300) {
         self->error_body_.clear();
     }
     return 0;
@@ -313,12 +315,11 @@ int HttpClient<D>::OnMessageComplete(llhttp_t* parser) {
         self->EmitError(*self->downstream_, Error{ErrorCode::HttpError, std::move(msg)});
         self->RequestClose();
     } else {
-        // Success - emit done
+        // Success - emit done and reset for potential keep-alive
         self->EmitDone(*self->downstream_);
+        self->ResetMessageState();
     }
 
-    // Reset for potential keep-alive
-    self->ResetMessageState();
     return 0;
 }
 
