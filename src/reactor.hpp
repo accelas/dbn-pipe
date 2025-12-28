@@ -109,12 +109,19 @@ public:
     // Signal Run() to stop
     void Stop();
 
+    // Defer callback to next Poll cycle
+    template<typename F>
+    void Defer(F&& fn) {
+        deferred_.push_back(std::forward<F>(fn));
+    }
+
     int epoll_fd() const { return epoll_fd_; }
 
 private:
     int epoll_fd_;
     bool running_ = false;
     std::vector<epoll_event> events_;
+    std::vector<std::function<void()>> deferred_;
 
     static constexpr int kMaxEvents = 64;
 };
