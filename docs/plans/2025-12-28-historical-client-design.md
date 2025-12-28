@@ -132,8 +132,12 @@ public:
             return;
         }
 
-        // Try immediate write
-        ssize_t n = ::write(fd_, data.data(), data.size());
+        // Try immediate write (with EINTR retry)
+        ssize_t n;
+        do {
+            n = ::write(fd_, data.data(), data.size());
+        } while (n < 0 && errno == EINTR);
+
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 // Socket buffer full - queue entire buffer
@@ -143,7 +147,7 @@ public:
             }
             // Real error
             downstream_->OnError({ErrorCode::ConnectionFailed, strerror(errno)});
-            ScheduleDeferredClose();
+            RequestClose();
             return;
         }
 
@@ -179,6 +183,7 @@ private:
 Hot path uses templates for static dispatch:
 
 ```cpp
+// Virtual interface for backpressure (cold path)
 class Suspendable {
 public:
     virtual ~Suspendable() = default;
@@ -187,40 +192,50 @@ public:
     virtual void Close() = 0;
 };
 
+// Example component using CRTP for reentrancy safety
 template<typename Downstream>
-class Component : public Suspendable {
+class ExampleComponent
+    : public PipelineComponent<ExampleComponent<Downstream>>
+    , public Suspendable {
+
+    using Base = PipelineComponent<ExampleComponent<Downstream>>;
+    friend Base;
+
 public:
-    // Hot path - static dispatch, inlined
+    // Hot path - static dispatch, inlined, guarded
     void Read(std::pmr::vector<std::byte> data) {
+        typename Base::ProcessingGuard guard(*this);
         std::pmr::vector<std::byte> processed{&output_pool_};
         // process...
         downstream_->Read(std::move(processed));
     }
 
     void OnError(const Error& e) {
+        typename Base::ProcessingGuard guard(*this);
         downstream_->OnError(e);
     }
 
     void OnDone() {
-        // flush any buffered data
+        typename Base::ProcessingGuard guard(*this);
         downstream_->OnDone();
     }
 
     void Write(std::pmr::vector<std::byte> data) {
+        typename Base::ProcessingGuard guard(*this);
         upstream_->Write(std::move(data));
     }
 
     // Cold path - virtual dispatch
     void Suspend() override { upstream_->Suspend(); }
     void Resume() override { upstream_->Resume(); }
-    void Close() override {
-        if (closed_) return;  // idempotent
-        closed_ = true;
-        downstream_.reset();  // release downstream
-        upstream_->Close();   // propagate upstream to stop socket
-    }
+    void Close() override { this->RequestClose(); }
 
 private:
+    void DoClose() {
+        downstream_.reset();
+        upstream_->Close();
+    }
+
     Suspendable* upstream_;
     std::shared_ptr<Downstream> downstream_;
     std::pmr::unsynchronized_pool_resource output_pool_;
@@ -245,14 +260,16 @@ Single-threaded reactor guarantees no callback between steps.
 
 ### Error-Triggered Teardown
 
-When a component detects an error, it propagates error downstream, then schedules deferred close:
+When a component detects an error, it propagates error downstream, then requests close:
 
 ```cpp
 void ZstdDecompressor::Read(std::pmr::vector<std::byte> data) {
+    ProcessingGuard guard(*this);
+
     size_t ret = ZSTD_decompressStream(...);
     if (ZSTD_isError(ret)) {
         downstream_->OnError({ErrorCode::DecompressionError, ...});
-        ScheduleDeferredClose();  // don't close mid-call
+        RequestClose();  // deferred until guard destructs
         return;
     }
     // ...
@@ -262,68 +279,122 @@ void ZstdDecompressor::Read(std::pmr::vector<std::byte> data) {
 **Error flow:**
 1. Component detects error
 2. Calls `downstream_->OnError()` - propagates to application
-3. Schedules deferred `Close()` - executes on next reactor tick
+3. Calls `RequestClose()` - sets pending flag
+4. Guard destructor checks: if count == 0 && pending, executes close
 
-`Close()` is idempotent - safe to call multiple times from different error paths.
+`RequestClose()` is idempotent - safe to call multiple times from different error paths.
 
-### Deferred Close (Reentrancy Safety)
+### Reentrancy Guard (Processing Count)
 
-**Problem:** Calling `upstream_->Close()` mid-call can destroy the current component:
+**Problem:** Calling `Close()` mid-call can destroy the current component:
 ```cpp
-// UNSAFE: ZstdDecompressor::Read calls HttpClient::Close
-// which resets shared_ptr<ZstdDecompressor>, destroying `this`
-upstream_->Close();  // UB - `this` destroyed while method executing
+// UNSAFE: ZstdDecompressor::Read calls Close
+// which destroys `this` while method still executing
+upstream_->Close();  // UB - `this` destroyed mid-call
 ```
 
-**Solution:** Defer close to next reactor tick:
+**Solution:** CRTP base class provides processing guard:
+
+```cpp
+// CRTP base - provides reentrancy-safe close
+template<typename Derived>
+class PipelineComponent {
+public:
+    // RAII guard for public API entry
+    class ProcessingGuard {
+    public:
+        explicit ProcessingGuard(PipelineComponent& c) : comp_(c) {
+            ++comp_.processing_count_;
+        }
+        ~ProcessingGuard() {
+            if (--comp_.processing_count_ == 0 && comp_.close_pending_) {
+                comp_.ExecuteClose();
+            }
+        }
+    private:
+        PipelineComponent& comp_;
+    };
+
+    void RequestClose() {
+        if (closed_) return;
+        if (processing_count_ > 0) {
+            close_pending_ = true;  // defer until processing complete
+            return;
+        }
+        ExecuteClose();  // execute immediately
+    }
+
+    bool IsClosed() const { return closed_; }
+
+protected:
+    void ExecuteClose() {
+        closed_ = true;
+        close_pending_ = false;
+        static_cast<Derived*>(this)->DoClose();  // CRTP: call derived
+    }
+
+private:
+    int processing_count_ = 0;
+    bool close_pending_ = false;
+    bool closed_ = false;
+};
+```
+
+**Component inherits via CRTP:**
 
 ```cpp
 template<typename Downstream>
-class Component : public Suspendable {
+class ZstdDecompressor
+    : public PipelineComponent<ZstdDecompressor<Downstream>>
+    , public Suspendable {
+
+    using Base = PipelineComponent<ZstdDecompressor<Downstream>>;
+    friend Base;  // allow CRTP access to DoClose
+
 public:
-    void ScheduleDeferredClose() {
-        if (close_scheduled_) return;
-        close_scheduled_ = true;
-        reactor_.Defer([this]() {
-            upstream_->Close();
-        });
-    }
+    void Read(std::pmr::vector<std::byte> data) {
+        typename Base::ProcessingGuard guard(*this);
 
-private:
-    bool close_scheduled_ = false;
-};
-```
-
-**Reactor::Defer()** queues a callback to run after current event processing:
-
-```cpp
-class Reactor {
-public:
-    void Defer(std::function<void()> fn) {
-        deferred_.push_back(std::move(fn));
-    }
-
-    int Poll(int timeout_ms) {
-        // ... process epoll events ...
-
-        // Run deferred callbacks after event processing
-        while (!deferred_.empty()) {
-            auto fn = std::move(deferred_.front());
-            deferred_.pop_front();
-            fn();
+        size_t ret = ZSTD_decompressStream(...);
+        if (ZSTD_isError(ret)) {
+            downstream_->OnError({ErrorCode::DecompressionError, ...});
+            this->RequestClose();
+            return;
         }
-        return n;
+        downstream_->Read(std::move(output));
     }
 
+    void OnError(const Error& e) {
+        typename Base::ProcessingGuard guard(*this);
+        downstream_->OnError(e);
+    }
+
+    void OnDone() {
+        typename Base::ProcessingGuard guard(*this);
+        downstream_->OnDone();
+    }
+
+    // Suspendable interface
+    void Close() override { this->RequestClose(); }
+
 private:
-    std::deque<std::function<void()>> deferred_;
+    // Called by CRTP base when processing_count == 0
+    void DoClose() {
+        downstream_.reset();
+        upstream_->Close();
+    }
+
+    Suspendable* upstream_ = nullptr;
+    std::shared_ptr<Downstream> downstream_;
 };
 ```
 
-This ensures:
-- Component method completes before destruction
-- Close propagates on next tick, not mid-call
-- Single-threaded model prevents races
+**Key properties:**
+- Close only executes when processing_count_ == 0
+- Nested calls (Read → OnError → app callback → Close) stay safe
+- CRTP avoids virtual dispatch for DoClose()
+- Works for both internal and external (app-triggered) Close calls
+- Single-threaded model - no atomics needed
 
 ### EOF Handling
 
@@ -454,12 +525,12 @@ private:
         ctx_ = SSL_CTX_new(TLS_client_method());
         if (!ctx_) {
             downstream_->OnError({ErrorCode::TlsHandshakeFailed, "SSL_CTX_new failed"});
-            ScheduleDeferredClose();
+            RequestClose();
             return false;
         }
         if (SSL_CTX_set_default_verify_paths(ctx_) != 1) {
             downstream_->OnError({ErrorCode::TlsCertificateError, "Failed to load system CA"});
-            ScheduleDeferredClose();
+            RequestClose();
             return false;
         }
         SSL_CTX_set_min_proto_version(ctx_, TLS1_2_VERSION);
@@ -469,12 +540,12 @@ private:
     bool SetupVerification(const std::string& hostname) {
         if (SSL_set_tlsext_host_name(ssl_, hostname.c_str()) != 1) {
             downstream_->OnError({ErrorCode::TlsHandshakeFailed, "SNI setup failed"});
-            ScheduleDeferredClose();
+            RequestClose();
             return false;
         }
         if (SSL_set1_host(ssl_, hostname.c_str()) != 1) {
             downstream_->OnError({ErrorCode::TlsHandshakeFailed, "Hostname verification setup failed"});
-            ScheduleDeferredClose();
+            RequestClose();
             return false;
         }
         SSL_set_verify(ssl_, SSL_VERIFY_PEER, nullptr);
