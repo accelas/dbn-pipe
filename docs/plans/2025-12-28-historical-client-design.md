@@ -104,11 +104,11 @@ Each component:
 
 ```cpp
 void Write(std::pmr::vector<std::byte> data) {
-    // Option 1: Consume immediately (TcpSocket does this)
-    socket_write(data.data(), data.size());
+    // Option 1: Consume immediately (ideal case)
+    ssize_t n = socket_write(data.data(), data.size());
     // data destructs, memory returns to caller's pool
 
-    // Option 2: Copy into local pool if buffering needed
+    // Option 2: Copy into local pool if buffering needed (partial write/EAGAIN)
     pending_writes_.push_back(
         std::pmr::vector<std::byte>(data.begin(), data.end(), &write_pool_)
     );
@@ -116,8 +116,63 @@ void Write(std::pmr::vector<std::byte> data) {
 ```
 
 Since Write() data originates from downstream's pool, upstream cannot hold references
-beyond the call without copying. TcpSocket (the sink) writes to socket immediately,
-so no buffering issue. Intermediate components pass through without buffering.
+beyond the call without copying. Intermediate components pass through without buffering.
+
+### TcpSocket Write Buffering
+
+TcpSocket must handle partial writes and EAGAIN:
+
+```cpp
+class TcpSocket {
+public:
+    void Write(std::pmr::vector<std::byte> data) {
+        if (!pending_writes_.empty()) {
+            // Already have queued data - must queue this too (preserve order)
+            pending_writes_.push_back(CopyToLocalPool(std::move(data)));
+            return;
+        }
+
+        // Try immediate write
+        ssize_t n = ::write(fd_, data.data(), data.size());
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // Socket buffer full - queue entire buffer
+                pending_writes_.push_back(CopyToLocalPool(std::move(data)));
+                WatchWritable();  // register EPOLLOUT
+                return;
+            }
+            // Real error
+            downstream_->OnError({ErrorCode::ConnectionFailed, strerror(errno)});
+            ScheduleDeferredClose();
+            return;
+        }
+
+        if (static_cast<size_t>(n) < data.size()) {
+            // Partial write - queue remainder
+            auto remainder = CopyToLocalPool(data, n);  // copy from offset n
+            pending_writes_.push_back(std::move(remainder));
+            WatchWritable();
+        }
+        // Full write - data destructs, returns to caller's pool
+    }
+
+private:
+    std::pmr::vector<std::byte> CopyToLocalPool(std::pmr::vector<std::byte>& src, size_t offset = 0) {
+        std::pmr::vector<std::byte> copy{&write_pool_};
+        copy.assign(src.begin() + offset, src.end());
+        return copy;
+    }
+
+    std::deque<std::pmr::vector<std::byte>> pending_writes_;
+    std::pmr::unsynchronized_pool_resource write_pool_;
+};
+```
+
+**Key points:**
+- Immediate write attempted first (zero-copy fast path)
+- On EAGAIN/partial: copy remainder into socket's own pool
+- Preserve write order with queue
+- Register EPOLLOUT to drain queue when socket becomes writable
 
 ### Static Dispatch
 
@@ -190,14 +245,14 @@ Single-threaded reactor guarantees no callback between steps.
 
 ### Error-Triggered Teardown
 
-When a component detects an error, it propagates error downstream, then closes upstream:
+When a component detects an error, it propagates error downstream, then schedules deferred close:
 
 ```cpp
 void ZstdDecompressor::Read(std::pmr::vector<std::byte> data) {
     size_t ret = ZSTD_decompressStream(...);
     if (ZSTD_isError(ret)) {
         downstream_->OnError({ErrorCode::DecompressionError, ...});
-        upstream_->Close();  // stop the socket
+        ScheduleDeferredClose();  // don't close mid-call
         return;
     }
     // ...
@@ -207,9 +262,68 @@ void ZstdDecompressor::Read(std::pmr::vector<std::byte> data) {
 **Error flow:**
 1. Component detects error
 2. Calls `downstream_->OnError()` - propagates to application
-3. Calls `upstream_->Close()` - stops socket, releases chain
+3. Schedules deferred `Close()` - executes on next reactor tick
 
 `Close()` is idempotent - safe to call multiple times from different error paths.
+
+### Deferred Close (Reentrancy Safety)
+
+**Problem:** Calling `upstream_->Close()` mid-call can destroy the current component:
+```cpp
+// UNSAFE: ZstdDecompressor::Read calls HttpClient::Close
+// which resets shared_ptr<ZstdDecompressor>, destroying `this`
+upstream_->Close();  // UB - `this` destroyed while method executing
+```
+
+**Solution:** Defer close to next reactor tick:
+
+```cpp
+template<typename Downstream>
+class Component : public Suspendable {
+public:
+    void ScheduleDeferredClose() {
+        if (close_scheduled_) return;
+        close_scheduled_ = true;
+        reactor_.Defer([this]() {
+            upstream_->Close();
+        });
+    }
+
+private:
+    bool close_scheduled_ = false;
+};
+```
+
+**Reactor::Defer()** queues a callback to run after current event processing:
+
+```cpp
+class Reactor {
+public:
+    void Defer(std::function<void()> fn) {
+        deferred_.push_back(std::move(fn));
+    }
+
+    int Poll(int timeout_ms) {
+        // ... process epoll events ...
+
+        // Run deferred callbacks after event processing
+        while (!deferred_.empty()) {
+            auto fn = std::move(deferred_.front());
+            deferred_.pop_front();
+            fn();
+        }
+        return n;
+    }
+
+private:
+    std::deque<std::function<void()>> deferred_;
+};
+```
+
+This ensures:
+- Component method completes before destruction
+- Close propagates on next tick, not mid-call
+- Single-threaded model prevents races
 
 ### EOF Handling
 
@@ -340,10 +454,12 @@ private:
         ctx_ = SSL_CTX_new(TLS_client_method());
         if (!ctx_) {
             downstream_->OnError({ErrorCode::TlsHandshakeFailed, "SSL_CTX_new failed"});
+            ScheduleDeferredClose();
             return false;
         }
         if (SSL_CTX_set_default_verify_paths(ctx_) != 1) {
             downstream_->OnError({ErrorCode::TlsCertificateError, "Failed to load system CA"});
+            ScheduleDeferredClose();
             return false;
         }
         SSL_CTX_set_min_proto_version(ctx_, TLS1_2_VERSION);
@@ -353,10 +469,12 @@ private:
     bool SetupVerification(const std::string& hostname) {
         if (SSL_set_tlsext_host_name(ssl_, hostname.c_str()) != 1) {
             downstream_->OnError({ErrorCode::TlsHandshakeFailed, "SNI setup failed"});
+            ScheduleDeferredClose();
             return false;
         }
         if (SSL_set1_host(ssl_, hostname.c_str()) != 1) {
             downstream_->OnError({ErrorCode::TlsHandshakeFailed, "Hostname verification setup failed"});
+            ScheduleDeferredClose();
             return false;
         }
         SSL_set_verify(ssl_, SSL_VERIFY_PEER, nullptr);
