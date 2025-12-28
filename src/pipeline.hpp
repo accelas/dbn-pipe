@@ -3,8 +3,6 @@
 
 #include <concepts>
 #include <memory_resource>
-#include <optional>
-#include <vector>
 
 #include "error.hpp"
 #include "reactor.hpp"
