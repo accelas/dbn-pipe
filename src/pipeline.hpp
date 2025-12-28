@@ -6,17 +6,32 @@
 #include <memory_resource>
 #include <optional>
 
+#include <databento/record.hpp>
+
 #include "error.hpp"
 #include "reactor.hpp"
 
 namespace databento_async {
 
-// Downstream interface - receives data flowing toward application
+// TerminalDownstream interface - minimal interface for error/done signals
 template<typename D>
-concept Downstream = requires(D& d, std::pmr::vector<std::byte> data, const Error& e) {
-    { d.Read(std::move(data)) } -> std::same_as<void>;
+concept TerminalDownstream = requires(D& d, const Error& e) {
     { d.OnError(e) } -> std::same_as<void>;
     { d.OnDone() } -> std::same_as<void>;
+};
+
+// Downstream interface - receives data flowing toward application
+template<typename D>
+concept Downstream = TerminalDownstream<D> && requires(D& d, std::pmr::vector<std::byte> data) {
+    { d.Read(std::move(data)) } -> std::same_as<void>;
+};
+
+// RecordDownstream interface - receives parsed records
+// NOTE: Records are only valid for the duration of the OnRecord() call.
+// Implementations must copy any data they need to retain.
+template<typename D>
+concept RecordDownstream = TerminalDownstream<D> && requires(D& d, const databento::Record& rec) {
+    { d.OnRecord(rec) } -> std::same_as<void>;
 };
 
 // Upstream interface - control flowing toward socket
@@ -87,7 +102,7 @@ public:
     void ResetFinalized() { finalized_ = false; }
 
     // Terminal emission with concept constraint
-    template<Downstream D>
+    template<TerminalDownstream D>
     void EmitError(D& downstream, const Error& e) {
         if (finalized_) return;
         finalized_ = true;
@@ -95,7 +110,7 @@ public:
         downstream.OnError(e);
     }
 
-    template<Downstream D>
+    template<TerminalDownstream D>
     void EmitDone(D& downstream) {
         if (finalized_) return;
         finalized_ = true;
