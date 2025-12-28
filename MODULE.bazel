@@ -22,11 +22,11 @@ bazel_dep(name = "googletest", version = "1.15.2")
 # Dependencies
 # ============================================================================
 
-# Event loop
-bazel_dep(name = "libuv", version = "1.48.0")
-
-# TLS/Crypto (for CRAM auth SHA256)
+# TLS/Crypto (for CRAM auth SHA256, Historical TLS)
 bazel_dep(name = "openssl", version = "3.3.1.bcr.9")
+
+# Decompression (for Historical API)
+bazel_dep(name = "zstd", version = "1.5.6")
 
 # ============================================================================
 # Databento C++ headers (type definitions only)
