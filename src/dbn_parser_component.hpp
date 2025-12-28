@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <memory_resource>
@@ -157,11 +158,23 @@ void DbnParserComponent<D>::DrainBuffer() {
     while (!suspended_ && HasCompleteRecord()) {
         std::size_t record_size = PeekRecordSize();
 
-        // Create aligned storage for the record
-        alignas(databento::RecordHeader) std::vector<std::byte> aligned_record(record_size);
-        std::memcpy(aligned_record.data(), buffer_.data() + read_pos_, record_size);
+        // Allocate properly aligned storage for the record
+        // aligned_alloc requires size to be multiple of alignment
+        constexpr std::size_t alignment = alignof(databento::RecordHeader);
+        std::size_t aligned_size = (record_size + alignment - 1) & ~(alignment - 1);
 
-        auto* hdr = reinterpret_cast<databento::RecordHeader*>(aligned_record.data());
+        auto* aligned_ptr = static_cast<std::byte*>(std::aligned_alloc(alignment, aligned_size));
+        if (!aligned_ptr) {
+            this->EmitError(*downstream_,
+                Error{ErrorCode::ParseError, "Failed to allocate aligned record buffer"});
+            this->RequestClose();
+            return;
+        }
+        // RAII cleanup with unique_ptr
+        std::unique_ptr<std::byte, decltype(&std::free)> aligned_record(aligned_ptr, std::free);
+        std::memcpy(aligned_record.get(), buffer_.data() + read_pos_, record_size);
+
+        auto* hdr = reinterpret_cast<databento::RecordHeader*>(aligned_record.get());
         databento::Record rec{hdr};
         read_pos_ += record_size;
 
