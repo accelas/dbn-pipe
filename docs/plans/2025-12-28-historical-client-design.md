@@ -1039,8 +1039,9 @@ void OnDone() {  // from upstream (EOF)
 
     switch (message_state_) {
         case MessageState::Idle:
-            // Normal keep-alive close, no error
-            downstream_->OnDone();
+            // Connection closed between messages (keep-alive close)
+            // No downstream OnDone - message already completed via OnMessageComplete
+            // Just close the connection silently
             break;
         case MessageState::InProgress:
             // Truncated - EOF mid-message
@@ -1055,26 +1056,29 @@ void OnDone() {  // from upstream (EOF)
 ```
 
 This distinguishes:
-- **Idle EOF**: Normal connection close after response complete (no error)
-- **InProgress EOF**: Truncation error (message started but not finished)
-- **Complete EOF**: Already handled by llhttp callback
+- **Idle EOF**: Connection closed after response complete - silent close, no downstream OnDone (already sent by OnMessageComplete)
+- **InProgress EOF**: Truncation error (message started but not finished) - downstream OnError
+- **Complete EOF**: Already handled by OnMessageComplete
 
 **Double OnDone prevention:**
-The `finalized_` terminal guard prevents double-done semantics:
-- `OnMessageComplete` calls `downstream_->OnDone()` then `ResetMessageState()` (resets finalized_)
-- If EOF arrives later, `OnDone()` checks `IsFinalized()` - won't fire again for same message
-- For keep-alive, `ResetFinalized()` enables next message's OnDone
+Each message gets exactly one terminal signal:
+- `OnMessageComplete` calls `downstream_->OnDone()` for success, or `OnError()` for 4xx/5xx
+- Later EOF sees `Idle` state and does nothing (message already complete)
+- `finalized_` prevents duplicate signals within same message boundary
+- `ResetFinalized()` in `ResetMessageState()` enables next message (keep-alive only)
 
 **Parser error handling:**
 If llhttp encounters a parse error (malformed HTTP), it invokes `on_error` callback:
 ```cpp
-int OnError(llhttp_t* parser, const char* reason) {
+int OnParserError(llhttp_t* parser, const char* reason) {
+    if (this->IsFinalized()) return HPE_USER;
+    this->SetFinalized();  // prevent further signals
     downstream_->OnError({ErrorCode::HttpParseError, reason});
     RequestClose();
     return HPE_USER;  // stop parsing
 }
 ```
-This fires regardless of `message_state_` - parse errors are always terminal.
+This uses the terminal guard to ensure single error signal even if EOF follows.
 
 **HTTP close-on-error rationale (4xx/5xx):**
 This design closes connection on HTTP errors because:
