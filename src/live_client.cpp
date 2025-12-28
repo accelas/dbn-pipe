@@ -25,13 +25,13 @@ LiveClient::~LiveClient() {
     Close();
 }
 
-void LiveClient::Connect(std::string_view host, int port) {
+void LiveClient::Connect(const sockaddr_storage& addr) {
     if (state_ != State::Disconnected) {
         return;
     }
 
     state_ = State::Connecting;
-    socket_.Connect(host, port);
+    socket_.Connect(addr);
 }
 
 void LiveClient::Close() {

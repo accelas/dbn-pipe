@@ -1,11 +1,11 @@
 // src/tcp_socket.hpp
 #pragma once
 
+#include <netinet/in.h>
+
 #include <cstdint>
 #include <functional>
 #include <span>
-#include <string>
-#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -28,8 +28,8 @@ public:
     TcpSocket(TcpSocket&&) = delete;
     TcpSocket& operator=(TcpSocket&&) = delete;
 
-    // Connect to host:port
-    void Connect(std::string_view host, int port);
+    // Connect to address (caller responsible for DNS resolution)
+    void Connect(const sockaddr_storage& addr);
 
     // Write data (queued if not yet writable)
     void Write(std::span<const std::byte> data);
@@ -48,8 +48,8 @@ public:
 
 private:
     void HandleEvents(uint32_t events);
-    void HandleReadable(uint32_t events);
-    void HandleWritable(uint32_t events);
+    void HandleReadable();
+    void HandleWritable();
 
     Reactor* reactor_;
     int fd_ = -1;

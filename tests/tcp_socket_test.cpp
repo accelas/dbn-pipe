@@ -1,6 +1,7 @@
 // tests/tcp_socket_test.cpp
 #include <gtest/gtest.h>
 
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -11,6 +12,16 @@
 #include "src/tcp_socket.hpp"
 
 using namespace databento_async;
+
+// Helper to create sockaddr_storage from IPv4 address and port
+sockaddr_storage make_addr(const char* ip, int port) {
+    sockaddr_storage storage{};
+    auto* addr = reinterpret_cast<sockaddr_in*>(&storage);
+    addr->sin_family = AF_INET;
+    addr->sin_port = htons(port);
+    inet_pton(AF_INET, ip, &addr->sin_addr);
+    return storage;
+}
 
 // Helper to create a listening socket
 int create_listener(int& port) {
@@ -49,7 +60,7 @@ TEST(TcpSocketTest, ConnectSuccess) {
         reactor.Stop();
     });
 
-    sock.Connect("127.0.0.1", port);
+    sock.Connect(make_addr("127.0.0.1", port));
 
     // Accept on server side
     reactor.Add(listener, EPOLLIN, [&](uint32_t) {
@@ -78,7 +89,7 @@ TEST(TcpSocketTest, ConnectFail) {
     });
 
     // Connect to port that's not listening
-    sock.Connect("127.0.0.1", 59999);
+    sock.Connect(make_addr("127.0.0.1", 59999));
 
     reactor.Run();
 
@@ -123,7 +134,7 @@ TEST(TcpSocketTest, ReadWrite) {
         });
     });
 
-    sock.Connect("127.0.0.1", port);
+    sock.Connect(make_addr("127.0.0.1", port));
     reactor.Run();
 
     EXPECT_EQ(received, "world");

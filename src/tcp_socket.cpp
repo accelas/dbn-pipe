@@ -1,8 +1,6 @@
 // src/tcp_socket.cpp
 #include "tcp_socket.hpp"
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -19,8 +17,10 @@ TcpSocket::TcpSocket(Reactor* reactor)
 
 TcpSocket::~TcpSocket() { Close(); }
 
-void TcpSocket::Connect(std::string_view host, int port) {
-    fd_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+void TcpSocket::Connect(const sockaddr_storage& addr) {
+    // Create socket based on address family
+    int family = addr.ss_family;
+    fd_ = socket(family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
     if (fd_ < 0) {
         if (on_connect_) {
             on_connect_(std::error_code(errno, std::system_category()));
@@ -32,21 +32,11 @@ void TcpSocket::Connect(std::string_view host, int port) {
     int opt = 1;
     setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
 
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
+    // Determine sockaddr size based on family
+    socklen_t addr_len = (family == AF_INET6) ? sizeof(sockaddr_in6)
+                                              : sizeof(sockaddr_in);
 
-    std::string host_str(host);
-    if (inet_pton(AF_INET, host_str.c_str(), &addr.sin_addr) != 1) {
-        close(fd_);
-        fd_ = -1;
-        if (on_connect_) {
-            on_connect_(std::make_error_code(std::errc::invalid_argument));
-        }
-        return;
-    }
-
-    int ret = connect(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    int ret = connect(fd_, reinterpret_cast<const sockaddr*>(&addr), addr_len);
     if (ret < 0 && errno != EINPROGRESS) {
         auto ec = std::error_code(errno, std::system_category());
         close(fd_);
@@ -68,7 +58,7 @@ void TcpSocket::Write(std::span<const std::byte> data) {
     write_buffer_.insert(write_buffer_.end(), data.begin(), data.end());
 
     if (connected_ && !write_buffer_.empty()) {
-        HandleWritable(EPOLLOUT);
+        HandleWritable();
     }
 }
 
@@ -83,23 +73,36 @@ void TcpSocket::Close() {
 }
 
 void TcpSocket::HandleEvents(uint32_t events) {
-    if (events & EPOLLIN) {
-        HandleReadable(events);
-    }
-
-    if (events & EPOLLOUT) {
-        HandleWritable(events);
-    }
-}
-
-void TcpSocket::HandleReadable(uint32_t events) {
+    // Handle errors first
     if (events & (EPOLLERR | EPOLLHUP)) {
-        if (on_read_) {
-            on_read_({}, std::make_error_code(std::errc::connection_reset));
+        int err = 0;
+        socklen_t len = sizeof(err);
+        getsockopt(fd_, SOL_SOCKET, SO_ERROR, &err, &len);
+        auto ec = std::error_code(err ? err : ECONNRESET, std::system_category());
+
+        if (!connected_) {
+            if (on_connect_) {
+                on_connect_(ec);
+            }
+        } else {
+            if (on_read_) {
+                on_read_({}, ec);
+            }
         }
+        Close();
         return;
     }
 
+    if (events & EPOLLIN) {
+        HandleReadable();
+    }
+
+    if (events & EPOLLOUT) {
+        HandleWritable();
+    }
+}
+
+void TcpSocket::HandleReadable() {
     while (true) {
         ssize_t n = read(fd_, read_buffer_.data(), read_buffer_.size());
         if (n > 0) {
@@ -124,31 +127,9 @@ void TcpSocket::HandleReadable(uint32_t events) {
     }
 }
 
-void TcpSocket::HandleWritable(uint32_t events) {
+void TcpSocket::HandleWritable() {
     // Complete connection if not yet connected
     if (!connected_) {
-        if (events & (EPOLLERR | EPOLLHUP)) {
-            int err = 0;
-            socklen_t len = sizeof(err);
-            getsockopt(fd_, SOL_SOCKET, SO_ERROR, &err, &len);
-            if (on_connect_) {
-                on_connect_(std::error_code(err, std::system_category()));
-            }
-            Close();
-            return;
-        }
-
-        // Check SO_ERROR for connection result
-        int err = 0;
-        socklen_t len = sizeof(err);
-        if (getsockopt(fd_, SOL_SOCKET, SO_ERROR, &err, &len) < 0 || err != 0) {
-            if (on_connect_) {
-                on_connect_(std::error_code(err ? err : errno, std::system_category()));
-            }
-            Close();
-            return;
-        }
-
         connected_ = true;
         if (on_connect_) {
             on_connect_({});
