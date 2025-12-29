@@ -295,6 +295,11 @@ public:
 
     // All public methods must be called from reactor thread.
     // This is enforced with assertions in debug builds.
+    //
+    // Terminal state guards are on state-transition methods (Connect, Start)
+    // not on setup methods (SetRequest, callbacks) or teardown (Stop, Close).
+    // Setup methods are expected before Connect(); teardown methods are
+    // themselves terminal and idempotent.
 
     void SetRequest(Request params) {
         assert(reactor_.IsInReactorThread());
@@ -412,6 +417,9 @@ public:
     }
 
 private:
+    // Private helpers don't assert reactor thread - they're only called
+    // from public/handler methods that already assert.
+
     void BuildPipeline() {
         // Pipeline is single-use - assert Connect() called only once
         assert(!connected_ && "Pipeline::Connect() can only be called once");
