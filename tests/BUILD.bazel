@@ -173,3 +173,14 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "protocol_driver_test",
+    srcs = ["protocol_driver_test.cpp"],
+    deps = [
+        "//src:protocol_driver",
+        "//src:pipeline_base",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
