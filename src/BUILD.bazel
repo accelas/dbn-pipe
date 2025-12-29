@@ -211,3 +211,20 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "historical_protocol",
+    hdrs = ["historical_protocol.hpp"],
+    deps = [
+        ":dbn_parser_component",
+        ":http_client",
+        ":pipeline",
+        ":pipeline_base",
+        ":protocol_driver",
+        ":reactor",
+        ":tcp_socket",
+        ":tls_socket",
+        ":zstd_decompressor",
+    ],
+    visibility = ["//visibility:public"],
+)
