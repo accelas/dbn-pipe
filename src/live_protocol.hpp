@@ -5,6 +5,7 @@
 #include <memory>
 #include <memory_resource>
 #include <string>
+#include <type_traits>
 
 #include "cram_auth.hpp"
 #include "dbn_parser_component.hpp"
@@ -31,6 +32,8 @@ struct LiveRequest {
 template <typename Record>
 class SinkAdapter {
 public:
+    static_assert(std::is_trivially_copyable_v<Record>, "Record must be trivially copyable");
+
     explicit SinkAdapter(Sink<Record>& sink) : sink_(sink) {}
 
     // RecordSink interface
@@ -39,6 +42,8 @@ public:
             // Get header to determine record type
             auto header = batch.GetHeader(i);
             const std::byte* data = batch.GetRecordData(i);
+            size_t size = batch.GetRecordSize(i);
+            if (size < sizeof(Record)) continue;  // Skip malformed records
 
             // Create a Record from the raw data
             // Note: The Record type should be constructible from raw bytes

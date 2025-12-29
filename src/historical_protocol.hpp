@@ -10,6 +10,7 @@
 #include <memory_resource>
 #include <sstream>
 #include <string>
+#include <type_traits>
 
 #include "dbn_parser_component.hpp"
 #include "http_client.hpp"
@@ -39,12 +40,16 @@ struct HistoricalRequest {
 template <typename Record>
 class SinkAdapterHistorical {
 public:
+    static_assert(std::is_trivially_copyable_v<Record>, "Record must be trivially copyable");
+
     explicit SinkAdapterHistorical(Sink<Record>& sink) : sink_(sink) {}
 
     // RecordSink interface
     void OnData(RecordBatch&& batch) {
         for (size_t i = 0; i < batch.size(); ++i) {
             const std::byte* data = batch.GetRecordData(i);
+            size_t size = batch.GetRecordSize(i);
+            if (size < sizeof(Record)) continue;  // Skip malformed records
             Record rec;
             std::memcpy(&rec, data, sizeof(Record));
             sink_.OnRecord(rec);
@@ -96,6 +101,44 @@ struct HistoricalProtocol {
         return escaped.str();
     }
 
+    // Base64 encode for HTTP Basic authentication
+    static std::string Base64Encode(std::string_view input) {
+        static const char* kBase64Chars =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+        std::string result;
+        result.reserve(((input.size() + 2) / 3) * 4);
+
+        size_t i = 0;
+        while (i + 2 < input.size()) {
+            uint32_t triple = (static_cast<uint8_t>(input[i]) << 16) |
+                              (static_cast<uint8_t>(input[i + 1]) << 8) |
+                              static_cast<uint8_t>(input[i + 2]);
+            result += kBase64Chars[(triple >> 18) & 0x3F];
+            result += kBase64Chars[(triple >> 12) & 0x3F];
+            result += kBase64Chars[(triple >> 6) & 0x3F];
+            result += kBase64Chars[triple & 0x3F];
+            i += 3;
+        }
+
+        if (i + 1 == input.size()) {
+            uint32_t val = static_cast<uint8_t>(input[i]) << 16;
+            result += kBase64Chars[(val >> 18) & 0x3F];
+            result += kBase64Chars[(val >> 12) & 0x3F];
+            result += '=';
+            result += '=';
+        } else if (i + 2 == input.size()) {
+            uint32_t val = (static_cast<uint8_t>(input[i]) << 16) |
+                           (static_cast<uint8_t>(input[i + 1]) << 8);
+            result += kBase64Chars[(val >> 18) & 0x3F];
+            result += kBase64Chars[(val >> 12) & 0x3F];
+            result += kBase64Chars[(val >> 6) & 0x3F];
+            result += '=';
+        }
+
+        return result;
+    }
+
     // ChainType wraps the TLS -> HTTP -> Zstd -> DBN parser chain
     // Type-erased wrapper to avoid exposing the Record template
     struct ChainType {
@@ -108,6 +151,7 @@ struct HistoricalProtocol {
         virtual void StartHandshake() = 0;
         virtual bool IsHandshakeComplete() const = 0;
         virtual void SendHttpRequest(const std::string& request) = 0;
+        virtual const std::string& GetApiKey() const = 0;
     };
 
     // Concrete implementation of ChainType for a specific Record type
@@ -119,8 +163,9 @@ struct HistoricalProtocol {
         using HttpType = HttpClient<ZstdType>;
         using TlsType = TlsSocket<HttpType>;
 
-        ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& /*api_key*/)
-            : sink_adapter_(std::make_unique<SinkAdapterType>(sink))
+        ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
+            : api_key_(api_key)
+            , sink_adapter_(std::make_unique<SinkAdapterType>(sink))
             , parser_(std::make_shared<ParserType>(*sink_adapter_))
             , zstd_(ZstdType::Create(reactor, parser_))
             , http_(HttpType::Create(reactor, zstd_))
@@ -168,7 +213,12 @@ struct HistoricalProtocol {
             tls_->Write(std::move(data));
         }
 
+        const std::string& GetApiKey() const override {
+            return api_key_;
+        }
+
     private:
+        std::string api_key_;
         std::unique_ptr<SinkAdapterType> sink_adapter_;
         std::shared_ptr<ParserType> parser_;
         std::shared_ptr<ZstdType> zstd_;
@@ -230,6 +280,7 @@ struct HistoricalProtocol {
         std::ostringstream http_request;
         http_request << "GET " << path.str() << " HTTP/1.1\r\n"
                      << "Host: hist.databento.com\r\n"
+                     << "Authorization: Basic " << Base64Encode(chain->GetApiKey() + ":") << "\r\n"
                      << "Accept: application/octet-stream\r\n"
                      << "Accept-Encoding: zstd\r\n"
                      << "Connection: close\r\n"
