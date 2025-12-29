@@ -184,3 +184,15 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "live_protocol_test",
+    srcs = ["live_protocol_test.cpp"],
+    deps = [
+        "//src:live_protocol",
+        "//src:protocol_driver",
+        "//src:pipeline_base",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)

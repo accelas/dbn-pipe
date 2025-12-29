@@ -196,3 +196,18 @@ cc_library(
     deps = [":pipeline_base", ":reactor", ":tcp_socket"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "live_protocol",
+    hdrs = ["live_protocol.hpp"],
+    deps = [
+        ":cram_auth",
+        ":dbn_parser_component",
+        ":pipeline",
+        ":pipeline_base",
+        ":protocol_driver",
+        ":reactor",
+        ":tcp_socket",
+    ],
+    visibility = ["//visibility:public"],
+)
