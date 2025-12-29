@@ -3,6 +3,8 @@
 
 #include <netinet/in.h>
 
+#include <atomic>
+#include <cassert>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -16,6 +18,7 @@
 #include "dbn_parser_component.hpp"
 #include "error.hpp"
 #include "http_client.hpp"
+#include "pipeline.hpp"
 #include "reactor.hpp"
 #include "record_batch.hpp"
 #include "tcp_socket.hpp"
@@ -36,7 +39,12 @@ namespace databento_async {
 // 4. Call Start() to begin streaming data
 // 5. Receive records via OnRecord() callback
 // 6. Call Stop() to close connection
-class HistoricalClient {
+//
+// Backpressure:
+// - Implements Suspendable interface for flow control
+// - Suspend()/Resume()/Close() MUST be called from reactor thread only
+// - IsSuspended() is thread-safe (can be called from any thread)
+class HistoricalClient : public Suspendable {
 public:
     enum class State {
         Disconnected,       // Initial state, not connected
@@ -99,9 +107,20 @@ public:
     void Start();
     void Stop();
 
-    // Backpressure control
-    void Pause();
-    void Resume();
+    // Suspendable interface (idempotent, REACTOR THREAD ONLY)
+    // Pause reading from the network. Idempotent - multiple calls are safe.
+    void Suspend() override;
+
+    // Resume reading from the network. Idempotent - multiple calls are safe.
+    void Resume() override;
+
+    // Terminate the connection. After Close(), no more callbacks will be invoked.
+    void Close() override;
+
+    // Query whether reading is currently suspended (thread-safe, any thread).
+    bool IsSuspended() const override {
+        return suspended_.load(std::memory_order_acquire);
+    }
 
     // State accessor
     State GetState() const { return state_; }
@@ -148,6 +167,10 @@ private:
     Reactor& reactor_;
     std::string api_key_;
     State state_ = State::Disconnected;
+
+    // Backpressure state - single source of truth for suspend status
+    // Atomic for thread-safe IsSuspended() queries from any thread
+    std::atomic<bool> suspended_{false};
 
     // Request parameters
     std::string dataset_;

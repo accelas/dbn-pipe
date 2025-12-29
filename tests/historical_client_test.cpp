@@ -239,6 +239,165 @@ TEST_F(HistoricalClientTest, HasOnCompleteCallback) {
     EXPECT_FALSE(complete_received);
 }
 
+// ============================================================================
+// Suspendable interface tests
+// ============================================================================
+
+TEST_F(HistoricalClientTest, SuspendableInterfaceBasic) {
+    Reactor reactor;
+    HistoricalClient client(reactor, "db-test-api-key-12345");
+
+    // Set request parameters
+    client.Request(
+        "GLBX.MDP3",
+        "ES.FUT",
+        "trades",
+        1609459200000000000ULL,
+        1609545600000000000ULL
+    );
+
+    // Create a dummy address
+    sockaddr_storage addr{};
+    auto* addr_in = reinterpret_cast<sockaddr_in*>(&addr);
+    addr_in->sin_family = AF_INET;
+    addr_in->sin_port = htons(443);
+    addr_in->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    // Connect builds the pipeline
+    client.Connect(addr);
+    EXPECT_EQ(client.GetState(), HistoricalClient::State::Connecting);
+
+    // Poll once to set reactor thread ID
+    reactor.Poll(0);
+
+    // Test IsSuspended initial state
+    EXPECT_FALSE(client.IsSuspended());
+
+    // Test Suspend
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    // Test Resume
+    client.Resume();
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Stop();
+}
+
+TEST_F(HistoricalClientTest, SuspendIsIdempotent) {
+    Reactor reactor;
+    HistoricalClient client(reactor, "db-test-api-key-12345");
+
+    client.Request("GLBX.MDP3", "ES.FUT", "trades",
+                   1609459200000000000ULL, 1609545600000000000ULL);
+
+    sockaddr_storage addr{};
+    auto* addr_in = reinterpret_cast<sockaddr_in*>(&addr);
+    addr_in->sin_family = AF_INET;
+    addr_in->sin_port = htons(443);
+    addr_in->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    client.Connect(addr);
+    reactor.Poll(0);
+
+    // Multiple Suspend calls should be safe
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    client.Suspend();  // Second call
+    EXPECT_TRUE(client.IsSuspended());
+
+    client.Suspend();  // Third call
+    EXPECT_TRUE(client.IsSuspended());
+
+    client.Stop();
+}
+
+TEST_F(HistoricalClientTest, ResumeIsIdempotent) {
+    Reactor reactor;
+    HistoricalClient client(reactor, "db-test-api-key-12345");
+
+    client.Request("GLBX.MDP3", "ES.FUT", "trades",
+                   1609459200000000000ULL, 1609545600000000000ULL);
+
+    sockaddr_storage addr{};
+    auto* addr_in = reinterpret_cast<sockaddr_in*>(&addr);
+    addr_in->sin_family = AF_INET;
+    addr_in->sin_port = htons(443);
+    addr_in->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    client.Connect(addr);
+    reactor.Poll(0);
+
+    // Suspend first
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    // Multiple Resume calls should be safe
+    client.Resume();
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Resume();  // Second call
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Resume();  // Third call
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Stop();
+}
+
+TEST_F(HistoricalClientTest, CloseResetsSuspendState) {
+    Reactor reactor;
+    HistoricalClient client(reactor, "db-test-api-key-12345");
+
+    client.Request("GLBX.MDP3", "ES.FUT", "trades",
+                   1609459200000000000ULL, 1609545600000000000ULL);
+
+    sockaddr_storage addr{};
+    auto* addr_in = reinterpret_cast<sockaddr_in*>(&addr);
+    addr_in->sin_family = AF_INET;
+    addr_in->sin_port = htons(443);
+    addr_in->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    client.Connect(addr);
+    reactor.Poll(0);
+
+    // Suspend first
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    // Close should reset suspend state
+    client.Close();
+    EXPECT_FALSE(client.IsSuspended());
+    EXPECT_EQ(client.GetState(), HistoricalClient::State::Disconnected);
+}
+
+TEST_F(HistoricalClientTest, StopResetsSuspendState) {
+    Reactor reactor;
+    HistoricalClient client(reactor, "db-test-api-key-12345");
+
+    client.Request("GLBX.MDP3", "ES.FUT", "trades",
+                   1609459200000000000ULL, 1609545600000000000ULL);
+
+    sockaddr_storage addr{};
+    auto* addr_in = reinterpret_cast<sockaddr_in*>(&addr);
+    addr_in->sin_family = AF_INET;
+    addr_in->sin_port = htons(443);
+    addr_in->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    client.Connect(addr);
+    reactor.Poll(0);
+
+    // Suspend first
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    // Stop should also reset suspend state
+    client.Stop();
+    EXPECT_FALSE(client.IsSuspended());
+    EXPECT_EQ(client.GetState(), HistoricalClient::State::Disconnected);
+}
+
 // Integration test - requires network access and valid API key
 // Run manually with: bazel test --test_filter=*DISABLED_IntegrationTest* --test_arg=--gtest_also_run_disabled_tests
 TEST_F(HistoricalClientTest, DISABLED_IntegrationTest) {

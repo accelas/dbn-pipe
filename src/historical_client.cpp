@@ -203,18 +203,36 @@ void HistoricalClient::Start() {
 void HistoricalClient::Stop() {
     TeardownPipeline();
     state_ = State::Disconnected;
+    suspended_.store(false, std::memory_order_release);
 }
 
-void HistoricalClient::Pause() {
-    // TODO: Implement backpressure for historical client
-    // The DbnParserComponent doesn't have Suspend/Resume - backpressure should
-    // be implemented at the socket level similar to LiveClient
+void HistoricalClient::Suspend() {
+    assert(reactor_.IsInReactorThread() && "Suspend must be called from reactor thread");
+    // Idempotent: only pause if not already suspended
+    // atomic exchange returns the previous value
+    if (!suspended_.exchange(true, std::memory_order_acq_rel)) {
+        if (tcp_) {
+            tcp_->PauseRead();
+        }
+    }
 }
 
 void HistoricalClient::Resume() {
-    // TODO: Implement backpressure for historical client
-    // The DbnParserComponent doesn't have Suspend/Resume - backpressure should
-    // be implemented at the socket level similar to LiveClient
+    assert(reactor_.IsInReactorThread() && "Resume must be called from reactor thread");
+    // Idempotent: only resume if currently suspended
+    // atomic exchange returns the previous value
+    if (suspended_.exchange(false, std::memory_order_acq_rel)) {
+        if (tcp_) {
+            tcp_->ResumeRead();
+        }
+    }
+}
+
+void HistoricalClient::Close() {
+    assert(reactor_.IsInReactorThread() && "Close must be called from reactor thread");
+    TeardownPipeline();
+    state_ = State::Disconnected;
+    suspended_.store(false, std::memory_order_release);
 }
 
 void HistoricalClient::BuildPipeline() {
