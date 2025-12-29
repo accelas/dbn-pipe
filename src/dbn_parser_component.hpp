@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <memory>
 #include <memory_resource>
 #include <vector>
@@ -80,12 +81,26 @@ private:
     // Peek at record size from header (0 if header not available)
     std::size_t PeekRecordSize() const;
 
+    // Skip DBN metadata header if present (DBN version + frame_size + metadata)
+    // Returns true if metadata has been parsed (or wasn't present), false if waiting
+    bool SkipMetadataIfNeeded();
+
     std::shared_ptr<D> downstream_;
     Suspendable* upstream_ = nullptr;
 
     std::vector<std::byte> buffer_;
     std::size_t read_pos_ = 0;
     std::size_t write_pos_ = 0;
+    bool metadata_parsed_ = false;
+
+    // DBN file header structure (first 8 bytes of DBN stream)
+    struct DbnHeader {
+        char magic[3];           // "DBN"
+        std::uint8_t version;    // DBN version
+        std::uint32_t frame_size; // Size of metadata AFTER this header
+    } __attribute__((packed));
+
+    static_assert(sizeof(DbnHeader) == 8, "DbnHeader must be 8 bytes");
 
     static constexpr std::size_t kInitialBufferSize = 64 * 1024;       // 64KB
     static constexpr std::size_t kMaxBufferSize = 16 * 1024 * 1024;    // 16MB cap
@@ -155,6 +170,11 @@ void DbnParserComponent<D>::Read(std::pmr::vector<std::byte> data) {
 
 template <RecordDownstream D>
 void DbnParserComponent<D>::DrainBuffer() {
+    // First, skip the DBN metadata header if present
+    if (!SkipMetadataIfNeeded()) {
+        return;  // Waiting for more data
+    }
+
     while (!suspended_ && HasCompleteRecord()) {
         std::size_t record_size = PeekRecordSize();
 
@@ -207,6 +227,16 @@ bool DbnParserComponent<D>::HasCompleteRecord() {
 
     // Validate record size - must be non-zero and at least header size
     if (size == 0 || size < sizeof(databento::RecordHeader)) {
+        std::cerr << "[DbnParser] Invalid size=" << size
+                  << " available=" << (write_pos_ - read_pos_)
+                  << " read_pos=" << read_pos_
+                  << " write_pos=" << write_pos_ << std::endl;
+        // Dump first bytes of what we're trying to parse
+        std::cerr << "[DbnParser] Header bytes: ";
+        for (std::size_t i = 0; i < std::min<std::size_t>(16, write_pos_ - read_pos_); ++i) {
+            std::cerr << std::hex << static_cast<int>(buffer_[read_pos_ + i]) << " ";
+        }
+        std::cerr << std::dec << std::endl;
         this->EmitError(*downstream_,
             Error{ErrorCode::ParseError, "Invalid record size in DBN stream"});
         this->RequestClose();
@@ -272,6 +302,53 @@ void DbnParserComponent<D>::Resume() {
     if (!suspended_ && upstream_) {
         upstream_->Resume();
     }
+}
+
+template <RecordDownstream D>
+bool DbnParserComponent<D>::SkipMetadataIfNeeded() {
+    if (metadata_parsed_) {
+        return true;
+    }
+
+    std::size_t available = write_pos_ - read_pos_;
+
+    // Need at least sizeof(DbnHeader) bytes to read the header
+    if (available < sizeof(DbnHeader)) {
+        return false;
+    }
+
+    // Read the header
+    DbnHeader header;
+    std::memcpy(&header, buffer_.data() + read_pos_, sizeof(header));
+
+    // Check for "DBN" magic prefix
+    if (header.magic[0] != 'D' || header.magic[1] != 'B' || header.magic[2] != 'N') {
+        // No DBN prefix - this might be raw records without metadata
+        // (e.g., from live streaming). Treat as ready to parse records.
+        metadata_parsed_ = true;
+        return true;
+    }
+
+    // Total metadata size = header + content
+    std::size_t total_metadata_size = sizeof(DbnHeader) + header.frame_size;
+
+    // Validate frame_size
+    if (total_metadata_size > kMaxBufferSize) {
+        this->EmitError(*downstream_,
+            Error{ErrorCode::ParseError, "Invalid DBN metadata frame size"});
+        this->RequestClose();
+        return false;
+    }
+
+    // Wait for complete metadata
+    if (available < total_metadata_size) {
+        return false;
+    }
+
+    // Skip the entire metadata (header + content)
+    read_pos_ += total_metadata_size;
+    metadata_parsed_ = true;
+    return true;
 }
 
 }  // namespace databento_async
