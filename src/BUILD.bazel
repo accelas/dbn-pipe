@@ -182,3 +182,10 @@ cc_library(
         "@databento_cpp//:databento_headers",
     ],
 )
+
+cc_library(
+    name = "pipeline_base",
+    hdrs = ["pipeline_base.hpp"],
+    deps = [":error", ":reactor"],
+    visibility = ["//visibility:public"],
+)
