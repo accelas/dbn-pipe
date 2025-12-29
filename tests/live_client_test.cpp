@@ -735,6 +735,11 @@ TEST_F(LiveClientTest, IsSuspendedIsThreadSafe) {
         }
     });
 
+    // Wait for thread to start querying before we proceed
+    while (query_count.load() == 0) {
+        std::this_thread::yield();
+    }
+
     // Toggle suspend state while the other thread queries
     for (int i = 0; i < 100; ++i) {
         client.Suspend();
