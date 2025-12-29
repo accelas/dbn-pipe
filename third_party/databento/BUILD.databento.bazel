@@ -182,9 +182,11 @@ EOF
     """,
 )
 
+# Header-only library - requires external linking with full databento library
+# when used in projects that compile databento from source.
+# For standalone builds, use :databento_with_impl instead.
 cc_library(
     name = "databento_headers",
-    srcs = ["generated/databento_impl.cpp"],
     hdrs = glob(
         ["include/**/*.hpp"],
         exclude = ["include/databento/exceptions.hpp"],
@@ -197,5 +199,13 @@ cc_library(
         "include",
         "generated",
     ],
+    visibility = ["//visibility:public"],
+)
+
+# Header library with minimal implementations for standalone builds
+cc_library(
+    name = "databento_with_impl",
+    srcs = ["generated/databento_impl.cpp"],
+    deps = [":databento_headers"],
     visibility = ["//visibility:public"],
 )
