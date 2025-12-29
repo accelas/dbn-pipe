@@ -142,7 +142,8 @@ cc_library(
         ":pipeline",
         ":reactor",
         ":tls_socket",
-        "@databento_cpp//:databento_headers",
+        # Full library needed: uses RecordHeader::Size()
+        "@databento_cpp//:databento_with_impl",
     ],
 )
 
