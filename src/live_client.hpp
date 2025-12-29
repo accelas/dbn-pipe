@@ -1,17 +1,28 @@
 // src/live_client.hpp
 #pragma once
 
-#include <cstdint>
+#include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
 
-#include "data_source.hpp"
+#include <databento/record.hpp>
+
+#include "dbn_parser_component.hpp"
+#include "error.hpp"
+#include "live_protocol_handler.hpp"
 #include "reactor.hpp"
 #include "tcp_socket.hpp"
 
 namespace databento_async {
 
-class LiveClient : public DataSource {
+// LiveClient - orchestrates pipeline for live data streaming.
+//
+// Architecture: TcpSocket -> LiveProtocolHandler -> DbnParserComponent -> Sink
+//
+// The Sink is an inner class that bridges parsed records back to the client's
+// callbacks (OnRecord/OnError/OnComplete).
+class LiveClient {
 public:
     enum class State {
         Disconnected,
@@ -20,11 +31,35 @@ public:
         WaitingChallenge,
         Authenticating,
         Ready,      // authenticated, can subscribe
-        Streaming   // after Start()
+        Streaming,  // after Start()
+        Complete,   // stream finished normally
+        Error       // stream finished with error
     };
 
+    // Sink class - RecordDownstream that bridges to LiveClient callbacks
+    class Sink {
+    public:
+        explicit Sink(LiveClient* client) : client_(client) {}
+
+        // Invalidate sink (called when client is being destroyed)
+        void Invalidate() { valid_ = false; }
+
+        // RecordDownstream interface
+        void OnRecord(const databento::Record& rec);
+        void OnError(const Error& e);
+        void OnDone();
+
+    private:
+        LiveClient* client_;
+        bool valid_ = true;
+    };
+
+    // Pipeline type aliases
+    using ParserType = DbnParserComponent<Sink>;
+    using ProtocolType = LiveProtocolHandler<ParserType>;
+
     LiveClient(Reactor& reactor, std::string api_key);
-    ~LiveClient() override;
+    ~LiveClient();
 
     // Non-copyable, non-movable
     LiveClient(const LiveClient&) = delete;
@@ -42,8 +77,12 @@ public:
                    std::string_view schema);
 
     // Begin streaming (after Subscribe)
-    void Start() override;
-    void Stop() override;
+    void Start();
+    void Stop();
+
+    // Backpressure control
+    void Pause();
+    void Resume();
 
     // State
     State GetState() const { return state_; }
@@ -51,35 +90,57 @@ public:
     // For testing: get session_id after authentication
     const std::string& GetSessionId() const { return session_id_; }
 
+    // Callbacks
+    template <typename Handler>
+    void OnRecord(Handler&& h) {
+        record_handler_ = std::forward<Handler>(h);
+    }
+
+    template <typename Handler>
+    void OnError(Handler&& h) {
+        error_handler_ = std::forward<Handler>(h);
+    }
+
+    template <typename Handler>
+    void OnComplete(Handler&& h) {
+        complete_handler_ = std::forward<Handler>(h);
+    }
+
 private:
+    // Build the pipeline components
+    void BuildPipeline();
+
+    // Clean up pipeline components
+    void TeardownPipeline();
+
+    // Handle TCP socket events
     void HandleConnect();
     void HandleSocketError(std::error_code ec);
     void HandleRead(std::span<const std::byte> data);
 
-    void ProcessLine(std::string_view line);
-    void HandleGreeting(std::string_view line);
-    void HandleChallenge(std::string_view line);
-    void HandleAuthResponse(std::string_view line);
-
-    void SendAuth(std::string_view challenge);
-    void SendSubscription();
-    void SendStart();
+    // Map LiveProtocolState to LiveClient::State
+    void UpdateStateFromProtocol();
 
     Reactor& reactor_;
-    TcpSocket socket_;
     std::string api_key_;
     State state_ = State::Disconnected;
-
     std::string session_id_;
-    std::string line_buffer_;  // for text protocol parsing
 
-    // Subscription params
+    // Pipeline components
+    std::unique_ptr<TcpSocket> tcp_;
+    std::shared_ptr<Sink> sink_;
+    std::shared_ptr<ParserType> parser_;
+    std::shared_ptr<ProtocolType> protocol_;
+
+    // Subscription params (stored until pipeline is ready)
     std::string dataset_;
     std::string symbols_;
     std::string schema_;
 
-    // Subscription counter for unique IDs
-    std::uint32_t sub_counter_ = 0;
+    // Callbacks
+    std::function<void(const databento::Record&)> record_handler_;
+    std::function<void(const Error&)> error_handler_;
+    std::function<void()> complete_handler_;
 };
 
 }  // namespace databento_async

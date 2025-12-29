@@ -66,3 +66,78 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "pipeline_test",
+    srcs = ["pipeline_test.cpp"],
+    deps = [
+        "//src:pipeline",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "tls_socket_test",
+    srcs = ["tls_socket_test.cpp"],
+    deps = [
+        "//src:pipeline",
+        "//src:reactor",
+        "//src:tls_socket",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "http_client_test",
+    srcs = ["http_client_test.cpp"],
+    deps = [
+        "//src:http_client",
+        "//src:pipeline",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "zstd_decompressor_test",
+    srcs = ["zstd_decompressor_test.cpp"],
+    deps = [
+        "//src:pipeline",
+        "//src:reactor",
+        "//src:zstd_decompressor",
+        "@googletest//:gtest_main",
+        "@zstd",
+    ],
+)
+
+cc_test(
+    name = "historical_client_test",
+    srcs = ["historical_client_test.cpp"],
+    deps = [
+        "//src:historical_client",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "dbn_parser_component_test",
+    srcs = ["dbn_parser_component_test.cpp"],
+    deps = [
+        "//src:dbn_parser_component",
+        "//src:pipeline",
+        "//src:reactor",
+        "@databento_cpp//:databento_headers",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "live_protocol_handler_test",
+    srcs = ["live_protocol_handler_test.cpp"],
+    deps = [
+        "//src:live_protocol_handler",
+        "//src:pipeline",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)

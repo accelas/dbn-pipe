@@ -20,10 +20,9 @@ jobs:
             wget \
             ca-certificates \
             build-essential \
-            python3
-          # Add project-specific dependencies here:
-          # C++ projects: libssl-dev libpq-dev protobuf-compiler
-          # Python projects: python3-pip python3-venv
+            python3 \
+            libssl-dev \
+            libzstd-dev
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -47,6 +46,11 @@ jobs:
           key: bazel-build-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel') }}
           restore-keys: |
             bazel-build-${{ runner.os }}-
+
+      - name: Install Bazelisk
+        run: |
+          wget -q https://github.com/bazelbuild/bazelisk/releases/download/v1.20.0/bazelisk-linux-amd64 -O /usr/local/bin/bazel
+          chmod +x /usr/local/bin/bazel
 
       - name: Build all targets
         run: bazel build //...
