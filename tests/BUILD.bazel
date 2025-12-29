@@ -208,3 +208,14 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "unified_pipeline_test",
+    srcs = ["unified_pipeline_test.cpp"],
+    deps = [
+        "//src:unified_pipeline",
+        "//src:live_protocol",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)

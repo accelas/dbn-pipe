@@ -228,3 +228,17 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "unified_pipeline",
+    hdrs = ["unified_pipeline.hpp"],
+    deps = [
+        ":error",
+        ":pipeline",
+        ":pipeline_base",
+        ":protocol_driver",
+        ":reactor",
+        ":tcp_socket",
+    ],
+    visibility = ["//visibility:public"],
+)
