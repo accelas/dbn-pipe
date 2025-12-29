@@ -8,6 +8,8 @@
 
 **Tech Stack:** C++23, concepts, CRTP
 
+**Lifecycle:** Single-use. For reconnect, create a new Pipeline instance.
+
 ---
 
 ## Design Overview
@@ -278,11 +280,8 @@ public:
 
 private:
     void BuildPipeline() {
-        // Reset state for potential reconnect
-        start_requested_ = false;
-        request_sent_ = false;
-        ready_to_send_ = false;
-        suspend_count_.store(0, std::memory_order_release);
+        // Pipeline is single-use - assert Connect() called only once
+        assert(!tcp_ && "Pipeline::Connect() can only be called once");
 
         // Create sink (bridges to callbacks)
         sink_ = std::make_shared<Sink>(this);
@@ -352,6 +351,8 @@ private:
         if (error_handler_) {
             error_handler_(Error{ErrorCode::ConnectionFailed, ec.message(), ec.value()});
         }
+        // Error is terminal for single-use pipeline
+        TeardownPipeline();
     }
 
     // Called by Sink
@@ -467,7 +468,7 @@ using HistoricalClient = Pipeline<HistoricalProtocol>;
 | Sink takes shared_ptr | Changed to reference (Sink&) |
 | Sink invalidation missing | Added Invalidate() in TeardownPipeline |
 | Boolean suspend | Changed to count-based atomic<int> |
-| Reconnect state not reset | BuildPipeline resets all state flags |
+| Single-use lifecycle | Pipeline is single-use; assert in BuildPipeline, no state reset needed |
 | Callback lifetime risk | TeardownPipeline calls ClearCallbacks() before tcp_.reset() |
 | Request validation | Can add static P::Validate(request) hook if needed |
 
