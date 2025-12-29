@@ -99,6 +99,9 @@ Reactor::~Reactor() {
 }
 
 int Reactor::Poll(int timeout_ms) {
+    // Record the reactor thread ID for IsInReactorThread() checks
+    reactor_thread_id_.store(std::this_thread::get_id(), std::memory_order_release);
+
     int n = epoll_wait(epoll_fd_, events_.data(), kMaxEvents, timeout_ms);
     if (n < 0) {
         if (errno == EINTR) {

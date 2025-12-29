@@ -5,9 +5,19 @@ namespace databento_async {
 
 // Sink implementation
 
-void LiveClient::Sink::OnRecord(const databento::Record& rec) {
+void LiveClient::Sink::OnData(RecordBatch&& batch) {
     if (!valid_) return;
-    if (client_->record_handler_) {
+    if (!client_->record_handler_) return;
+
+    // Iterate through each record in the batch and call the handler
+    for (size_t i = 0; i < batch.size(); ++i) {
+        // Create a Record view from the raw data
+        // Note: The Record constructor expects a non-const pointer to the header.
+        // The RecordBatch owns the buffer, so we need to cast away const for the
+        // databento::Record API. The record is only valid for this scope.
+        auto* data = const_cast<std::byte*>(batch.GetRecordData(i));
+        databento::Record rec{reinterpret_cast<databento::RecordHeader*>(data)};
+
         client_->record_handler_(rec);
     }
 }
@@ -22,7 +32,7 @@ void LiveClient::Sink::OnError(const Error& e) {
     // No deferred teardown - let destructor or Stop() handle it
 }
 
-void LiveClient::Sink::OnDone() {
+void LiveClient::Sink::OnComplete() {
     if (!valid_) return;
     valid_ = false;  // Prevent further callbacks
     client_->state_ = State::Complete;
@@ -40,7 +50,9 @@ LiveClient::LiveClient(Reactor& reactor, std::string api_key)
 }
 
 LiveClient::~LiveClient() {
-    Close();
+    // Destructor teardown - does not assert reactor thread since
+    // destruction may happen from any thread. Use TeardownPipeline directly.
+    TeardownPipeline();
 }
 
 void LiveClient::BuildPipeline() {
@@ -48,13 +60,11 @@ void LiveClient::BuildPipeline() {
     sink_ = std::make_shared<Sink>(this);
 
     // Create parser component with sink as downstream
-    parser_ = ParserType::Create(reactor_, sink_);
+    // The new DbnParserComponent takes a reference, not shared_ptr
+    parser_ = std::make_shared<ParserType>(*sink_);
 
     // Create protocol handler with parser as downstream
     protocol_ = ProtocolType::Create(reactor_, parser_, api_key_);
-
-    // Set upstream for backpressure
-    parser_->SetUpstream(protocol_.get());
 
     // Create TCP socket
     tcp_ = std::make_unique<TcpSocket>(reactor_);
@@ -103,10 +113,8 @@ void LiveClient::TeardownPipeline() {
         protocol_.reset();
     }
 
-    if (parser_) {
-        parser_->Close();
-        parser_.reset();
-    }
+    // Parser component doesn't have Close() - just reset it
+    parser_.reset();
 
     sink_.reset();
     session_id_.clear();
@@ -130,8 +138,10 @@ void LiveClient::Connect(const sockaddr_storage& addr) {
 }
 
 void LiveClient::Close() {
+    assert(reactor_.IsInReactorThread() && "Close must be called from reactor thread");
     TeardownPipeline();
     state_ = State::Disconnected;
+    suspended_.store(false, std::memory_order_release);
 }
 
 void LiveClient::Subscribe(std::string_view dataset,
@@ -164,20 +174,32 @@ void LiveClient::Start() {
 }
 
 void LiveClient::Stop() {
-    Close();
+    // Stop can be called from any thread - it just does teardown
+    // For reactor-thread-safe close with proper state transition, use Close()
+    TeardownPipeline();
+    state_ = State::Disconnected;
+    suspended_.store(false, std::memory_order_release);
 }
 
-void LiveClient::Pause() {
-    if (state_ != State::Streaming) return;
-    if (parser_) {
-        parser_->Suspend();
+void LiveClient::Suspend() {
+    assert(reactor_.IsInReactorThread() && "Suspend must be called from reactor thread");
+    // Idempotent: only pause if not already suspended
+    // atomic exchange returns the previous value
+    if (!suspended_.exchange(true, std::memory_order_acq_rel)) {
+        if (tcp_) {
+            tcp_->PauseRead();
+        }
     }
 }
 
 void LiveClient::Resume() {
-    if (state_ != State::Streaming) return;
-    if (parser_) {
-        parser_->Resume();
+    assert(reactor_.IsInReactorThread() && "Resume must be called from reactor thread");
+    // Idempotent: only resume if currently suspended
+    // atomic exchange returns the previous value
+    if (suspended_.exchange(false, std::memory_order_acq_rel)) {
+        if (tcp_) {
+            tcp_->ResumeRead();
+        }
     }
 }
 

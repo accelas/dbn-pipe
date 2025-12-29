@@ -49,17 +49,22 @@ public:
 
     // Suspendable interface
     void Suspend() override {
-        this->suspended_ = true;
+        suspended_ = true;
     }
 
     void Resume() override {
-        this->suspended_ = false;
+        suspended_ = false;
         // Process any buffered data
         ProcessPendingData();
     }
 
-    // Pipeline interface
-    void Close() { this->RequestClose(); }
+    void Close() override {
+        this->RequestClose();
+    }
+
+    bool IsSuspended() const override {
+        return suspended_;
+    }
 
     // Write is not supported for decompressor (data flows downstream only)
     void Write(std::pmr::vector<std::byte> /*data*/) {
@@ -100,6 +105,9 @@ private:
 
     // ZSTD streaming decompression context
     ZSTD_DStream* dstream_ = nullptr;
+
+    // Backpressure state
+    bool suspended_ = false;
 
     // PMR pool for output buffers
     std::pmr::unsynchronized_pool_resource pool_;
@@ -160,7 +168,7 @@ void ZstdDecompressor<D>::Read(std::pmr::vector<std::byte> data) {
     if (!guard) return;
 
     // If suspended, buffer the data
-    if (this->suspended_) {
+    if (suspended_) {
         if (pending_input_.size() + data.size() > kMaxPendingInput) {
             this->EmitError(*downstream_,
                 Error{ErrorCode::DecompressionError,
@@ -212,7 +220,7 @@ bool ZstdDecompressor<D>::DecompressAndForward(const std::byte* input, size_t in
 
     while (in_buf.pos < in_buf.size) {
         // Check if we got suspended during processing
-        if (this->suspended_) {
+        if (suspended_) {
             // Buffer remaining input
             if (in_buf.pos < in_buf.size) {
                 const auto* remaining = static_cast<const std::byte*>(in_buf.src) + in_buf.pos;

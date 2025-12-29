@@ -13,6 +13,41 @@
 
 namespace databento_async {
 
+// Suspendable - interface for pipeline components that support backpressure.
+//
+// Thread safety:
+// - Suspend(), Resume(), Close() MUST be called from reactor thread only.
+//   Implementations should assert reactor_.IsInReactorThread().
+// - IsSuspended() is thread-safe and can be called from any thread.
+//
+// Idempotency:
+// - All methods are idempotent (safe to call multiple times).
+// - Implementations use atomic exchange to ensure single state transitions.
+//
+// NOTE: This is a pure interface - implementations own the suspend state.
+// The canonical implementation is LiveClient, which owns a std::atomic<bool>
+// suspended_ member as the single source of truth.
+class Suspendable {
+public:
+    virtual ~Suspendable() = default;
+
+    // Pause reading from the network (idempotent, reactor thread only).
+    // Calling Suspend() when already suspended is a no-op.
+    virtual void Suspend() = 0;
+
+    // Resume reading from the network (idempotent, reactor thread only).
+    // Calling Resume() when not suspended is a no-op.
+    virtual void Resume() = 0;
+
+    // Terminate the connection (for terminal errors, reactor thread only).
+    // After Close(), no more callbacks will be invoked.
+    virtual void Close() = 0;
+
+    // Query whether reading is currently suspended (thread-safe).
+    // Returns true if Suspend() has been called and Resume() has not.
+    virtual bool IsSuspended() const = 0;
+};
+
 // TerminalDownstream interface - minimal interface for error/done signals
 template<typename D>
 concept TerminalDownstream = requires(D& d, const Error& e) {

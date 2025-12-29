@@ -17,6 +17,7 @@
 #include "error.hpp"
 #include "http_client.hpp"
 #include "reactor.hpp"
+#include "record_batch.hpp"
 #include "tcp_socket.hpp"
 #include "tls_socket.hpp"
 #include "zstd_decompressor.hpp"
@@ -48,7 +49,9 @@ public:
         Error               // An error occurred
     };
 
-    // Sink class - RecordDownstream that bridges to HistoricalClient callbacks
+    // Sink class - RecordSink that bridges to HistoricalClient callbacks
+    // Implements the RecordSink concept (OnData, OnError, OnComplete) for batch-based
+    // record delivery from DbnParserComponent.
     class Sink {
     public:
         explicit Sink(HistoricalClient* client) : client_(client) {}
@@ -56,10 +59,10 @@ public:
         // Invalidate sink (called when client is being destroyed)
         void Invalidate() { valid_ = false; }
 
-        // RecordDownstream interface
-        void OnRecord(const databento::Record& rec);
+        // RecordSink interface
+        void OnData(RecordBatch&& batch);
         void OnError(const Error& e);
-        void OnDone();
+        void OnComplete();
 
     private:
         HistoricalClient* client_;

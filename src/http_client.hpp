@@ -48,11 +48,11 @@ public:
 
     // Suspendable interface
     void Suspend() override {
-        this->suspended_ = true;
+        suspended_ = true;
     }
 
     void Resume() override {
-        this->suspended_ = false;
+        suspended_ = false;
         // Process any pending body data
         if (!pending_body_.empty()) {
             auto guard = this->TryGuard();
@@ -63,8 +63,13 @@ public:
         }
     }
 
-    // Pipeline interface
-    void Close() { this->RequestClose(); }
+    void Close() override {
+        this->RequestClose();
+    }
+
+    bool IsSuspended() const override {
+        return suspended_;
+    }
 
     // Send data upstream (for HTTP requests)
     void Write(std::pmr::vector<std::byte> data);
@@ -113,7 +118,8 @@ private:
     int status_code_ = 0;
     bool message_complete_ = false;
 
-    // Note: suspended_ is inherited from Suspendable base class
+    // Backpressure state
+    bool suspended_ = false;
 
     // PMR pools for body chunks
     std::pmr::unsynchronized_pool_resource body_pool_;

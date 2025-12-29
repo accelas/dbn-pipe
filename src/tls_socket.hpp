@@ -19,19 +19,6 @@
 
 namespace databento_async {
 
-// Suspendable base class for upstream control flow
-class Suspendable {
-public:
-    virtual ~Suspendable() = default;
-
-    virtual void Suspend() = 0;
-    virtual void Resume() = 0;
-    bool IsSuspended() const { return suspended_; }
-
-protected:
-    bool suspended_ = false;
-};
-
 // TlsSocket handles TLS encryption/decryption using OpenSSL with memory BIOs.
 // Sits between TcpSocket (upstream) and HttpClient (downstream) in the pipeline.
 //
@@ -74,8 +61,13 @@ public:
         ProcessPendingReads();
     }
 
-    // Pipeline interface
-    void Close() { this->RequestClose(); }
+    void Close() override {
+        this->RequestClose();
+    }
+
+    bool IsSuspended() const override {
+        return suspended_;
+    }
 
     // TLS-specific methods
     void StartHandshake();
@@ -130,6 +122,7 @@ private:
     // State
     bool handshake_complete_ = false;
     bool handshake_started_ = false;
+    bool suspended_ = false;
 
     // PMR allocator for encryption/decryption buffers
     std::pmr::unsynchronized_pool_resource pool_;

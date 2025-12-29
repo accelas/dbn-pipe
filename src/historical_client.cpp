@@ -78,9 +78,20 @@ std::string UrlEncode(std::string_view str) {
 
 // Sink implementation
 
-void HistoricalClient::Sink::OnRecord(const databento::Record& rec) {
+void HistoricalClient::Sink::OnData(RecordBatch&& batch) {
     if (!valid_) return;
-    client_->HandleRecord(rec);
+
+    // Iterate through each record in the batch and call the handler
+    for (size_t i = 0; i < batch.size(); ++i) {
+        // Create a Record view from the raw data
+        // Note: The Record constructor expects a non-const pointer to the header.
+        // The RecordBatch owns the buffer, so we need to cast away const for the
+        // databento::Record API. The record is only valid for this scope.
+        auto* data = const_cast<std::byte*>(batch.GetRecordData(i));
+        databento::Record rec{reinterpret_cast<databento::RecordHeader*>(data)};
+
+        client_->HandleRecord(rec);
+    }
 }
 
 void HistoricalClient::Sink::OnError(const Error& e) {
@@ -89,7 +100,7 @@ void HistoricalClient::Sink::OnError(const Error& e) {
     client_->HandlePipelineError(e);
 }
 
-void HistoricalClient::Sink::OnDone() {
+void HistoricalClient::Sink::OnComplete() {
     if (!valid_) return;
     valid_ = false;  // Prevent further callbacks
     client_->HandlePipelineComplete();
@@ -185,10 +196,8 @@ void HistoricalClient::Connect(const sockaddr_storage& addr) {
 
 void HistoricalClient::Start() {
     // For historical API, data starts flowing after HTTP response is received
-    // This method resumes the parser if it was paused
-    if (parser_) {
-        parser_->Resume();
-    }
+    // This is a no-op in the current implementation - data flows automatically
+    // after the HTTP response headers are received.
 }
 
 void HistoricalClient::Stop() {
@@ -197,17 +206,15 @@ void HistoricalClient::Stop() {
 }
 
 void HistoricalClient::Pause() {
-    if (state_ != State::Streaming) return;
-    if (parser_) {
-        parser_->Suspend();
-    }
+    // TODO: Implement backpressure for historical client
+    // The DbnParserComponent doesn't have Suspend/Resume - backpressure should
+    // be implemented at the socket level similar to LiveClient
 }
 
 void HistoricalClient::Resume() {
-    if (state_ != State::Streaming) return;
-    if (parser_) {
-        parser_->Resume();
-    }
+    // TODO: Implement backpressure for historical client
+    // The DbnParserComponent doesn't have Suspend/Resume - backpressure should
+    // be implemented at the socket level similar to LiveClient
 }
 
 void HistoricalClient::BuildPipeline() {
@@ -217,11 +224,11 @@ void HistoricalClient::BuildPipeline() {
     sink_ = std::make_shared<Sink>(this);
 
     // 2. Create DbnParserComponent with sink as downstream
-    parser_ = ParserType::Create(reactor_, sink_);
+    // The new DbnParserComponent takes a reference, not shared_ptr
+    parser_ = std::make_shared<ParserType>(*sink_);
 
     // 3. Create ZstdDecompressor with parser as downstream
     zstd_ = ZstdType::Create(reactor_, parser_);
-    parser_->SetUpstream(zstd_.get());
 
     // 4. Create HttpClient with zstd as downstream
     http_ = HttpType::Create(reactor_, zstd_);
@@ -263,7 +270,7 @@ void HistoricalClient::TeardownPipeline() {
     }
 
     // Close components before reset to handle callback reentrancy
-    if (parser_) parser_->Close();
+    // Note: parser_ doesn't have Close() - just reset it
     if (zstd_) zstd_->Close();
     if (http_) http_->Close();
     if (tls_) tls_->Close();
