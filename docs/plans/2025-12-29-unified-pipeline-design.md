@@ -215,15 +215,32 @@ struct HistoricalProtocol {
     }
 
 private:
+    // URL-encode a string (RFC 3986)
+    static std::string UrlEncode(const std::string& s) {
+        std::string result;
+        result.reserve(s.size() * 3);  // Worst case
+        for (unsigned char c : s) {
+            if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+                result += c;
+            } else {
+                char buf[4];
+                std::snprintf(buf, sizeof(buf), "%%%02X", c);
+                result += buf;
+            }
+        }
+        return result;
+    }
+
     // Build HTTP GET request with Basic auth header
     static std::string BuildHttpRequest(const Request& req,
                                         const std::string& api_key) {
         // Format: GET /v0/timeseries.get_range?... HTTP/1.1
         // Authorization: Basic base64(api_key:)
+        // All string parameters are URL-encoded for safety
         std::string path = "/v0/timeseries.get_range?"
-            "dataset=" + req.dataset +
-            "&symbols=" + req.symbols +
-            "&schema=" + req.schema +
+            "dataset=" + UrlEncode(req.dataset) +
+            "&symbols=" + UrlEncode(req.symbols) +
+            "&schema=" + UrlEncode(req.schema) +
             "&start=" + std::to_string(req.start) +
             "&end=" + std::to_string(req.end) +
             "&encoding=dbn&compression=zstd";
@@ -270,6 +287,9 @@ public:
     // Ensure the last shared_ptr release happens on reactor thread.
     ~Pipeline() {
         assert(reactor_.IsInReactorThread());
+        // Invalidate sink first to prevent callbacks during teardown
+        // (P::Teardown might trigger Close() which emits OnComplete)
+        if (sink_) sink_->Invalidate();
         DoTeardown();  // Synchronous cleanup
     }
 
@@ -297,6 +317,13 @@ public:
 
     void Start() {
         assert(reactor_.IsInReactorThread());
+
+        // Terminal state guard - pipeline is single-use
+        if (teardown_pending_ || state_ == State::Error ||
+            state_ == State::Complete || state_ == State::Disconnected) {
+            return;  // Silently ignore - pipeline is done
+        }
+
         if (!request_set_) {
             HandlePipelineError(Error{ErrorCode::InvalidState,
                                       "SetRequest() must be called before Start()"});
@@ -349,13 +376,25 @@ public:
         return suspend_count_.load(std::memory_order_acquire) > 0;
     }
 
-    // Callbacks
-    template <typename H> void OnRecord(H&& h) { record_handler_ = std::forward<H>(h); }
-    template <typename H> void OnError(H&& h) { error_handler_ = std::forward<H>(h); }
-    template <typename H> void OnComplete(H&& h) { complete_handler_ = std::forward<H>(h); }
+    // Callbacks - must be set from reactor thread
+    template <typename H> void OnRecord(H&& h) {
+        assert(reactor_.IsInReactorThread());
+        record_handler_ = std::forward<H>(h);
+    }
+    template <typename H> void OnError(H&& h) {
+        assert(reactor_.IsInReactorThread());
+        error_handler_ = std::forward<H>(h);
+    }
+    template <typename H> void OnComplete(H&& h) {
+        assert(reactor_.IsInReactorThread());
+        complete_handler_ = std::forward<H>(h);
+    }
 
-    // State accessor
-    State GetState() const { return state_; }
+    // State accessor - must be called from reactor thread
+    State GetState() const {
+        assert(reactor_.IsInReactorThread());
+        return state_;
+    }
 
 private:
     void BuildPipeline() {
@@ -415,6 +454,10 @@ private:
 
     void HandleConnect() {
         assert(reactor_.IsInReactorThread());
+
+        // Terminal state guard
+        if (teardown_pending_) return;
+
         ready_to_send_ = P::OnConnect(chain_);
 
         // If ready immediately (Live) and Start() was called, send request now
@@ -427,6 +470,10 @@ private:
 
     void HandleRead(std::span<const std::byte> data) {
         assert(reactor_.IsInReactorThread());
+
+        // Terminal state guard
+        if (teardown_pending_) return;
+
         std::pmr::vector<std::byte> buffer(&pool_);
         buffer.assign(data.begin(), data.end());
 
@@ -591,7 +638,10 @@ using HistoricalClient = Pipeline<HistoricalProtocol>;
 | Request validation | `request_set_` flag + runtime check in Start() ensures SetRequest() called |
 | Connect() invalid-state not terminal | Now calls HandlePipelineError which triggers TeardownPipeline |
 | Public constructor with weak_from_this | Private constructor via PrivateTag; must use Create() factory |
-| Missing reactor thread assertions | Added assert(IsInReactorThread()) to all public methods, handlers, and destructor |
+| Missing reactor thread assertions | Added assert(IsInReactorThread()) to all public methods, callback setters, handlers, and destructor |
+| Terminal state guards missing | Start/HandleConnect/HandleRead check teardown_pending_ before operating |
+| Destructor skipped sink invalidation | ~Pipeline() invalidates sink before DoTeardown to prevent callbacks during teardown |
+| HTTP params not URL-encoded | Added UrlEncode() helper, all string params encoded in BuildHttpRequest |
 
 ---
 
