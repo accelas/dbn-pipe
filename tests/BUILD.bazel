@@ -196,3 +196,15 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "historical_protocol_test",
+    srcs = ["historical_protocol_test.cpp"],
+    deps = [
+        "//src:historical_protocol",
+        "//src:protocol_driver",
+        "//src:pipeline_base",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
