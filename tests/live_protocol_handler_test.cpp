@@ -48,6 +48,9 @@ std::string ToString(const std::vector<std::byte>& data) {
 class LiveProtocolHandlerTest : public ::testing::Test {
 protected:
     void SetUp() override {
+        // Initialize reactor thread ID for Suspend/Resume assertions
+        reactor_.Poll(0);
+
         downstream_ = std::make_shared<MockDownstream>();
         handler_ = LiveProtocolHandler<MockDownstream>::Create(
             reactor_, downstream_, "test_api_key");

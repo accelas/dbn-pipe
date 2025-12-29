@@ -43,13 +43,12 @@ enum class LiveProtocolState {
 // passed to downstream as binary data.
 //
 // Uses CRTP with PipelineComponent base for reentrancy-safe lifecycle.
-// Implements Suspendable for backpressure control.
+// PipelineComponent provides Suspendable interface with suspend count semantics.
 //
 // Template parameter D must satisfy Downstream concept (bytes out, not records).
 template <Downstream D>
 class LiveProtocolHandler
     : public PipelineComponent<LiveProtocolHandler<D>>,
-      public Suspendable,
       public std::enable_shared_from_this<LiveProtocolHandler<D>> {
 
     using Base = PipelineComponent<LiveProtocolHandler<D>>;
@@ -78,12 +77,6 @@ public:
     void OnError(const Error& e);
     void OnDone();
 
-    // Suspendable interface
-    void Suspend() override;
-    void Resume() override;
-    void Close() override { this->RequestClose(); }
-    bool IsSuspended() const override { return suspended_; }
-
     // Set upstream for backpressure propagation
     void SetUpstream(Suspendable* up) { upstream_ = up; }
 
@@ -105,6 +98,35 @@ public:
     // PipelineComponent requirements
     void DisableWatchers() {}
     void DoClose();
+
+    // Suspendable hooks (called by PipelineComponent base)
+    void OnSuspend() {
+        if (upstream_) upstream_->Suspend();
+    }
+
+    void OnResume() {
+        // Flush pending binary data
+        if (!pending_data_.empty()) {
+            std::pmr::vector<std::byte> data(alloc_);
+            data.assign(pending_data_.begin(), pending_data_.end());
+            pending_data_.clear();
+            downstream_->Read(std::move(data));
+        }
+        // Propagate resume upstream
+        if (upstream_) upstream_->Resume();
+    }
+
+    void FlushAndComplete() {
+        // Flush pending data then emit done
+        if (!pending_data_.empty()) {
+            std::pmr::vector<std::byte> data(alloc_);
+            data.assign(pending_data_.begin(), pending_data_.end());
+            pending_data_.clear();
+            downstream_->Read(std::move(data));
+        }
+        this->EmitDone(*downstream_);
+        this->RequestClose();
+    }
 
     // Buffer limits
     static constexpr std::size_t kMaxPendingData = 16 * 1024 * 1024;  // 16MB
@@ -137,7 +159,6 @@ private:
 
     std::string api_key_;
     LiveProtocolState state_ = LiveProtocolState::WaitingGreeting;
-    bool suspended_ = false;  // Backpressure state
     Greeting greeting_;
 
     // Text mode line buffer (used before Streaming state)
@@ -192,7 +213,7 @@ void LiveProtocolHandler<D>::Read(std::pmr::vector<std::byte> data) {
 
     if (state_ == LiveProtocolState::Streaming) {
         // Binary mode: pass through or buffer when suspended
-        if (this->suspended_) {
+        if (this->IsSuspended()) {
             // Check buffer overflow
             if (pending_data_.size() + data.size() > kMaxPendingData) {
                 this->EmitError(*downstream_,
@@ -257,8 +278,8 @@ void LiveProtocolHandler<D>::ProcessLineBuffer() {
             remaining.assign(line_buffer_.begin(), line_buffer_.end());
             line_buffer_.clear();
 
-            // Respect suspended_ check for leftover bytes (backpressure)
-            if (this->suspended_) {
+            // Respect IsSuspended() check for leftover bytes (backpressure)
+            if (this->IsSuspended()) {
                 // Check buffer overflow
                 if (pending_data_.size() + remaining.size() > kMaxPendingData) {
                     this->EmitError(*downstream_,
@@ -476,47 +497,18 @@ void LiveProtocolHandler<D>::OnDone() {
         this->EmitError(*downstream_,
             Error{ErrorCode::ConnectionClosed,
                   "Connection closed during authentication"});
-    } else if (!pending_data_.empty()) {
-        // Flush any pending data before signaling done
-        std::pmr::vector<std::byte> data(alloc_);
-        data.assign(pending_data_.begin(), pending_data_.end());
-        pending_data_.clear();
-        downstream_->Read(std::move(data));
-        this->EmitDone(*downstream_);
-    } else {
-        this->EmitDone(*downstream_);
-    }
-    this->RequestClose();
-}
-
-template <Downstream D>
-void LiveProtocolHandler<D>::Suspend() {
-    auto guard = this->TryGuard();
-    if (!guard) return;
-
-    this->suspended_ = true;
-    if (upstream_) upstream_->Suspend();
-}
-
-template <Downstream D>
-void LiveProtocolHandler<D>::Resume() {
-    auto guard = this->TryGuard();
-    if (!guard) return;
-
-    this->suspended_ = false;
-
-    // Flush any pending binary data
-    if (!pending_data_.empty()) {
-        std::pmr::vector<std::byte> data(alloc_);
-        data.assign(pending_data_.begin(), pending_data_.end());
-        pending_data_.clear();
-        downstream_->Read(std::move(data));
+        this->RequestClose();
+        return;
     }
 
-    // Propagate resume upstream if not re-suspended
-    if (!this->suspended_ && upstream_) {
-        upstream_->Resume();
+    // If suspended, defer OnDone until Resume()
+    if (this->IsSuspended()) {
+        this->DeferOnDone();
+        return;
     }
+
+    // Not suspended - flush and complete immediately
+    FlushAndComplete();
 }
 
 }  // namespace databento_async
