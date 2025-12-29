@@ -150,7 +150,19 @@ struct HistoricalProtocol {
     using ZstdType = ZstdDecompressor<ParserType>;
     using HttpType = HttpClient<ZstdType>;
     using TlsType = TlsSocket<HttpType>;
-    using ChainType = TlsType;  // Entry point is TLS layer
+
+    // Wrapper to hold both TLS chain and api_key for HTTP auth
+    struct ChainType {
+        std::shared_ptr<TlsType> tls;
+        std::string api_key;
+
+        void StartHandshake() { tls->StartHandshake(); }
+        bool IsHandshakeComplete() const { return tls->IsHandshakeComplete(); }
+        void Read(std::pmr::vector<std::byte> data) { tls->Read(std::move(data)); }
+        void Write(std::pmr::vector<std::byte> data) { tls->Write(std::move(data)); }
+        void Close() { if (tls) tls->Close(); }
+        void SetUpstreamWriteCallback(auto&& cb) { tls->SetUpstreamWriteCallback(std::forward<decltype(cb)>(cb)); }
+    };
 
     static std::shared_ptr<ChainType> BuildChain(
         Reactor& reactor, Sink& sink, const std::string& api_key
@@ -160,7 +172,11 @@ struct HistoricalProtocol {
         auto http = HttpType::Create(reactor, zstd);
         auto tls = TlsType::Create(reactor, http);
         tls->SetHostname("hist.databento.com");
-        return tls;
+
+        auto chain = std::make_shared<ChainType>();
+        chain->tls = tls;
+        chain->api_key = api_key;
+        return chain;
     }
 
     static void WireTcp(TcpSocket& tcp, std::shared_ptr<ChainType>& chain) {
@@ -186,8 +202,8 @@ struct HistoricalProtocol {
 
     static void SendRequest(std::shared_ptr<ChainType>& chain,
                            const Request& req) {
-        // Build and send HTTP request through TLS
-        std::string http_request = BuildHttpRequest(req);
+        // Build and send HTTP request through TLS with auth
+        std::string http_request = BuildHttpRequest(req, chain->api_key);
         std::pmr::vector<std::byte> buffer;
         buffer.resize(http_request.size());
         std::memcpy(buffer.data(), http_request.data(), http_request.size());
@@ -199,7 +215,28 @@ struct HistoricalProtocol {
     }
 
 private:
-    static std::string BuildHttpRequest(const Request& req);
+    // Build HTTP GET request with Basic auth header
+    static std::string BuildHttpRequest(const Request& req,
+                                        const std::string& api_key) {
+        // Format: GET /v0/timeseries.get_range?... HTTP/1.1
+        // Authorization: Basic base64(api_key:)
+        std::string path = "/v0/timeseries.get_range?"
+            "dataset=" + req.dataset +
+            "&symbols=" + req.symbols +
+            "&schema=" + req.schema +
+            "&start=" + std::to_string(req.start) +
+            "&end=" + std::to_string(req.end) +
+            "&encoding=dbn&compression=zstd";
+
+        std::string auth = Base64Encode(api_key + ":");
+
+        return "GET " + path + " HTTP/1.1\r\n"
+               "Host: hist.databento.com\r\n"
+               "Authorization: Basic " + auth + "\r\n"
+               "Accept-Encoding: zstd\r\n"
+               "Connection: close\r\n"
+               "\r\n";
+    }
 };
 ```
 
@@ -209,15 +246,27 @@ private:
 
 ```cpp
 template <ProtocolDriver P>
-class Pipeline : public Suspendable {
+class Pipeline : public Suspendable,
+                 public PipelineBase,
+                 public std::enable_shared_from_this<Pipeline<P>> {
+    // Private constructor - must use Create() for shared_ptr safety
+    // (weak_from_this requires shared_ptr ownership)
+    struct PrivateTag {};
+
 public:
     using Request = typename P::Request;
 
-    Pipeline(Reactor& reactor, std::string api_key)
+    // Factory method required for shared_from_this safety
+    static std::shared_ptr<Pipeline> Create(Reactor& reactor, std::string api_key) {
+        return std::make_shared<Pipeline>(PrivateTag{}, reactor, std::move(api_key));
+    }
+
+    // Constructor is "public" for make_shared but requires PrivateTag
+    Pipeline(PrivateTag, Reactor& reactor, std::string api_key)
         : reactor_(reactor), api_key_(std::move(api_key)) {}
 
     ~Pipeline() {
-        TeardownPipeline();
+        DoTeardown();  // Synchronous cleanup
     }
 
     void SetRequest(Request params) {
@@ -227,10 +276,9 @@ public:
 
     void Connect(const sockaddr_storage& addr) {
         if (connected_) {
-            if (error_handler_) {
-                error_handler_(Error{ErrorCode::InvalidState,
-                                    "Connect() can only be called once"});
-            }
+            // Invalid state is terminal - use HandlePipelineError for consistency
+            HandlePipelineError(Error{ErrorCode::InvalidState,
+                                      "Connect() can only be called once"});
             return;
         }
         BuildPipeline();
@@ -322,29 +370,39 @@ private:
     }
 
     void TeardownPipeline() {
-        // Defer teardown to avoid reentrancy (may be called from callbacks)
+        // Invalidate sink immediately to stop callbacks
+        if (sink_) sink_->Invalidate();
+
+        // If already tearing down, skip
         if (teardown_pending_) return;
         teardown_pending_ = true;
 
-        reactor_.Defer([this] {
-            // Invalidate sink first to stop callbacks
-            if (sink_) sink_->Invalidate();
-
-            // Teardown chain before TCP to ensure no pending writes
-            P::Teardown(chain_);
-            chain_.reset();
-
-            // Close TCP socket last - clears callbacks to avoid use-after-free
-            if (tcp_) {
-                tcp_->ClearCallbacks();  // Clear OnConnect/OnRead/OnError handlers
-                tcp_->Close();
+        // Defer actual teardown to avoid reentrancy (may be called from callbacks)
+        // Use weak_ptr to safely handle destruction before deferred call runs
+        auto weak_self = this->weak_from_this();
+        reactor_.Defer([weak_self] {
+            if (auto self = weak_self.lock()) {
+                self->DoTeardown();
             }
-            tcp_.reset();
-            sink_.reset();
         });
     }
 
+    void DoTeardown() {
+        // Teardown chain before TCP to ensure no pending writes
+        P::Teardown(chain_);
+        chain_.reset();
+
+        // Close TCP socket - clears callbacks
+        if (tcp_) {
+            tcp_->ClearCallbacks();
+            tcp_->Close();
+        }
+        tcp_.reset();
+        sink_.reset();
+    }
+
     void HandleConnect() {
+        assert(reactor_.IsInReactorThread());
         ready_to_send_ = P::OnConnect(chain_);
 
         // If ready immediately (Live) and Start() was called, send request now
@@ -356,6 +414,7 @@ private:
     }
 
     void HandleRead(std::span<const std::byte> data) {
+        assert(reactor_.IsInReactorThread());
         std::pmr::vector<std::byte> buffer(&pool_);
         buffer.assign(data.begin(), data.end());
 
@@ -373,6 +432,7 @@ private:
     }
 
     void HandleError(std::error_code ec) {
+        assert(reactor_.IsInReactorThread());
         state_ = State::Error;
         if (error_handler_) {
             error_handler_(Error{ErrorCode::ConnectionFailed, ec.message(), ec.value()});
@@ -412,7 +472,7 @@ private:
     bool start_requested_ = false;
     bool request_sent_ = false;
     bool ready_to_send_ = false;
-    bool teardown_pending_ = false; // Deferred teardown scheduled
+    bool teardown_pending_ = false; // Deferred teardown scheduled (weak_ptr guards lifetime)
 
     std::atomic<int> suspend_count_{0};
 
@@ -442,33 +502,41 @@ public:
     virtual void HandlePipelineComplete() = 0;
 };
 
+// Thread-safety: Sink methods are only called from reactor thread.
+// All TCP callbacks, protocol component callbacks, and Pipeline methods
+// are guaranteed to run on the reactor thread.
 class Sink {
 public:
     explicit Sink(PipelineBase* pipeline) : pipeline_(pipeline) {}
 
-    void Invalidate() { valid_ = false; }
+    // Invalidate atomically clears valid_ and nulls pipeline_.
+    // Called from TeardownPipeline before deferred cleanup.
+    void Invalidate() {
+        valid_.store(false, std::memory_order_release);
+        pipeline_ = nullptr;
+    }
 
-    // RecordSink interface
+    // RecordSink interface - only called from reactor thread
     void OnData(RecordBatch&& batch) {
-        if (!valid_ || !pipeline_) return;
+        if (!valid_.load(std::memory_order_acquire) || !pipeline_) return;
         for (const auto& rec : batch.records) {
             pipeline_->HandleRecord(rec);
         }
     }
 
     void OnError(const Error& e) {
-        if (!valid_ || !pipeline_) return;
+        if (!valid_.load(std::memory_order_acquire) || !pipeline_) return;
         pipeline_->HandlePipelineError(e);
     }
 
     void OnComplete() {
-        if (!valid_ || !pipeline_) return;
+        if (!valid_.load(std::memory_order_acquire) || !pipeline_) return;
         pipeline_->HandlePipelineComplete();
     }
 
 private:
     PipelineBase* pipeline_;
-    bool valid_ = true;
+    std::atomic<bool> valid_{true};
 };
 
 // Pipeline inherits from PipelineBase
@@ -498,13 +566,18 @@ using HistoricalClient = Pipeline<HistoricalProtocol>;
 | Live needs send-on-connect | OnConnect returns bool - Live returns true, Historical returns false |
 | Historical handshake timing | OnRead returns bool indicating readiness; Pipeline tracks and sends request when ready |
 | HttpClient::Write unsupported | HistoricalProtocol::SendRequest writes through TlsSocket |
+| Historical auth missing | ChainType wrapper stores api_key; BuildHttpRequest uses Basic auth header |
 | Sink takes shared_ptr | Changed to reference (Sink&) |
 | Sink invalidation missing | Added Invalidate() in TeardownPipeline |
+| Sink thread safety | atomic<bool> valid_, pipeline_ nulled on Invalidate, threading documented |
 | Boolean suspend | Changed to count-based atomic<int> |
 | Single-use lifecycle | Pipeline is single-use; `connected_` flag enforces single Connect() |
 | Callback lifetime risk | TeardownPipeline calls ClearCallbacks() before tcp_.reset() |
 | Protocol errors terminal | HandlePipelineError also calls TeardownPipeline |
-| Request validation | `request_set_` flag + assert in Start() ensures SetRequest() called |
+| Request validation | `request_set_` flag + runtime check in Start() ensures SetRequest() called |
+| Connect() invalid-state not terminal | Now calls HandlePipelineError which triggers TeardownPipeline |
+| Public constructor with weak_from_this | Private constructor via PrivateTag; must use Create() factory |
+| Missing reactor thread assertions | Added assert(IsInReactorThread()) to HandleConnect, HandleRead, HandleError |
 
 ---
 
