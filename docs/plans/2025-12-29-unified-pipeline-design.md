@@ -222,6 +222,7 @@ public:
 
     void SetRequest(Request params) {
         request_ = std::move(params);
+        request_set_ = true;
     }
 
     void Connect(const sockaddr_storage& addr) {
@@ -231,6 +232,8 @@ public:
     }
 
     void Start() {
+        assert(request_set_ && "SetRequest() must be called before Start()");
+
         if (ready_to_send_ && !request_sent_) {
             P::SendRequest(chain_, request_);
             request_sent_ = true;
@@ -281,7 +284,8 @@ public:
 private:
     void BuildPipeline() {
         // Pipeline is single-use - assert Connect() called only once
-        assert(!tcp_ && "Pipeline::Connect() can only be called once");
+        assert(!connected_ && "Pipeline::Connect() can only be called once");
+        connected_ = true;
 
         // Create sink (bridges to callbacks)
         sink_ = std::make_shared<Sink>(this);
@@ -363,6 +367,8 @@ private:
     void HandlePipelineError(const Error& e) {
         state_ = State::Error;
         if (error_handler_) error_handler_(e);
+        // Protocol errors are also terminal
+        TeardownPipeline();
     }
 
     void HandlePipelineComplete() {
@@ -377,6 +383,8 @@ private:
     Request request_;
     State state_ = State::Disconnected;
 
+    bool connected_ = false;        // Single-use guard
+    bool request_set_ = false;      // SetRequest() called
     bool start_requested_ = false;
     bool request_sent_ = false;
     bool ready_to_send_ = false;
@@ -468,9 +476,10 @@ using HistoricalClient = Pipeline<HistoricalProtocol>;
 | Sink takes shared_ptr | Changed to reference (Sink&) |
 | Sink invalidation missing | Added Invalidate() in TeardownPipeline |
 | Boolean suspend | Changed to count-based atomic<int> |
-| Single-use lifecycle | Pipeline is single-use; assert in BuildPipeline, no state reset needed |
+| Single-use lifecycle | Pipeline is single-use; `connected_` flag enforces single Connect() |
 | Callback lifetime risk | TeardownPipeline calls ClearCallbacks() before tcp_.reset() |
-| Request validation | Can add static P::Validate(request) hook if needed |
+| Protocol errors terminal | HandlePipelineError also calls TeardownPipeline |
+| Request validation | `request_set_` flag + assert in Start() ensures SetRequest() called |
 
 ---
 
