@@ -168,3 +168,9 @@ cc_library(
         "@databento_cpp//:databento_headers",
     ],
 )
+
+cc_library(
+    name = "dns_resolver",
+    hdrs = ["dns_resolver.hpp"],
+    visibility = ["//visibility:public"],
+)
