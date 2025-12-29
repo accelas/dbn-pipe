@@ -152,12 +152,25 @@ public:
 
             Send("success=1|session_id=99|\n");
 
-            // Wait for subscription
-            std::string sub_msg = Receive();
+            // Wait for subscription and start_session
+            // Note: These might come in the same TCP read or separate reads
+            std::string accumulated;
+            while (running_) {
+                std::string msg = Receive();
+                if (msg.empty()) {
+                    // Timeout - check if we already have what we need
+                    if (accumulated.find("start_session") != std::string::npos) {
+                        break;
+                    }
+                    return;  // Give up
+                }
+                accumulated += msg;
+                if (accumulated.find("start_session") != std::string::npos) {
+                    break;
+                }
+            }
 
-            // Wait for start_session
-            std::string start_msg = Receive();
-            if (start_msg.find("start_session") == std::string::npos) return;
+            if (accumulated.find("start_session") == std::string::npos) return;
 
             // Send a test record
             SendTestRecord();
@@ -186,9 +199,10 @@ private:
         char buf[4096];
         std::string result;
 
-        // Set a receive timeout
+        // Set a receive timeout - use 5 seconds to handle CI variability
+        // The test may take up to 3 seconds waiting for Ready state
         struct timeval tv;
-        tv.tv_sec = 2;
+        tv.tv_sec = 5;
         tv.tv_usec = 0;
         setsockopt(client_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
