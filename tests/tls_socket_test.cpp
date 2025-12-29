@@ -1,0 +1,119 @@
+// tests/tls_socket_test.cpp
+#include <gtest/gtest.h>
+
+#include <memory>
+#include <vector>
+
+#include "src/pipeline.hpp"
+#include "src/reactor.hpp"
+#include "src/tls_socket.hpp"
+
+using namespace databento_async;
+
+// Mock downstream that receives decrypted data
+struct MockTlsDownstream {
+    std::vector<std::byte> received;
+    Error last_error;
+    bool done = false;
+
+    void Read(std::pmr::vector<std::byte> data) {
+        received.insert(received.end(), data.begin(), data.end());
+    }
+    void OnError(const Error& e) { last_error = e; }
+    void OnDone() { done = true; }
+};
+
+// Verify MockTlsDownstream satisfies Downstream concept
+static_assert(Downstream<MockTlsDownstream>);
+
+TEST(TlsSocketTest, FactoryCreatesInstance) {
+    Reactor reactor;
+    auto downstream = std::make_shared<MockTlsDownstream>();
+
+    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+    ASSERT_NE(tls, nullptr);
+}
+
+TEST(TlsSocketTest, ImplementsUpstreamConcept) {
+    // TlsSocket must satisfy Upstream concept for pipeline integration
+    Reactor reactor;
+    auto downstream = std::make_shared<MockTlsDownstream>();
+    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+
+    // Verify Upstream interface is available
+    static_assert(Upstream<TlsSocket<MockTlsDownstream>>);
+    SUCCEED();
+}
+
+TEST(TlsSocketTest, SuspendAndResumeWork) {
+    Reactor reactor;
+    auto downstream = std::make_shared<MockTlsDownstream>();
+    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+
+    // Initially not suspended
+    EXPECT_FALSE(tls->IsSuspended());
+
+    tls->Suspend();
+    EXPECT_TRUE(tls->IsSuspended());
+
+    tls->Resume();
+    EXPECT_FALSE(tls->IsSuspended());
+}
+
+TEST(TlsSocketTest, CloseCallsDoClose) {
+    Reactor reactor;
+    auto downstream = std::make_shared<MockTlsDownstream>();
+    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+
+    tls->Close();
+    EXPECT_TRUE(tls->IsClosed());
+}
+
+TEST(TlsSocketTest, HandshakeNotCompleteInitially) {
+    Reactor reactor;
+    auto downstream = std::make_shared<MockTlsDownstream>();
+    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+
+    EXPECT_FALSE(tls->IsHandshakeComplete());
+}
+
+TEST(TlsSocketTest, CanSetHostnameForSNI) {
+    Reactor reactor;
+    auto downstream = std::make_shared<MockTlsDownstream>();
+    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+
+    // Setting hostname should not throw
+    tls->SetHostname("example.com");
+    SUCCEED();
+}
+
+// Integration test: verify the TLS objects are properly initialized
+TEST(TlsSocketTest, OpenSSLObjectsInitialized) {
+    Reactor reactor;
+    auto downstream = std::make_shared<MockTlsDownstream>();
+    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+
+    // The TLS socket should have valid SSL context and connection
+    // We can't directly check internals, but construction should succeed
+    ASSERT_NE(tls, nullptr);
+}
+
+// Test that StartHandshake initiates TLS negotiation
+TEST(TlsSocketTest, StartHandshakeProducesData) {
+    Reactor reactor;
+    auto downstream = std::make_shared<MockTlsDownstream>();
+    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+
+    tls->SetHostname("test.example.com");
+
+    // Track if upstream write callback was called
+    std::vector<std::byte> handshake_data;
+    tls->SetUpstreamWriteCallback([&](std::pmr::vector<std::byte> data) {
+        handshake_data.insert(handshake_data.end(), data.begin(), data.end());
+    });
+
+    tls->StartHandshake();
+
+    // After starting handshake, client hello should be produced
+    EXPECT_FALSE(handshake_data.empty());
+}

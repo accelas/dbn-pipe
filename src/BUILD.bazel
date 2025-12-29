@@ -55,9 +55,106 @@ cc_library(
     hdrs = ["live_client.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":cram_auth",
-        ":data_source",
+        ":dbn_parser_component",
+        ":error",
+        ":live_protocol_handler",
         ":reactor",
         ":tcp_socket",
+        "@databento_cpp//:databento_headers",
+    ],
+)
+
+cc_library(
+    name = "pipeline",
+    hdrs = ["pipeline.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":reactor",
+        "@databento_cpp//:databento_headers",
+    ],
+)
+
+cc_library(
+    name = "tls_socket",
+    srcs = ["tls_socket.cpp"],
+    hdrs = ["tls_socket.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":pipeline",
+        ":reactor",
+        "@openssl_sys//:ssl",
+        "@openssl_sys//:crypto",
+    ],
+)
+
+cc_library(
+    name = "http_client",
+    srcs = ["http_client.cpp"],
+    hdrs = ["http_client.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":pipeline",
+        ":reactor",
+        ":tls_socket",
+        "@llhttp",
+    ],
+)
+
+cc_library(
+    name = "zstd_decompressor",
+    hdrs = ["zstd_decompressor.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":pipeline",
+        ":reactor",
+        ":tls_socket",
+        "@zstd",
+    ],
+)
+
+cc_library(
+    name = "historical_client",
+    srcs = ["historical_client.cpp"],
+    hdrs = ["historical_client.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":dbn_parser_component",
+        ":error",
+        ":http_client",
+        ":reactor",
+        ":tcp_socket",
+        ":tls_socket",
+        ":zstd_decompressor",
+        "@databento_cpp//:databento_headers",
+    ],
+)
+
+cc_library(
+    name = "dbn_parser_component",
+    hdrs = ["dbn_parser_component.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":error",
+        ":pipeline",
+        ":reactor",
+        ":tls_socket",
+        "@databento_cpp//:databento_headers",
+    ],
+)
+
+cc_library(
+    name = "live_protocol_handler",
+    hdrs = ["live_protocol_handler.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":cram_auth",
+        ":error",
+        ":pipeline",
+        ":reactor",
+        ":tls_socket",
     ],
 )
