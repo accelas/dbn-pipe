@@ -265,16 +265,25 @@ public:
     Pipeline(PrivateTag, Reactor& reactor, std::string api_key)
         : reactor_(reactor), api_key_(std::move(api_key)) {}
 
+    // Destructor must run on reactor thread because DoTeardown touches
+    // TcpSocket and chain components that have reactor-thread affinity.
+    // Ensure the last shared_ptr release happens on reactor thread.
     ~Pipeline() {
+        assert(reactor_.IsInReactorThread());
         DoTeardown();  // Synchronous cleanup
     }
 
+    // All public methods must be called from reactor thread.
+    // This is enforced with assertions in debug builds.
+
     void SetRequest(Request params) {
+        assert(reactor_.IsInReactorThread());
         request_ = std::move(params);
         request_set_ = true;
     }
 
     void Connect(const sockaddr_storage& addr) {
+        assert(reactor_.IsInReactorThread());
         if (connected_) {
             // Invalid state is terminal - use HandlePipelineError for consistency
             HandlePipelineError(Error{ErrorCode::InvalidState,
@@ -287,6 +296,7 @@ public:
     }
 
     void Start() {
+        assert(reactor_.IsInReactorThread());
         if (!request_set_) {
             HandlePipelineError(Error{ErrorCode::InvalidState,
                                       "SetRequest() must be called before Start()"});
@@ -309,6 +319,7 @@ public:
     }
 
     void Stop() {
+        assert(reactor_.IsInReactorThread());
         TeardownPipeline();
         state_ = State::Disconnected;
     }
@@ -330,6 +341,7 @@ public:
     }
 
     void Close() override {
+        assert(reactor_.IsInReactorThread());
         TeardownPipeline();
     }
 
@@ -502,41 +514,43 @@ public:
     virtual void HandlePipelineComplete() = 0;
 };
 
-// Thread-safety: Sink methods are only called from reactor thread.
-// All TCP callbacks, protocol component callbacks, and Pipeline methods
-// are guaranteed to run on the reactor thread.
+// Thread-safety: ALL Sink methods must be called from reactor thread.
+// This is enforced by Pipeline's reactor-thread contract - all TCP callbacks,
+// protocol component callbacks, and Pipeline methods run on reactor thread.
+// No atomics needed since single-threaded access is guaranteed.
 class Sink {
 public:
     explicit Sink(PipelineBase* pipeline) : pipeline_(pipeline) {}
 
-    // Invalidate atomically clears valid_ and nulls pipeline_.
+    // Invalidate clears valid_ and nulls pipeline_.
     // Called from TeardownPipeline before deferred cleanup.
+    // Must be called from reactor thread (inherited from Pipeline contract).
     void Invalidate() {
-        valid_.store(false, std::memory_order_release);
+        valid_ = false;
         pipeline_ = nullptr;
     }
 
     // RecordSink interface - only called from reactor thread
     void OnData(RecordBatch&& batch) {
-        if (!valid_.load(std::memory_order_acquire) || !pipeline_) return;
+        if (!valid_ || !pipeline_) return;
         for (const auto& rec : batch.records) {
             pipeline_->HandleRecord(rec);
         }
     }
 
     void OnError(const Error& e) {
-        if (!valid_.load(std::memory_order_acquire) || !pipeline_) return;
+        if (!valid_ || !pipeline_) return;
         pipeline_->HandlePipelineError(e);
     }
 
     void OnComplete() {
-        if (!valid_.load(std::memory_order_acquire) || !pipeline_) return;
+        if (!valid_ || !pipeline_) return;
         pipeline_->HandlePipelineComplete();
     }
 
 private:
     PipelineBase* pipeline_;
-    std::atomic<bool> valid_{true};
+    bool valid_ = true;
 };
 
 // Pipeline inherits from PipelineBase
@@ -569,7 +583,7 @@ using HistoricalClient = Pipeline<HistoricalProtocol>;
 | Historical auth missing | ChainType wrapper stores api_key; BuildHttpRequest uses Basic auth header |
 | Sink takes shared_ptr | Changed to reference (Sink&) |
 | Sink invalidation missing | Added Invalidate() in TeardownPipeline |
-| Sink thread safety | atomic<bool> valid_, pipeline_ nulled on Invalidate, threading documented |
+| Sink thread safety | Reactor-thread contract eliminates need for atomics; valid_ nulled on Invalidate |
 | Boolean suspend | Changed to count-based atomic<int> |
 | Single-use lifecycle | Pipeline is single-use; `connected_` flag enforces single Connect() |
 | Callback lifetime risk | TeardownPipeline calls ClearCallbacks() before tcp_.reset() |
@@ -577,7 +591,7 @@ using HistoricalClient = Pipeline<HistoricalProtocol>;
 | Request validation | `request_set_` flag + runtime check in Start() ensures SetRequest() called |
 | Connect() invalid-state not terminal | Now calls HandlePipelineError which triggers TeardownPipeline |
 | Public constructor with weak_from_this | Private constructor via PrivateTag; must use Create() factory |
-| Missing reactor thread assertions | Added assert(IsInReactorThread()) to HandleConnect, HandleRead, HandleError |
+| Missing reactor thread assertions | Added assert(IsInReactorThread()) to all public methods, handlers, and destructor |
 
 ---
 
