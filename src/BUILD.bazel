@@ -189,3 +189,10 @@ cc_library(
     deps = [":error", ":reactor"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "protocol_driver",
+    hdrs = ["protocol_driver.hpp"],
+    deps = [":pipeline_base", ":reactor", ":tcp_socket"],
+    visibility = ["//visibility:public"],
+)
