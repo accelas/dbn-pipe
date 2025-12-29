@@ -162,3 +162,125 @@ TEST(TcpSocketTest, ReadWrite) {
     close(server_fd);
     close(listener);
 }
+
+TEST(TcpSocketTest, PauseResumeReadIdempotent) {
+    Reactor reactor;
+    TcpSocket sock(reactor);
+
+    // Initially not paused
+    EXPECT_FALSE(sock.IsReadPaused());
+
+    // Pause/Resume before connect should be safe (no event_)
+    sock.PauseRead();
+    EXPECT_FALSE(sock.IsReadPaused());  // No effect without event_
+    sock.ResumeRead();
+    EXPECT_FALSE(sock.IsReadPaused());
+}
+
+TEST(TcpSocketTest, PauseReadStopsCallbacks) {
+    Reactor reactor;
+    int port;
+    int listener = create_listener(port);
+
+    TcpSocket sock(reactor);
+    int server_fd = -1;
+
+    int read_count = 0;
+    bool connected = false;
+
+    sock.OnConnect([&]() {
+        connected = true;
+    });
+
+    sock.OnRead([&](std::span<const std::byte> /*data*/) {
+        read_count++;
+    });
+
+    sock.OnError([&](std::error_code ec) {
+        ADD_FAILURE() << "Unexpected error: " << ec.message();
+        reactor.Stop();
+    });
+
+    sock.Connect(make_addr("127.0.0.1", port));
+
+    server_fd = accept(listener, nullptr, nullptr);
+    ASSERT_GE(server_fd, 0);
+
+    int flags = fcntl(server_fd, F_GETFL, 0);
+    fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
+
+    // Run until connected
+    while (!connected) {
+        reactor.Poll(10);
+    }
+
+    EXPECT_FALSE(sock.IsReadPaused());
+
+    // Pause reads
+    sock.PauseRead();
+    EXPECT_TRUE(sock.IsReadPaused());
+
+    // Calling PauseRead again should be idempotent
+    sock.PauseRead();
+    EXPECT_TRUE(sock.IsReadPaused());
+
+    // Server sends data while paused
+    write(server_fd, "data1", 5);
+
+    // Poll a few times - should not receive data
+    for (int i = 0; i < 5; i++) {
+        reactor.Poll(10);
+    }
+    EXPECT_EQ(read_count, 0);
+
+    // Resume reads
+    sock.ResumeRead();
+    EXPECT_FALSE(sock.IsReadPaused());
+
+    // Calling ResumeRead again should be idempotent
+    sock.ResumeRead();
+    EXPECT_FALSE(sock.IsReadPaused());
+
+    // Send more data after resume
+    write(server_fd, "data2", 5);
+
+    // Now we should receive data
+    int polls = 0;
+    while (read_count == 0 && polls < 20) {
+        reactor.Poll(10);
+        polls++;
+    }
+    EXPECT_GT(read_count, 0);
+
+    close(server_fd);
+    close(listener);
+}
+
+TEST(TcpSocketTest, CloseResetsPausedState) {
+    Reactor reactor;
+    int port;
+    int listener = create_listener(port);
+
+    TcpSocket sock(reactor);
+
+    bool connected = false;
+    sock.OnConnect([&]() { connected = true; });
+
+    sock.Connect(make_addr("127.0.0.1", port));
+
+    int server_fd = accept(listener, nullptr, nullptr);
+    ASSERT_GE(server_fd, 0);
+
+    while (!connected) {
+        reactor.Poll(10);
+    }
+
+    sock.PauseRead();
+    EXPECT_TRUE(sock.IsReadPaused());
+
+    sock.Close();
+    EXPECT_FALSE(sock.IsReadPaused());
+
+    close(server_fd);
+    close(listener);
+}

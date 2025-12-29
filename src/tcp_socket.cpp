@@ -64,7 +64,20 @@ void TcpSocket::Close() {
         }
     }
     connected_ = false;
+    read_paused_ = false;
     write_buffer_.clear();
+}
+
+void TcpSocket::PauseRead() {
+    if (read_paused_ || !event_) return;
+    read_paused_ = true;
+    event_->Modify(EPOLLOUT | EPOLLET);
+}
+
+void TcpSocket::ResumeRead() {
+    if (!read_paused_ || !event_) return;
+    read_paused_ = false;
+    event_->Modify(EPOLLOUT | EPOLLIN | EPOLLET);
 }
 
 void TcpSocket::HandleEvents(uint32_t events) {
