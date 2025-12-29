@@ -44,6 +44,16 @@ struct RecordBatch {
         assert(index < offsets.size() && "index out of bounds");
         return buffer.data() + offsets[index];
     }
+
+    // Get the size of the record at the given index.
+    // Uses the record header's length field which specifies the total record size.
+    size_t GetRecordSize(size_t index) const {
+        assert(index < offsets.size() && "index out of bounds");
+        databento::RecordHeader header = GetHeader(index);
+        // The length field in RecordHeader is the size of the record in 32-bit words,
+        // including the header itself. Multiply by 4 to get bytes.
+        return static_cast<size_t>(header.length) * 4;
+    }
 };
 
 }  // namespace databento_async
