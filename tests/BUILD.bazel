@@ -229,3 +229,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "pipeline_integration_test",
+    srcs = ["pipeline_integration_test.cpp"],
+    deps = [
+        "//src:client",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
