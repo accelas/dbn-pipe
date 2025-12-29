@@ -49,10 +49,21 @@ cc_test(
 )
 
 cc_test(
+    name = "cram_auth_utils_test",
+    srcs = ["cram_auth_utils_test.cpp"],
+    deps = [
+        "//src:cram_auth_utils",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "cram_auth_test",
     srcs = ["cram_auth_test.cpp"],
     deps = [
         "//src:cram_auth",
+        "//src:pipeline",
+        "//src:reactor",
         "@googletest//:gtest_main",
     ],
 )
@@ -131,16 +142,6 @@ cc_test(
     ],
 )
 
-cc_test(
-    name = "live_protocol_handler_test",
-    srcs = ["live_protocol_handler_test.cpp"],
-    deps = [
-        "//src:live_protocol_handler",
-        "//src:pipeline",
-        "//src:reactor",
-        "@googletest//:gtest_main",
-    ],
-)
 
 cc_test(
     name = "symbol_map_test",
