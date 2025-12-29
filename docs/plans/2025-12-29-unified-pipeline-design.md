@@ -304,6 +304,13 @@ public:
 
     void Connect(const sockaddr_storage& addr) {
         assert(reactor_.IsInReactorThread());
+
+        // Terminal state guard - can't connect after teardown or terminal error
+        if (teardown_pending_ || state_ == State::Error ||
+            state_ == State::Complete) {
+            return;  // Silently ignore - pipeline is done
+        }
+
         if (connected_) {
             // Invalid state is terminal - use HandlePipelineError for consistency
             HandlePipelineError(Error{ErrorCode::InvalidState,
@@ -319,8 +326,10 @@ public:
         assert(reactor_.IsInReactorThread());
 
         // Terminal state guard - pipeline is single-use
+        // Note: Disconnected is NOT terminal - it's the initial state.
+        // teardown_pending_ distinguishes "initial" from "stopped".
         if (teardown_pending_ || state_ == State::Error ||
-            state_ == State::Complete || state_ == State::Disconnected) {
+            state_ == State::Complete) {
             return;  // Silently ignore - pipeline is done
         }
 
@@ -403,7 +412,7 @@ private:
         connected_ = true;
 
         // Create sink (bridges to callbacks)
-        sink_ = std::make_shared<Sink>(this);
+        sink_ = std::make_shared<Sink>(reactor_, this);
 
         // Build protocol-specific chain
         chain_ = P::BuildChain(reactor_, *sink_, api_key_);
@@ -500,19 +509,22 @@ private:
         TeardownPipeline();
     }
 
-    // Called by Sink
-    void HandleRecord(const databento::Record& rec) {
+    // Called by Sink - must be on reactor thread
+    void HandleRecord(const databento::Record& rec) override {
+        assert(reactor_.IsInReactorThread());
         if (record_handler_) record_handler_(rec);
     }
 
-    void HandlePipelineError(const Error& e) {
+    void HandlePipelineError(const Error& e) override {
+        assert(reactor_.IsInReactorThread());
         state_ = State::Error;
         if (error_handler_) error_handler_(e);
         // Protocol errors are also terminal
         TeardownPipeline();
     }
 
-    void HandlePipelineComplete() {
+    void HandlePipelineComplete() override {
+        assert(reactor_.IsInReactorThread());
         state_ = State::Complete;
         if (complete_handler_) complete_handler_();
         // Completion is terminal
@@ -562,23 +574,24 @@ public:
 };
 
 // Thread-safety: ALL Sink methods must be called from reactor thread.
-// This is enforced by Pipeline's reactor-thread contract - all TCP callbacks,
-// protocol component callbacks, and Pipeline methods run on reactor thread.
+// This is enforced with assertions and by Pipeline's reactor-thread contract.
 // No atomics needed since single-threaded access is guaranteed.
 class Sink {
 public:
-    explicit Sink(PipelineBase* pipeline) : pipeline_(pipeline) {}
+    Sink(Reactor& reactor, PipelineBase* pipeline)
+        : reactor_(reactor), pipeline_(pipeline) {}
 
     // Invalidate clears valid_ and nulls pipeline_.
     // Called from TeardownPipeline before deferred cleanup.
-    // Must be called from reactor thread (inherited from Pipeline contract).
     void Invalidate() {
+        assert(reactor_.IsInReactorThread());
         valid_ = false;
         pipeline_ = nullptr;
     }
 
     // RecordSink interface - only called from reactor thread
     void OnData(RecordBatch&& batch) {
+        assert(reactor_.IsInReactorThread());
         if (!valid_ || !pipeline_) return;
         for (const auto& rec : batch.records) {
             pipeline_->HandleRecord(rec);
@@ -586,16 +599,19 @@ public:
     }
 
     void OnError(const Error& e) {
+        assert(reactor_.IsInReactorThread());
         if (!valid_ || !pipeline_) return;
         pipeline_->HandlePipelineError(e);
     }
 
     void OnComplete() {
+        assert(reactor_.IsInReactorThread());
         if (!valid_ || !pipeline_) return;
         pipeline_->HandlePipelineComplete();
     }
 
 private:
+    Reactor& reactor_;
     PipelineBase* pipeline_;
     bool valid_ = true;
 };
