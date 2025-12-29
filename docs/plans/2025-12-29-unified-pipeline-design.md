@@ -232,7 +232,11 @@ public:
     }
 
     void Start() {
-        assert(request_set_ && "SetRequest() must be called before Start()");
+        if (!request_set_) {
+            HandlePipelineError(Error{ErrorCode::InvalidState,
+                                      "SetRequest() must be called before Start()"});
+            return;
+        }
 
         if (ready_to_send_ && !request_sent_) {
             P::SendRequest(chain_, request_);
@@ -374,6 +378,8 @@ private:
     void HandlePipelineComplete() {
         state_ = State::Complete;
         if (complete_handler_) complete_handler_();
+        // Completion is terminal
+        TeardownPipeline();
     }
 
     friend class Sink;
