@@ -5,7 +5,7 @@ cc_test(
     srcs = ["parser_test.cpp"],
     deps = [
         "//src:parser",
-        "@databento_cpp//:databento_headers",
+        "@databento_cpp//:databento_with_impl",
         "@googletest//:gtest_main",
     ],
 )
@@ -33,7 +33,7 @@ cc_test(
     srcs = ["data_source_test.cpp"],
     deps = [
         "//src:data_source",
-        "@databento_cpp//:databento_headers",
+        "@databento_cpp//:databento_with_impl",
         "@googletest//:gtest_main",
     ],
 )
@@ -62,7 +62,7 @@ cc_test(
     srcs = ["live_client_test.cpp"],
     deps = [
         "//src:live_client",
-        "@databento_cpp//:databento_headers",
+        "@databento_cpp//:databento_with_impl",
         "@googletest//:gtest_main",
     ],
 )
@@ -126,7 +126,7 @@ cc_test(
         "//src:dbn_parser_component",
         "//src:pipeline",
         "//src:reactor",
-        "@databento_cpp//:databento_headers",
+        "@databento_cpp//:databento_with_impl",
         "@googletest//:gtest_main",
     ],
 )
@@ -147,7 +147,7 @@ cc_test(
     srcs = ["symbol_map_test.cpp"],
     deps = [
         "//src:symbol_map",
-        "@databento_cpp//:databento_headers",
+        "@databento_cpp//:databento_with_impl",
         "@googletest//:gtest_main",
     ],
 )
