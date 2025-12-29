@@ -226,6 +226,13 @@ public:
     }
 
     void Connect(const sockaddr_storage& addr) {
+        if (connected_) {
+            if (error_handler_) {
+                error_handler_(Error{ErrorCode::InvalidState,
+                                    "Connect() can only be called once"});
+            }
+            return;
+        }
         BuildPipeline();
         state_ = State::Connecting;
         tcp_->Connect(addr);
@@ -235,6 +242,11 @@ public:
         if (!request_set_) {
             HandlePipelineError(Error{ErrorCode::InvalidState,
                                       "SetRequest() must be called before Start()"});
+            return;
+        }
+        if (!connected_) {
+            HandlePipelineError(Error{ErrorCode::InvalidState,
+                                      "Connect() must be called before Start()"});
             return;
         }
 
@@ -310,20 +322,26 @@ private:
     }
 
     void TeardownPipeline() {
-        // Invalidate sink first to stop callbacks
-        if (sink_) sink_->Invalidate();
+        // Defer teardown to avoid reentrancy (may be called from callbacks)
+        if (teardown_pending_) return;
+        teardown_pending_ = true;
 
-        // Teardown chain before TCP to ensure no pending writes
-        P::Teardown(chain_);
-        chain_.reset();
+        reactor_.Defer([this] {
+            // Invalidate sink first to stop callbacks
+            if (sink_) sink_->Invalidate();
 
-        // Close TCP socket last - clears callbacks to avoid use-after-free
-        if (tcp_) {
-            tcp_->ClearCallbacks();  // Clear OnConnect/OnRead/OnError handlers
-            tcp_->Close();
-        }
-        tcp_.reset();
-        sink_.reset();
+            // Teardown chain before TCP to ensure no pending writes
+            P::Teardown(chain_);
+            chain_.reset();
+
+            // Close TCP socket last - clears callbacks to avoid use-after-free
+            if (tcp_) {
+                tcp_->ClearCallbacks();  // Clear OnConnect/OnRead/OnError handlers
+                tcp_->Close();
+            }
+            tcp_.reset();
+            sink_.reset();
+        });
     }
 
     void HandleConnect() {
@@ -394,6 +412,7 @@ private:
     bool start_requested_ = false;
     bool request_sent_ = false;
     bool ready_to_send_ = false;
+    bool teardown_pending_ = false; // Deferred teardown scheduled
 
     std::atomic<int> suspend_count_{0};
 
