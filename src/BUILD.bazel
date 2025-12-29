@@ -174,3 +174,12 @@ cc_library(
     hdrs = ["dns_resolver.hpp"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "record_batch",
+    hdrs = ["record_batch.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@databento_cpp//:databento_headers",
+    ],
+)
