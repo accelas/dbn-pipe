@@ -10,13 +10,13 @@
 #include <memory_resource>
 #include <sstream>
 #include <string>
-#include <type_traits>
 
 #include "dbn_parser_component.hpp"
 #include "http_client.hpp"
 #include "pipeline.hpp"
 #include "pipeline_base.hpp"
 #include "reactor.hpp"
+#include "sink_adapter.hpp"
 #include "tcp_socket.hpp"
 #include "tls_socket.hpp"
 #include "zstd_decompressor.hpp"
@@ -30,42 +30,6 @@ struct HistoricalRequest {
     std::string schema;    // Schema for data (e.g., "mbp-1")
     uint64_t start;        // Start time in nanoseconds since Unix epoch
     uint64_t end;          // End time in nanoseconds since Unix epoch
-};
-
-// SinkAdapterHistorical - Bridges RecordSink (DbnParserComponent output) to Sink<Record>
-//
-// Similar to SinkAdapter in live_protocol.hpp, but for historical data.
-// DbnParserComponent outputs batched records via RecordSink interface.
-// This adapter converts those batches to individual Record callbacks on Sink.
-template <typename Record>
-class SinkAdapterHistorical {
-public:
-    static_assert(std::is_trivially_copyable_v<Record>, "Record must be trivially copyable");
-
-    explicit SinkAdapterHistorical(Sink<Record>& sink) : sink_(sink) {}
-
-    // RecordSink interface
-    void OnData(RecordBatch&& batch) {
-        for (size_t i = 0; i < batch.size(); ++i) {
-            const std::byte* data = batch.GetRecordData(i);
-            size_t size = batch.GetRecordSize(i);
-            if (size < sizeof(Record)) continue;  // Skip malformed records
-            Record rec;
-            std::memcpy(&rec, data, sizeof(Record));
-            sink_.OnRecord(rec);
-        }
-    }
-
-    void OnError(const Error& e) {
-        sink_.OnError(e);
-    }
-
-    void OnComplete() {
-        sink_.OnComplete();
-    }
-
-private:
-    Sink<Record>& sink_;
 };
 
 // HistoricalProtocol - ProtocolDriver implementation for historical downloads
@@ -157,7 +121,7 @@ struct HistoricalProtocol {
     // Concrete implementation of ChainType for a specific Record type
     template <typename Record>
     struct ChainImpl : ChainType {
-        using SinkAdapterType = SinkAdapterHistorical<Record>;
+        using SinkAdapterType = SinkAdapter<Record>;
         using ParserType = DbnParserComponent<SinkAdapterType>;
         using ZstdType = ZstdDecompressor<ParserType>;
         using HttpType = HttpClient<ZstdType>;

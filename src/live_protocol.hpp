@@ -1,17 +1,16 @@
 // src/live_protocol.hpp
 #pragma once
 
-#include <cstring>
 #include <memory>
 #include <memory_resource>
 #include <string>
-#include <type_traits>
 
 #include "cram_auth.hpp"
 #include "dbn_parser_component.hpp"
 #include "pipeline.hpp"
 #include "pipeline_base.hpp"
 #include "reactor.hpp"
+#include "sink_adapter.hpp"
 #include "tcp_socket.hpp"
 
 namespace databento_async {
@@ -21,50 +20,6 @@ struct LiveRequest {
     std::string dataset;   // Dataset to subscribe to (e.g., "GLBX.MDP3")
     std::string symbols;   // Symbol(s) to subscribe to (e.g., "ESZ4")
     std::string schema;    // Schema for data (e.g., "mbp-1")
-};
-
-// SinkAdapter - Bridges RecordSink (DbnParserComponent output) to Sink<Record>
-//
-// DbnParserComponent outputs batched records via RecordSink interface.
-// This adapter converts those batches to individual Record callbacks on Sink.
-//
-// Template parameter Record is the record type for Sink.
-template <typename Record>
-class SinkAdapter {
-public:
-    static_assert(std::is_trivially_copyable_v<Record>, "Record must be trivially copyable");
-
-    explicit SinkAdapter(Sink<Record>& sink) : sink_(sink) {}
-
-    // RecordSink interface
-    void OnData(RecordBatch&& batch) {
-        for (size_t i = 0; i < batch.size(); ++i) {
-            // Get header to determine record type
-            auto header = batch.GetHeader(i);
-            const std::byte* data = batch.GetRecordData(i);
-            size_t size = batch.GetRecordSize(i);
-            if (size < sizeof(Record)) continue;  // Skip malformed records
-
-            // Create a Record from the raw data
-            // Note: The Record type should be constructible from raw bytes
-            // For now, we pass the header as Record (this may need adjustment
-            // based on the actual Record type used in the unified pipeline)
-            Record rec;
-            std::memcpy(&rec, data, sizeof(Record));
-            sink_.OnRecord(rec);
-        }
-    }
-
-    void OnError(const Error& e) {
-        sink_.OnError(e);
-    }
-
-    void OnComplete() {
-        sink_.OnComplete();
-    }
-
-private:
-    Sink<Record>& sink_;
 };
 
 // LiveChain - The component chain entry point for live protocol
