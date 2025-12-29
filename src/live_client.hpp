@@ -1,6 +1,8 @@
 // src/live_client.hpp
 #pragma once
 
+#include <atomic>
+#include <cassert>
 #include <functional>
 #include <memory>
 #include <string>
@@ -11,7 +13,9 @@
 #include "dbn_parser_component.hpp"
 #include "error.hpp"
 #include "live_protocol_handler.hpp"
+#include "pipeline.hpp"
 #include "reactor.hpp"
+#include "record_batch.hpp"
 #include "tcp_socket.hpp"
 
 namespace databento_async {
@@ -22,7 +26,16 @@ namespace databento_async {
 //
 // The Sink is an inner class that bridges parsed records back to the client's
 // callbacks (OnRecord/OnError/OnComplete).
-class LiveClient {
+//
+// Backpressure:
+// - Implements Suspendable interface for flow control
+// - Suspend()/Resume()/Close() MUST be called from reactor thread only
+// - IsSuspended() is thread-safe (can be called from any thread)
+// - suspended_ is the single source of truth for suspend state
+//
+// To call Suspend/Resume from other threads, use Defer():
+//   reactor_.Defer([this]() { Suspend(); });
+class LiveClient : public Suspendable {
 public:
     enum class State {
         Disconnected,
@@ -36,7 +49,9 @@ public:
         Error       // stream finished with error
     };
 
-    // Sink class - RecordDownstream that bridges to LiveClient callbacks
+    // Sink class - RecordSink that bridges to LiveClient callbacks
+    // Implements the RecordSink concept (OnData, OnError, OnComplete) for batch-based
+    // record delivery from DbnParserComponent.
     class Sink {
     public:
         explicit Sink(LiveClient* client) : client_(client) {}
@@ -44,10 +59,10 @@ public:
         // Invalidate sink (called when client is being destroyed)
         void Invalidate() { valid_ = false; }
 
-        // RecordDownstream interface
-        void OnRecord(const databento::Record& rec);
+        // RecordSink interface
+        void OnData(RecordBatch&& batch);
         void OnError(const Error& e);
-        void OnDone();
+        void OnComplete();
 
     private:
         LiveClient* client_;
@@ -69,7 +84,6 @@ public:
 
     // Connection (caller responsible for DNS resolution)
     void Connect(const sockaddr_storage& addr);
-    void Close();
 
     // Subscription (call after authenticated, before Start)
     void Subscribe(std::string_view dataset,
@@ -80,9 +94,20 @@ public:
     void Start();
     void Stop();
 
-    // Backpressure control
-    void Pause();
-    void Resume();
+    // Suspendable interface (idempotent, REACTOR THREAD ONLY)
+    // Pause reading from the network. Idempotent - multiple calls are safe.
+    void Suspend() override;
+
+    // Resume reading from the network. Idempotent - multiple calls are safe.
+    void Resume() override;
+
+    // Terminate the connection. After Close(), no more callbacks will be invoked.
+    void Close() override;
+
+    // Query whether reading is currently suspended (thread-safe, any thread).
+    bool IsSuspended() const override {
+        return suspended_.load(std::memory_order_acquire);
+    }
 
     // State
     State GetState() const { return state_; }
@@ -125,6 +150,10 @@ private:
     std::string api_key_;
     State state_ = State::Disconnected;
     std::string session_id_;
+
+    // Backpressure state - single source of truth for suspend status
+    // Atomic for thread-safe IsSuspended() queries from any thread
+    std::atomic<bool> suspended_{false};
 
     // Pipeline components
     std::unique_ptr<TcpSocket> tcp_;

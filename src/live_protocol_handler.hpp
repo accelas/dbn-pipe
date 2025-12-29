@@ -81,7 +81,8 @@ public:
     // Suspendable interface
     void Suspend() override;
     void Resume() override;
-    void Close() { this->RequestClose(); }
+    void Close() override { this->RequestClose(); }
+    bool IsSuspended() const override { return suspended_; }
 
     // Set upstream for backpressure propagation
     void SetUpstream(Suspendable* up) { upstream_ = up; }
@@ -136,6 +137,7 @@ private:
 
     std::string api_key_;
     LiveProtocolState state_ = LiveProtocolState::WaitingGreeting;
+    bool suspended_ = false;  // Backpressure state
     Greeting greeting_;
 
     // Text mode line buffer (used before Streaming state)
