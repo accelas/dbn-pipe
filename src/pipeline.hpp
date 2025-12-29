@@ -34,6 +34,18 @@ concept RecordDownstream = TerminalDownstream<D> && requires(D& d, const databen
     { d.OnRecord(rec) } -> std::same_as<void>;
 };
 
+// Forward declaration for RecordBatch
+struct RecordBatch;
+
+// RecordSink interface - receives batched records for backpressure pipeline
+// Used by simplified components that delegate lifecycle management to the sink
+template<typename S>
+concept RecordSink = requires(S& s, RecordBatch&& batch, const Error& e) {
+    { s.OnData(std::move(batch)) } -> std::same_as<void>;
+    { s.OnError(e) } -> std::same_as<void>;
+    { s.OnComplete() } -> std::same_as<void>;
+};
+
 // Upstream interface - control flowing toward socket
 template<typename U>
 concept Upstream = requires(U& u, std::pmr::vector<std::byte> data) {

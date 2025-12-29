@@ -140,8 +140,7 @@ cc_library(
     deps = [
         ":error",
         ":pipeline",
-        ":reactor",
-        ":tls_socket",
+        ":record_batch",
         # Full library needed: uses RecordHeader::Size()
         "@databento_cpp//:databento_with_impl",
     ],
