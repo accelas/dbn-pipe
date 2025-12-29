@@ -1,8 +1,10 @@
 // tests/historical_client_test.cpp
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <thread>
 
 #include <databento/record.hpp>
 
@@ -396,6 +398,88 @@ TEST_F(HistoricalClientTest, StopResetsSuspendState) {
     client.Stop();
     EXPECT_FALSE(client.IsSuspended());
     EXPECT_EQ(client.GetState(), HistoricalClient::State::Disconnected);
+}
+
+TEST_F(HistoricalClientTest, SuspendResumeSequence) {
+    Reactor reactor;
+    HistoricalClient client(reactor, "db-test-api-key-12345");
+
+    client.Request("GLBX.MDP3", "ES.FUT", "trades",
+                   1609459200000000000ULL, 1609545600000000000ULL);
+
+    sockaddr_storage addr{};
+    auto* addr_in = reinterpret_cast<sockaddr_in*>(&addr);
+    addr_in->sin_family = AF_INET;
+    addr_in->sin_port = htons(443);
+    addr_in->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    client.Connect(addr);
+    reactor.Poll(0);
+
+    // Test sequence: suspend -> resume -> suspend -> resume
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    client.Resume();
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    client.Resume();
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Stop();
+}
+
+TEST_F(HistoricalClientTest, IsSuspendedIsThreadSafe) {
+    Reactor reactor;
+    HistoricalClient client(reactor, "db-test-api-key-12345");
+
+    client.Request("GLBX.MDP3", "ES.FUT", "trades",
+                   1609459200000000000ULL, 1609545600000000000ULL);
+
+    sockaddr_storage addr{};
+    auto* addr_in = reinterpret_cast<sockaddr_in*>(&addr);
+    addr_in->sin_family = AF_INET;
+    addr_in->sin_port = htons(443);
+    addr_in->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    client.Connect(addr);
+    reactor.Poll(0);
+
+    // Start a thread that queries IsSuspended while we modify state
+    std::atomic<bool> stop_thread{false};
+    std::atomic<int> query_count{0};
+
+    std::thread query_thread([&]() {
+        while (!stop_thread.load()) {
+            // This should be safe to call from any thread
+            [[maybe_unused]] bool suspended = client.IsSuspended();
+            query_count.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+
+    // Wait for thread to start querying before we proceed
+    while (query_count.load() == 0) {
+        std::this_thread::yield();
+    }
+
+    // Toggle suspend state while the other thread queries
+    for (int i = 0; i < 100; ++i) {
+        client.Suspend();
+        client.Resume();
+    }
+
+    stop_thread.store(true);
+    query_thread.join();
+
+    // Verify thread was actually doing queries
+    EXPECT_GT(query_count.load(), 0);
+
+    client.Stop();
 }
 
 // Integration test - requires network access and valid API key

@@ -44,6 +44,9 @@ namespace databento_async {
 // - Implements Suspendable interface for flow control
 // - Suspend()/Resume()/Close() MUST be called from reactor thread only
 // - IsSuspended() is thread-safe (can be called from any thread)
+//
+// To call Suspend/Resume from other threads, use Defer():
+//   reactor_.Defer([this]() { Suspend(); });
 class HistoricalClient : public Suspendable {
 public:
     enum class State {
