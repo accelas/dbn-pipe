@@ -124,7 +124,13 @@ protected:
         close_scheduled_ = true;
         close_pending_ = false;
 
-        auto self = static_cast<Derived*>(this)->shared_from_this();
+        // Use weak_from_this to safely check if the object is still alive
+        auto weak_self = static_cast<Derived*>(this)->weak_from_this();
+        auto self = weak_self.lock();
+        if (!self) {
+            // Object is already being destroyed, skip deferred close
+            return;
+        }
         reactor_.Defer([self]() {
             self->DoClose();
         });
