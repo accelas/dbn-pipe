@@ -354,6 +354,10 @@ public:
         start_requested_ = true;
     }
 
+    // Stop is terminal. State returns to Disconnected which is also the initial state.
+    // Use teardown_pending_ to distinguish "never started" from "stopped":
+    //   - Initial: state_ == Disconnected && !teardown_pending_
+    //   - Stopped: state_ == Disconnected && teardown_pending_
     void Stop() {
         assert(reactor_.IsInReactorThread());
         TeardownPipeline();
@@ -424,6 +428,11 @@ private:
         tcp_->OnConnect([this] { HandleConnect(); });
         tcp_->OnRead([this](auto data) { HandleRead(data); });
         tcp_->OnError([this](auto ec) { HandleError(ec); });
+
+        // Respect pre-connect Suspend() calls
+        if (suspend_count_.load(std::memory_order_acquire) > 0) {
+            tcp_->DisableRead();
+        }
 
         // Wire chain write callback to TCP
         P::WireTcp(*tcp_, chain_);
@@ -501,6 +510,10 @@ private:
 
     void HandleError(std::error_code ec) {
         assert(reactor_.IsInReactorThread());
+
+        // Terminal guard - suppress late errors during teardown
+        if (teardown_pending_) return;
+
         state_ = State::Error;
         if (error_handler_) {
             error_handler_(Error{ErrorCode::ConnectionFailed, ec.message(), ec.value()});
@@ -658,6 +671,9 @@ using HistoricalClient = Pipeline<HistoricalProtocol>;
 | Terminal state guards missing | Start/HandleConnect/HandleRead check teardown_pending_ before operating |
 | Destructor skipped sink invalidation | ~Pipeline() invalidates sink before DoTeardown to prevent callbacks during teardown |
 | HTTP params not URL-encoded | Added UrlEncode() helper, all string params encoded in BuildHttpRequest |
+| HandleError during teardown | Added teardown_pending_ guard to suppress late socket errors |
+| Suspend before connect ineffective | BuildPipeline checks suspend_count_ and disables reads if pre-suspended |
+| Disconnected state ambiguous | Documented: Initial vs Stopped distinguished by teardown_pending_ flag |
 
 ---
 
