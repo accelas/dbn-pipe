@@ -42,14 +42,14 @@ public:
     void OnData(std::vector<std::byte>&& buffer);
 
     // Downstream concept compatibility - wraps OnData for pipeline integration
-    // Allows DbnParserComponent to be used with LiveProtocolHandler which calls Read()
+    // Allows DbnParserComponent to be used with CramAuth which calls Read()
     void Read(std::pmr::vector<std::byte> data) {
         // Convert pmr::vector to regular vector
         std::vector<std::byte> buffer(data.begin(), data.end());
         OnData(std::move(buffer));
     }
 
-    // TerminalDownstream interface for LiveProtocolHandler compatibility
+    // TerminalDownstream interface for CramAuth compatibility
     void OnDone() noexcept { OnComplete(); }
 
     // Forward error to sink (one-shot)

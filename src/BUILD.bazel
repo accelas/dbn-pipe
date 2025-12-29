@@ -42,9 +42,9 @@ cc_library(
 )
 
 cc_library(
-    name = "cram_auth",
-    srcs = ["cram_auth.cpp"],
-    hdrs = ["cram_auth.hpp"],
+    name = "cram_auth_utils",
+    srcs = ["cram_auth_utils.cpp"],
+    hdrs = ["cram_auth_utils.hpp"],
     visibility = ["//visibility:public"],
     deps = ["@openssl_sys//:crypto"],
 )
@@ -55,9 +55,9 @@ cc_library(
     hdrs = ["live_client.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":cram_auth",
         ":dbn_parser_component",
         ":error",
-        ":live_protocol_handler",
         ":reactor",
         ":tcp_socket",
         "@databento_cpp//:databento_headers",
@@ -147,11 +147,11 @@ cc_library(
 )
 
 cc_library(
-    name = "live_protocol_handler",
-    hdrs = ["live_protocol_handler.hpp"],
+    name = "cram_auth",
+    hdrs = ["cram_auth.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":cram_auth",
+        ":cram_auth_utils",
         ":error",
         ":pipeline",
         ":reactor",
