@@ -385,6 +385,8 @@ public:
         TeardownPipeline();
     }
 
+    // IsSuspended is thread-safe (atomic read) unlike other methods.
+    // Can be called from any thread to check backpressure state.
     bool IsSuspended() const override {
         return suspend_count_.load(std::memory_order_acquire) > 0;
     }
@@ -603,10 +605,12 @@ public:
     }
 
     // RecordSink interface - only called from reactor thread
+    // Note: Handler may trigger teardown, so check valid_ on each iteration.
+    // If teardown occurs mid-batch, remaining records are not delivered.
     void OnData(RecordBatch&& batch) {
         assert(reactor_.IsInReactorThread());
-        if (!valid_ || !pipeline_) return;
         for (const auto& rec : batch.records) {
+            if (!valid_ || !pipeline_) return;  // Recheck each iteration
             pipeline_->HandleRecord(rec);
         }
     }
