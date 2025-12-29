@@ -242,3 +242,14 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "client",
+    hdrs = ["client.hpp"],
+    deps = [
+        ":unified_pipeline",
+        ":live_protocol",
+        ":historical_protocol",
+    ],
+    visibility = ["//visibility:public"],
+)
