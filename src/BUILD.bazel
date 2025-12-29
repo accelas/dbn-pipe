@@ -158,3 +158,12 @@ cc_library(
         ":tls_socket",
     ],
 )
+
+cc_library(
+    name = "symbol_map",
+    hdrs = ["symbol_map.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@databento_cpp//:databento_headers",
+    ],
+)
