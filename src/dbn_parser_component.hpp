@@ -196,6 +196,7 @@ void DbnParserComponent<S>::ReportTerminalError(const std::string& msg) {
     if (error_state_.exchange(true, std::memory_order_acq_rel)) {
         return;
     }
+    carryover_.clear();
     sink_.OnError(Error{ErrorCode::ParseError, msg});
 }
 
