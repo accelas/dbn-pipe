@@ -125,12 +125,31 @@ void DbnParserComponent<S>::OnData(BufferChain& chain) {
 
     while (chain.Size() >= sizeof(databento::RecordHeader)) {
         // Read record size from header
-        // Always copy header to ensure proper alignment (records may not be
-        // 8-byte aligned after metadata skip or partial segment consume)
-        databento::RecordHeader header_copy;
-        chain.CopyTo(0, sizeof(databento::RecordHeader),
-                    reinterpret_cast<std::byte*>(&header_copy));
-        size_t record_size = header_copy.Size();
+        // Use zero-copy when header is contiguous and 8-byte aligned
+        size_t record_size;
+        const std::byte* header_ptr = nullptr;
+
+        if (chain.IsContiguous(0, sizeof(databento::RecordHeader))) {
+            header_ptr = chain.DataAt(0);
+            if ((reinterpret_cast<uintptr_t>(header_ptr) % 8) == 0) {
+                // Fast path: direct access to aligned header
+                record_size = reinterpret_cast<const databento::RecordHeader*>(
+                    header_ptr)->Size();
+            } else {
+                // Misaligned: copy header
+                databento::RecordHeader header_copy;
+                chain.CopyTo(0, sizeof(databento::RecordHeader),
+                            reinterpret_cast<std::byte*>(&header_copy));
+                record_size = header_copy.Size();
+                header_ptr = nullptr;  // Signal that we copied
+            }
+        } else {
+            // Header spans segments: copy
+            databento::RecordHeader header_copy;
+            chain.CopyTo(0, sizeof(databento::RecordHeader),
+                        reinterpret_cast<std::byte*>(&header_copy));
+            record_size = header_copy.Size();
+        }
 
         // Validate record size - must be at least header size
         if (record_size < sizeof(databento::RecordHeader)) {
