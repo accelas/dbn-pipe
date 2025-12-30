@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory_resource>
 #include <optional>
+#include <string>
 
 #include "error.hpp"
 #include "reactor.hpp"
@@ -197,8 +198,9 @@ public:
             // 1→0 transition: actually resume
             static_cast<Derived*>(this)->OnResume();
 
-            // Complete deferred OnDone if pending
-            if (done_pending_) {
+            // Complete deferred OnDone if pending AND still not suspended
+            // (OnResume might have pushed data causing downstream to re-suspend)
+            if (done_pending_ && !IsSuspended()) {
                 done_pending_ = false;
                 static_cast<Derived*>(this)->FlushAndComplete();
             }
@@ -223,6 +225,79 @@ public:
     // Check if OnDone is deferred
     bool IsOnDonePending() const {
         return done_pending_;
+    }
+
+    // =========================================================================
+    // Helper methods for common patterns
+    // =========================================================================
+
+    // Standard buffer limit (16MB) - components can use smaller limits if needed
+    static constexpr size_t kDefaultBufferLimit = 16 * 1024 * 1024;
+
+    // Forward data to downstream, handling common patterns.
+    // Returns true if downstream suspended us (caller should return early).
+    // After return, check chain.Empty() - non-empty means unconsumed data.
+    // Chain type is templated to avoid requiring full BufferChain definition here.
+    template<typename D, typename Chain>
+    bool ForwardData(D& downstream, Chain& chain) {
+        if (chain.Empty()) return false;
+        downstream.OnData(chain);
+        return IsSuspended();
+    }
+
+    // Check buffer size and emit overflow error if exceeded.
+    // Returns true if overflow detected (caller should return).
+    // NOTE: This helper is deprecated - use subtraction pattern before append instead.
+    template<TerminalDownstream D>
+    bool CheckOverflow(D& downstream, size_t current, size_t limit,
+                       const char* buffer_name = "Buffer") {
+        if (current <= limit) return false;
+        EmitError(downstream, Error{ErrorCode::BufferOverflow,
+                  std::string(buffer_name) + " overflow"});
+        static_cast<Derived*>(this)->RequestClose();
+        return true;
+    }
+
+    // Propagate upstream error to downstream (common OnError pattern).
+    // Handles guard check, emits error, and requests close.
+    template<typename D>
+    void PropagateError(D& downstream, const Error& e) {
+        auto guard = TryGuard();
+        if (!guard) return;
+        EmitError(downstream, e);
+        static_cast<Derived*>(this)->RequestClose();
+    }
+
+    // Flush pending data before completing. Returns true if should defer completion.
+    // Use in DoClose/OnDone when you have pending data to deliver.
+    // Chain type is templated to avoid requiring full BufferChain definition here.
+    template<typename D, typename Chain>
+    bool FlushPendingData(D& downstream, Chain& chain) {
+        if (chain.Empty()) return false;
+        downstream.OnData(chain);
+        if (IsSuspended()) {
+            DeferOnDone();
+            return true;  // Caller should return without clearing/emitting Done
+        }
+        // Check for unconsumed data (protocol violation by downstream)
+        if (!chain.Empty()) {
+            EmitError(downstream, Error{ErrorCode::ParseError,
+                      "Incomplete data (" + std::to_string(chain.Size()) + " bytes remaining)"});
+            static_cast<Derived*>(this)->RequestClose();
+            return true;
+        }
+        return false;
+    }
+
+    // Complete with Done after flushing pending data.
+    // Combines flush + emit in one call for OnDone handlers.
+    // Returns true if completion happened, false if deferred (caller should NOT close).
+    // Chain type is templated to avoid requiring full BufferChain definition here.
+    template<typename D, typename Chain>
+    bool CompleteWithFlush(D& downstream, Chain& chain) {
+        if (FlushPendingData(downstream, chain)) return false;  // Deferred
+        EmitDone(downstream);
+        return true;  // Completed
     }
 
 protected:
