@@ -42,6 +42,7 @@ cc_test(
     name = "tcp_socket_test",
     srcs = ["tcp_socket_test.cpp"],
     deps = [
+        "//src:buffer_chain",
         "//src:reactor",
         "//src:tcp_socket",
         "@googletest//:gtest_main",
@@ -134,6 +135,7 @@ cc_test(
     name = "dbn_parser_component_test",
     srcs = ["dbn_parser_component_test.cpp"],
     deps = [
+        "//src:buffer_chain",
         "//src:dbn_parser_component",
         "//src:pipeline",
         "//src:record_batch",
@@ -159,6 +161,15 @@ cc_test(
     deps = [
         "//src:record_batch",
         "@databento_cpp//:databento_with_impl",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "buffer_chain_test",
+    srcs = ["buffer_chain_test.cpp"],
+    deps = [
+        "//src:buffer_chain",
         "@googletest//:gtest_main",
     ],
 )
