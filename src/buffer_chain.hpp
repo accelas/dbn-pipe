@@ -75,15 +75,15 @@ public:
 
     // Splice all segments from another chain (transfers ownership).
     // The source chain is left empty after this operation.
-    // PRECONDITION: 'other' must not have partially consumed data (consumed_offset_ == 0).
-    // Use Consume() to remove partial data before splicing if needed.
+    // If 'other' is partially consumed, it will be compacted first to ensure correctness.
     // If this chain has no recycle callback, inherits the callback from 'other'.
     void Splice(BufferChain&& other) {
         if (other.Empty()) return;
 
-        // Assert precondition: splicing a partially-consumed chain would corrupt data
-        assert(other.consumed_offset_ == 0 &&
-               "Cannot splice a partially-consumed chain - call Consume() first");
+        // Auto-compact if source is partially consumed to prevent data corruption
+        if (other.consumed_offset_ != 0) {
+            other.Compact();
+        }
 
         // Inherit recycle callback if we don't have one
         if (!recycle_callback_ && other.recycle_callback_) {
