@@ -25,17 +25,10 @@ public:
 
     explicit SinkAdapter(Sink<Record>& sink) : sink_(sink) {}
 
-    // RecordSink interface
+    // RecordSink interface - pass batch through to Sink
+    // Pipeline::HandleRecordBatch handles iteration if no batch handler set
     void OnData(RecordBatch&& batch) {
-        for (size_t i = 0; i < batch.size(); ++i) {
-            const std::byte* data = batch.GetRecordData(i);
-            size_t size = batch.GetRecordSize(i);
-            if (size < sizeof(Record)) continue;  // Skip malformed records
-
-            Record rec;
-            std::memcpy(&rec, data, sizeof(Record));
-            sink_.OnRecord(rec);
-        }
+        sink_.OnRecordBatch(std::move(batch));
     }
 
     void OnError(const Error& e) {
