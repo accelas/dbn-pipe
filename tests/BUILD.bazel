@@ -1,16 +1,6 @@
 load("@rules_cc//cc:defs.bzl", "cc_test")
 
 cc_test(
-    name = "parser_test",
-    srcs = ["parser_test.cpp"],
-    deps = [
-        "//src:parser",
-        "@databento_cpp//:databento_with_impl",
-        "@googletest//:gtest_main",
-    ],
-)
-
-cc_test(
     name = "error_test",
     srcs = ["error_test.cpp"],
     deps = [
@@ -24,16 +14,6 @@ cc_test(
     srcs = ["reactor_test.cpp"],
     deps = [
         "//src:reactor",
-        "@googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "data_source_test",
-    srcs = ["data_source_test.cpp"],
-    deps = [
-        "//src:data_source",
-        "@databento_cpp//:databento_with_impl",
         "@googletest//:gtest_main",
     ],
 )

@@ -36,7 +36,7 @@ struct HistoricalRequest {
 //
 // Satisfies the ProtocolDriver concept. Uses TLS -> HTTP -> Zstd -> DBN parser chain.
 //
-// Chain: TcpSocket -> TlsSocket -> HttpClient -> ZstdDecompressor -> DbnParser -> SinkAdapter -> Sink
+// Chain: TcpSocket -> TlsSocket -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> SinkAdapter -> Sink
 //
 // Historical protocol requires TLS handshake before sending HTTP request.
 // OnConnect starts the handshake and returns false (not ready yet).

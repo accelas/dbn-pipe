@@ -8,8 +8,6 @@
 #include <memory_resource>
 #include <optional>
 
-#include <databento/record.hpp>
-
 #include "error.hpp"
 #include "reactor.hpp"
 
@@ -61,16 +59,8 @@ concept Downstream = TerminalDownstream<D> && requires(D& d, std::pmr::vector<st
     { d.Read(std::move(data)) } -> std::same_as<void>;
 };
 
-// RecordDownstream interface - receives parsed records
-// NOTE: Records are only valid for the duration of the OnRecord() call.
-// Implementations must copy any data they need to retain.
-template<typename D>
-concept RecordDownstream = TerminalDownstream<D> && requires(D& d, const databento::Record& rec) {
-    { d.OnRecord(rec) } -> std::same_as<void>;
-};
-
 // Forward declaration for RecordBatch
-struct RecordBatch;
+class RecordBatch;
 
 // RecordSink interface - receives batched records for backpressure pipeline
 // Used by simplified components that delegate lifecycle management to the sink

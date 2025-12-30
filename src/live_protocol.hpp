@@ -79,7 +79,7 @@ private:
 // Satisfies the ProtocolDriver concept. Uses CramAuth for authentication
 // and subscription management.
 //
-// Chain: TcpSocket -> CramAuth -> DbnParser -> SinkAdapter -> Sink
+// Chain: TcpSocket -> CramAuth -> DbnParserComponent -> SinkAdapter -> Sink
 //
 // Live protocol is ready immediately on connect (OnConnect returns true).
 // SendRequest subscribes to the dataset/symbols/schema and starts streaming.
