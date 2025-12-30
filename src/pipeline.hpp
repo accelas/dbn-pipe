@@ -1,6 +1,8 @@
 // src/pipeline.hpp
 #pragma once
 
+#include <atomic>
+#include <cassert>
 #include <concepts>
 #include <functional>
 #include <memory_resource>
@@ -12,6 +14,39 @@
 #include "reactor.hpp"
 
 namespace databento_async {
+
+// Suspendable - interface for components that support backpressure.
+//
+// Suspend count semantics:
+// - Suspend() increments count, Resume() decrements count
+// - IsSuspended() returns true when count > 0
+// - Actual pause/resume only happens on 0→1 and 1→0 transitions
+// - This allows nested suspend calls from multiple sources
+//
+// Thread safety:
+// - Suspend(), Resume(), Close() MUST be called from reactor thread only.
+// - IsSuspended() is thread-safe and can be called from any thread.
+//
+// OnDone coordination:
+// - If OnDone() is received while suspended, it is deferred
+// - Resume() checks for deferred OnDone and completes it when count→0
+class Suspendable {
+public:
+    virtual ~Suspendable() = default;
+
+    // Increment suspend count. When count goes 0→1, pause reading.
+    virtual void Suspend() = 0;
+
+    // Decrement suspend count. When count goes 1→0, resume reading
+    // and complete any deferred OnDone.
+    virtual void Resume() = 0;
+
+    // Terminate the connection. After Close(), no more callbacks.
+    virtual void Close() = 0;
+
+    // Query whether suspended (count > 0). Thread-safe.
+    virtual bool IsSuspended() const = 0;
+};
 
 // TerminalDownstream interface - minimal interface for error/done signals
 template<typename D>
@@ -34,6 +69,18 @@ concept RecordDownstream = TerminalDownstream<D> && requires(D& d, const databen
     { d.OnRecord(rec) } -> std::same_as<void>;
 };
 
+// Forward declaration for RecordBatch
+struct RecordBatch;
+
+// RecordSink interface - receives batched records for backpressure pipeline
+// Used by simplified components that delegate lifecycle management to the sink
+template<typename S>
+concept RecordSink = requires(S& s, RecordBatch&& batch, const Error& e) {
+    { s.OnData(std::move(batch)) } -> std::same_as<void>;
+    { s.OnError(e) } -> std::same_as<void>;
+    { s.OnComplete() } -> std::same_as<void>;
+};
+
 // Upstream interface - control flowing toward socket
 template<typename U>
 concept Upstream = requires(U& u, std::pmr::vector<std::byte> data) {
@@ -43,9 +90,21 @@ concept Upstream = requires(U& u, std::pmr::vector<std::byte> data) {
     { u.Close() } -> std::same_as<void>;
 };
 
-// CRTP base - provides reentrancy-safe close with C++23 enhancements
+// CRTP base - provides reentrancy-safe close with backpressure support.
+//
+// Combines lifecycle management with Suspendable interface:
+// - Reentrancy-safe close via processing guards
+// - Suspend count for nested backpressure
+// - Deferred OnDone when suspended
+//
+// Derived classes must implement:
+// - DoClose() - cleanup on close
+// - DisableWatchers() - disable I/O watchers
+// - OnSuspend() - called when suspend count goes 0→1 (optional)
+// - OnResume() - called when suspend count goes 1→0 (optional)
+// - FlushAndComplete() - flush pending data and emit OnDone (for deferred OnDone)
 template<typename Derived>
-class PipelineComponent {
+class PipelineComponent : public Suspendable {
 public:
     explicit PipelineComponent(Reactor& reactor) : reactor_(reactor) {}
 
@@ -118,13 +177,71 @@ public:
         downstream.OnDone();
     }
 
+    // =========================================================================
+    // Suspendable interface implementation
+    // =========================================================================
+
+    // Increment suspend count. On 0→1 transition, calls derived OnSuspend().
+    void Suspend() override {
+        assert(reactor_.IsInReactorThread() && "Suspend must be called from reactor thread");
+        int prev = suspend_count_.fetch_add(1, std::memory_order_acq_rel);
+        if (prev == 0) {
+            // 0→1 transition: actually suspend
+            static_cast<Derived*>(this)->OnSuspend();
+        }
+    }
+
+    // Decrement suspend count. On 1→0 transition, calls derived OnResume()
+    // and completes any deferred OnDone.
+    void Resume() override {
+        assert(reactor_.IsInReactorThread() && "Resume must be called from reactor thread");
+        int prev = suspend_count_.fetch_sub(1, std::memory_order_acq_rel);
+        assert(prev > 0 && "Resume called more times than Suspend");
+        if (prev == 1) {
+            // 1→0 transition: actually resume
+            static_cast<Derived*>(this)->OnResume();
+
+            // Complete deferred OnDone if pending
+            if (done_pending_) {
+                done_pending_ = false;
+                static_cast<Derived*>(this)->FlushAndComplete();
+            }
+        }
+    }
+
+    // Terminate connection via RequestClose
+    void Close() override {
+        static_cast<Derived*>(this)->RequestClose();
+    }
+
+    // Query suspend state (thread-safe)
+    bool IsSuspended() const override {
+        return suspend_count_.load(std::memory_order_acquire) > 0;
+    }
+
+    // Mark OnDone as pending (called by derived when OnDone received while suspended)
+    void DeferOnDone() {
+        done_pending_ = true;
+    }
+
+    // Check if OnDone is deferred
+    bool IsOnDonePending() const {
+        return done_pending_;
+    }
+
 protected:
     void ScheduleClose() {
         if (close_scheduled_) return;
         close_scheduled_ = true;
         close_pending_ = false;
 
-        auto self = static_cast<Derived*>(this)->shared_from_this();
+        // Use weak_from_this to safely check if the object is still alive
+        auto weak_self = static_cast<Derived*>(this)->weak_from_this();
+        auto self = weak_self.lock();
+        if (!self) {
+            // Object is already being destroyed, skip deferred close
+            return;
+        }
         reactor_.Defer([self]() {
             self->DoClose();
         });
@@ -138,6 +255,10 @@ private:
     bool close_scheduled_ = false;
     bool closed_ = false;
     bool finalized_ = false;
+
+    // Backpressure state
+    std::atomic<int> suspend_count_{0};  // Suspend count (>0 means suspended)
+    bool done_pending_ = false;          // OnDone received while suspended
 };
 
 }  // namespace databento_async

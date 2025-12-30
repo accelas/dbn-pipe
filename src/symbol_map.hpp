@@ -26,6 +26,11 @@ public:
         }
     }
 
+    // Direct insert for batch processing where records are accessed via memcpy
+    void Insert(uint32_t instrument_id, std::string symbol) {
+        map_[instrument_id] = std::move(symbol);
+    }
+
     // Look up symbol for instrument_id. Returns empty string if not found.
     // Returns const ref to avoid copy; caller should not store the reference
     // across calls that modify the map.

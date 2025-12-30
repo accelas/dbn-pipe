@@ -19,26 +19,13 @@
 
 namespace databento_async {
 
-// Suspendable base class for upstream control flow
-class Suspendable {
-public:
-    virtual ~Suspendable() = default;
-
-    virtual void Suspend() = 0;
-    virtual void Resume() = 0;
-    bool IsSuspended() const { return suspended_; }
-
-protected:
-    bool suspended_ = false;
-};
-
 // TlsSocket handles TLS encryption/decryption using OpenSSL with memory BIOs.
 // Sits between TcpSocket (upstream) and HttpClient (downstream) in the pipeline.
+// PipelineComponent provides Suspendable interface with suspend count semantics.
 //
 // Template parameter D must satisfy the Downstream concept.
 template <Downstream D>
 class TlsSocket : public PipelineComponent<TlsSocket<D>>,
-                  public Suspendable,
                   public std::enable_shared_from_this<TlsSocket<D>> {
 public:
     using UpstreamWriteCallback = std::function<void(std::pmr::vector<std::byte>)>;
@@ -62,21 +49,6 @@ public:
     // Upstream interface: write plaintext (from downstream) to be encrypted
     void Write(std::pmr::vector<std::byte> data);
 
-    // Suspendable interface
-    void Suspend() override {
-        suspended_ = true;
-        // Propagate suspend to upstream if callback set
-    }
-
-    void Resume() override {
-        suspended_ = false;
-        // Process any buffered data
-        ProcessPendingReads();
-    }
-
-    // Pipeline interface
-    void Close() { this->RequestClose(); }
-
     // TLS-specific methods
     void StartHandshake();
     bool IsHandshakeComplete() const { return handshake_complete_; }
@@ -95,6 +67,22 @@ public:
     }
 
     void DoClose();
+
+    // Suspendable hooks (called by PipelineComponent base)
+    void OnSuspend() {
+        // TlsSocket doesn't need to do anything special on suspend
+    }
+
+    void OnResume() {
+        // Process any buffered data
+        ProcessPendingReads();
+    }
+
+    void FlushAndComplete() {
+        // TlsSocket passes through - downstream handles completion
+        downstream_->OnDone();
+        this->RequestClose();
+    }
 
 private:
     // Private constructor - use Create() factory method
@@ -270,7 +258,7 @@ void TlsSocket<D>::Read(std::pmr::vector<std::byte> data) {
     }
 
     // If suspended, buffer the data
-    if (suspended_) {
+    if (this->IsSuspended()) {
         // Data is already in BIO, will be read on resume
         return;
     }

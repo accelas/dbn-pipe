@@ -152,12 +152,25 @@ public:
 
             Send("success=1|session_id=99|\n");
 
-            // Wait for subscription
-            std::string sub_msg = Receive();
+            // Wait for subscription and start_session
+            // Note: These might come in the same TCP read or separate reads
+            std::string accumulated;
+            while (running_) {
+                std::string msg = Receive();
+                if (msg.empty()) {
+                    // Timeout - check if we already have what we need
+                    if (accumulated.find("start_session") != std::string::npos) {
+                        break;
+                    }
+                    return;  // Give up
+                }
+                accumulated += msg;
+                if (accumulated.find("start_session") != std::string::npos) {
+                    break;
+                }
+            }
 
-            // Wait for start_session
-            std::string start_msg = Receive();
-            if (start_msg.find("start_session") == std::string::npos) return;
+            if (accumulated.find("start_session") == std::string::npos) return;
 
             // Send a test record
             SendTestRecord();
@@ -186,9 +199,10 @@ private:
         char buf[4096];
         std::string result;
 
-        // Set a receive timeout
+        // Set a receive timeout - use 5 seconds to handle CI variability
+        // The test may take up to 3 seconds waiting for Ready state
         struct timeval tv;
-        tv.tv_sec = 2;
+        tv.tv_sec = 5;
         tv.tv_usec = 0;
         setsockopt(client_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
@@ -489,4 +503,268 @@ TEST_F(LiveClientTest, StateTransitions) {
 
     server.Stop();
     EXPECT_EQ(client.GetState(), LiveClient::State::Ready);
+}
+
+// ============================================================================
+// Task 4: Suspendable interface tests
+// ============================================================================
+
+TEST_F(LiveClientTest, SuspendableInterfaceBasic) {
+    // Test: Suspendable interface methods work correctly
+    Reactor reactor;
+    MockLsgServer server;
+    server.RunStreamingFlow();
+
+    LiveClient client(reactor, "db-test-api-key-12345");
+
+    client.Subscribe("test.dbn", "AAPL", "trades");
+    client.Connect(make_addr("127.0.0.1", server.port()));
+
+    // Poll until Ready state
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < std::chrono::seconds(3)) {
+        reactor.Poll(100);
+        if (client.GetState() == LiveClient::State::Ready) {
+            break;
+        }
+    }
+
+    ASSERT_EQ(client.GetState(), LiveClient::State::Ready);
+
+    // Start streaming
+    client.Start();
+    EXPECT_EQ(client.GetState(), LiveClient::State::Streaming);
+
+    // Poll once to ensure reactor thread ID is set
+    reactor.Poll(0);
+
+    // Test IsSuspended initial state
+    EXPECT_FALSE(client.IsSuspended());
+
+    // Test Suspend
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    // Test Resume
+    client.Resume();
+    EXPECT_FALSE(client.IsSuspended());
+
+    server.Stop();
+}
+
+TEST_F(LiveClientTest, SuspendIsIdempotent) {
+    // Test: Multiple Suspend() calls don't crash and state remains suspended
+    Reactor reactor;
+    MockLsgServer server;
+    server.RunStreamingFlow();
+
+    LiveClient client(reactor, "db-test-api-key-12345");
+
+    client.Subscribe("test.dbn", "AAPL", "trades");
+    client.Connect(make_addr("127.0.0.1", server.port()));
+
+    // Poll until Ready state
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < std::chrono::seconds(3)) {
+        reactor.Poll(100);
+        if (client.GetState() == LiveClient::State::Ready) {
+            break;
+        }
+    }
+
+    ASSERT_EQ(client.GetState(), LiveClient::State::Ready);
+
+    client.Start();
+    reactor.Poll(0);  // Set reactor thread ID
+
+    // Call Suspend multiple times - should be idempotent
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    client.Suspend();  // Second call - should be safe
+    EXPECT_TRUE(client.IsSuspended());
+
+    client.Suspend();  // Third call - should be safe
+    EXPECT_TRUE(client.IsSuspended());
+
+    server.Stop();
+}
+
+TEST_F(LiveClientTest, ResumeIsIdempotent) {
+    // Test: Multiple Resume() calls don't crash and state remains not suspended
+    Reactor reactor;
+    MockLsgServer server;
+    server.RunStreamingFlow();
+
+    LiveClient client(reactor, "db-test-api-key-12345");
+
+    client.Subscribe("test.dbn", "AAPL", "trades");
+    client.Connect(make_addr("127.0.0.1", server.port()));
+
+    // Poll until Ready state
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < std::chrono::seconds(3)) {
+        reactor.Poll(100);
+        if (client.GetState() == LiveClient::State::Ready) {
+            break;
+        }
+    }
+
+    ASSERT_EQ(client.GetState(), LiveClient::State::Ready);
+
+    client.Start();
+    reactor.Poll(0);  // Set reactor thread ID
+
+    // Start from suspended state
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    // Call Resume multiple times - should be idempotent
+    client.Resume();
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Resume();  // Second call - should be safe
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Resume();  // Third call - should be safe
+    EXPECT_FALSE(client.IsSuspended());
+
+    server.Stop();
+}
+
+TEST_F(LiveClientTest, SuspendResumeSequence) {
+    // Test: Suspend/Resume sequence works correctly
+    Reactor reactor;
+    MockLsgServer server;
+    server.RunStreamingFlow();
+
+    LiveClient client(reactor, "db-test-api-key-12345");
+
+    client.Subscribe("test.dbn", "AAPL", "trades");
+    client.Connect(make_addr("127.0.0.1", server.port()));
+
+    // Poll until Ready state
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < std::chrono::seconds(3)) {
+        reactor.Poll(100);
+        if (client.GetState() == LiveClient::State::Ready) {
+            break;
+        }
+    }
+
+    ASSERT_EQ(client.GetState(), LiveClient::State::Ready);
+
+    client.Start();
+    reactor.Poll(0);  // Set reactor thread ID
+
+    // Test sequence: suspend -> resume -> suspend -> resume
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    client.Resume();
+    EXPECT_FALSE(client.IsSuspended());
+
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    client.Resume();
+    EXPECT_FALSE(client.IsSuspended());
+
+    server.Stop();
+}
+
+TEST_F(LiveClientTest, CloseResetsSuspendState) {
+    // Test: Close() resets the suspended state
+    Reactor reactor;
+    MockLsgServer server;
+    server.RunStreamingFlow();
+
+    LiveClient client(reactor, "db-test-api-key-12345");
+
+    client.Subscribe("test.dbn", "AAPL", "trades");
+    client.Connect(make_addr("127.0.0.1", server.port()));
+
+    // Poll until Ready state
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < std::chrono::seconds(3)) {
+        reactor.Poll(100);
+        if (client.GetState() == LiveClient::State::Ready) {
+            break;
+        }
+    }
+
+    ASSERT_EQ(client.GetState(), LiveClient::State::Ready);
+
+    client.Start();
+    reactor.Poll(0);  // Set reactor thread ID
+
+    // Suspend first
+    client.Suspend();
+    EXPECT_TRUE(client.IsSuspended());
+
+    // Close should reset suspend state
+    client.Close();
+    EXPECT_FALSE(client.IsSuspended());
+    EXPECT_EQ(client.GetState(), LiveClient::State::Disconnected);
+
+    server.Stop();
+}
+
+TEST_F(LiveClientTest, IsSuspendedIsThreadSafe) {
+    // Test: IsSuspended() can be called from any thread
+    Reactor reactor;
+    MockLsgServer server;
+    server.RunStreamingFlow();
+
+    LiveClient client(reactor, "db-test-api-key-12345");
+
+    client.Subscribe("test.dbn", "AAPL", "trades");
+    client.Connect(make_addr("127.0.0.1", server.port()));
+
+    // Poll until Ready state
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < std::chrono::seconds(3)) {
+        reactor.Poll(100);
+        if (client.GetState() == LiveClient::State::Ready) {
+            break;
+        }
+    }
+
+    ASSERT_EQ(client.GetState(), LiveClient::State::Ready);
+
+    client.Start();
+    reactor.Poll(0);  // Set reactor thread ID
+
+    // Start a thread that queries IsSuspended while we modify state
+    std::atomic<bool> stop_thread{false};
+    std::atomic<int> query_count{0};
+
+    std::thread query_thread([&]() {
+        while (!stop_thread.load()) {
+            // This should be safe to call from any thread
+            [[maybe_unused]] bool suspended = client.IsSuspended();
+            query_count.fetch_add(1, std::memory_order_relaxed);
+        }
+    });
+
+    // Wait for thread to start querying before we proceed
+    while (query_count.load() == 0) {
+        std::this_thread::yield();
+    }
+
+    // Toggle suspend state while the other thread queries
+    for (int i = 0; i < 100; ++i) {
+        client.Suspend();
+        client.Resume();
+    }
+
+    stop_thread.store(true);
+    query_thread.join();
+
+    // Verify thread was actually doing queries
+    EXPECT_GT(query_count.load(), 0);
+
+    server.Stop();
 }
