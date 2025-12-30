@@ -106,6 +106,9 @@ public:
     }
 
     void OnResume() {
+        auto guard = this->TryGuard();
+        if (!guard) return;
+
         // Process pending binary data through streaming chain
         if (!pending_chain_.Empty()) {
             // Check overflow before splicing (use subtraction pattern)

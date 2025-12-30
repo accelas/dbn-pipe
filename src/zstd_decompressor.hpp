@@ -72,6 +72,9 @@ public:
     }
 
     void OnResume() {
+        auto guard = this->TryGuard();
+        if (!guard) return;
+
         // Re-deliver any unconsumed output from previous OnData call
         if (this->ForwardData(*downstream_, output_chain_)) return;
         // Process any buffered data

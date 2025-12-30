@@ -79,6 +79,9 @@ public:
     }
 
     void OnResume() {
+        auto guard = this->TryGuard();
+        if (!guard) return;
+
         // Forward any buffered decrypted data first
         if (this->ForwardData(*downstream_, pending_read_chain_)) return;
         // Process more data from SSL
@@ -573,10 +576,8 @@ void TlsSocket<D>::DoClose() {
     Cleanup();
 
     // Best-effort delivery of remaining decrypted data during cleanup
-    // Use ForwardData (not FlushPendingData) because we're closing and
-    // shouldn't defer - if downstream suspends, data may be lost but
-    // that's acceptable during cleanup
-    if (!this->IsFinalized()) {
+    // Skip if already finalized or if suspended (can't emit Done while suspended)
+    if (!this->IsFinalized() && !this->IsSuspended()) {
         this->ForwardData(*downstream_, pending_read_chain_);
         this->EmitDone(*downstream_);
     }
