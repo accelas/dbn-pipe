@@ -201,6 +201,27 @@ private:
         return true;
     }
 
+    // Copy body bytes to pending_chain_, splitting into segments
+    // Returns false if overflow detected
+    bool AppendBodyToPending(const std::byte* bytes, size_t len) {
+        if (len > kMaxBufferedBody - pending_chain_.Size()) {
+            this->EmitError(*downstream_,
+                Error{ErrorCode::BufferOverflow, "HTTP body buffer overflow"});
+            this->RequestClose();
+            return false;
+        }
+        size_t offset = 0;
+        while (offset < len) {
+            size_t chunk = std::min(len - offset, Segment::kSize);
+            auto seg = segment_pool_.Acquire();
+            std::memcpy(seg->data.data(), bytes + offset, chunk);
+            seg->size = chunk;
+            pending_chain_.Append(std::move(seg));
+            offset += chunk;
+        }
+        return true;
+    }
+
     // Downstream component
     std::shared_ptr<D> downstream_;
 
@@ -460,49 +481,18 @@ int HttpClient<D>::OnBody(llhttp_t* parser, const char* at, size_t len) {
 
     auto* bytes = reinterpret_cast<const std::byte*>(at);
 
-    // If suspended, buffer the body data (split into segments if needed)
+    // Buffer body data (split into segments if needed)
+    if (!self->AppendBodyToPending(bytes, len)) {
+        return HPE_USER;  // Overflow - error already emitted
+    }
+
+    // If suspended, pause parser and wait for resume
     if (self->IsSuspended()) {
-        if (len > kMaxBufferedBody - self->pending_chain_.Size()) {
-            // Buffer overflow - emit error and close
-            self->EmitError(*self->downstream_,
-                Error{ErrorCode::BufferOverflow, "HTTP body buffer overflow"});
-            self->RequestClose();
-            return HPE_USER;  // Tell llhttp to stop parsing
-        }
-        // Split data into segments respecting Segment::kSize
-        size_t offset = 0;
-        while (offset < len) {
-            size_t chunk = std::min(len - offset, Segment::kSize);
-            auto seg = self->segment_pool_.Acquire();
-            std::memcpy(seg->data.data(), bytes + offset, chunk);
-            seg->size = chunk;
-            self->pending_chain_.Append(std::move(seg));
-            offset += chunk;
-        }
         llhttp_pause(parser);
         return 0;
     }
 
-    // Forward body chunk to downstream via BufferChain
-    // Use pending_chain_ so unconsumed bytes persist across calls
-    // Split into segments respecting Segment::kSize
-    size_t offset = 0;
-    while (offset < len) {
-        size_t chunk = std::min(len - offset, Segment::kSize);
-        // Check overflow before appending (use subtraction pattern)
-        if (chunk > kMaxBufferedBody - self->pending_chain_.Size()) {
-            self->EmitError(*self->downstream_,
-                Error{ErrorCode::BufferOverflow, "HTTP body buffer overflow"});
-            self->RequestClose();
-            return HPE_USER;
-        }
-        auto seg = self->segment_pool_.Acquire();
-        std::memcpy(seg->data.data(), bytes + offset, chunk);
-        seg->size = chunk;
-        self->pending_chain_.Append(std::move(seg));
-        offset += chunk;
-    }
-
+    // Forward to downstream
     self->downstream_->OnData(self->pending_chain_);
 
     // Check if downstream suspended us during the OnData call
