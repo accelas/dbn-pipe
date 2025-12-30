@@ -234,12 +234,14 @@ public:
     }
 
     // Return segment to pool for reuse.
-    // If pool is full, segment is dropped (deallocated).
+    // Only pools segments with no external references (use_count == 1).
+    // If segment is still referenced (e.g., by RecordRef keepalive), it's
+    // not pooled and will deallocate when all references are released.
     void Release(std::shared_ptr<Segment> seg) {
-        if (seg && free_list_.size() < max_pool_size_) {
+        if (seg && seg.use_count() == 1 && free_list_.size() < max_pool_size_) {
             free_list_.push_back(std::move(seg));
         }
-        // else: let it deallocate
+        // else: let it deallocate naturally when all refs are gone
     }
 
     // Create a recycler callback for use with BufferChain::SetRecycleCallback().

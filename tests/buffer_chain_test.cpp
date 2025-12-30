@@ -370,11 +370,12 @@ TEST(SegmentPoolTest, AcquireFromPool) {
 
     auto seg1 = pool.Acquire();
     seg1->size = 100;  // Mark that we used it
-    pool.Release(seg1);
+    auto seg1_ptr = seg1.get();  // Save raw pointer for comparison
+    pool.Release(std::move(seg1));  // Transfer ownership to pool
     EXPECT_EQ(pool.PoolSize(), 1);
 
     auto seg2 = pool.Acquire();
-    EXPECT_EQ(seg2, seg1);  // Same segment reused
+    EXPECT_EQ(seg2.get(), seg1_ptr);  // Same segment reused
     EXPECT_EQ(seg2->size, 0);  // Size reset on acquire
     EXPECT_EQ(pool.PoolSize(), 0);  // Pool empty after acquire
 }
@@ -383,7 +384,7 @@ TEST(SegmentPoolTest, ReleaseToPool) {
     SegmentPool pool;
 
     auto seg = pool.Acquire();
-    pool.Release(seg);
+    pool.Release(std::move(seg));  // Transfer ownership to pool
 
     EXPECT_EQ(pool.PoolSize(), 1);
 }
@@ -403,12 +404,13 @@ TEST(SegmentPoolTest, PoolSizeLimit) {
         segments.push_back(pool.Acquire());
     }
 
-    // Release all 5
+    // Release all 5 (transfer ownership)
     for (auto& seg : segments) {
-        pool.Release(seg);
+        pool.Release(std::move(seg));
     }
+    segments.clear();  // Clear vector
 
-    // Only 3 should be in pool
+    // Only 3 should be in pool (max limit)
     EXPECT_EQ(pool.PoolSize(), 3);
 }
 
@@ -421,8 +423,9 @@ TEST(SegmentPoolTest, Clear) {
         segs.push_back(pool.Acquire());
     }
     for (auto& seg : segs) {
-        pool.Release(seg);
+        pool.Release(std::move(seg));
     }
+    segs.clear();  // Clear vector to release all references
     EXPECT_EQ(pool.PoolSize(), 5);
 
     pool.Clear();
@@ -447,7 +450,7 @@ TEST(SegmentPoolTest, MakeRecycler) {
     // Acquire and fill a segment
     auto seg = pool.Acquire();
     seg->size = 100;
-    chain.Append(seg);
+    chain.Append(std::move(seg));  // Transfer ownership to chain
     EXPECT_EQ(pool.PoolSize(), 0);  // Segment is in chain, not pool
 
     // Consume fully - segment should be recycled back to pool
@@ -464,7 +467,7 @@ TEST(SegmentPoolTest, PartialConsumeDoesNotRecycle) {
     // Acquire and fill a segment
     auto seg = pool.Acquire();
     seg->size = 100;
-    chain.Append(seg);
+    chain.Append(std::move(seg));  // Transfer ownership to chain
     EXPECT_EQ(pool.PoolSize(), 0);
 
     // Partial consume - segment should NOT be recycled
@@ -476,6 +479,35 @@ TEST(SegmentPoolTest, PartialConsumeDoesNotRecycle) {
     chain.Consume(50);
     EXPECT_EQ(pool.PoolSize(), 1);  // Recycled
     EXPECT_EQ(chain.Size(), 0);
+}
+
+TEST(SegmentPoolTest, KeepaliveRefPreventsPooling) {
+    // Verifies that segments with external references (e.g., RecordRef keepalive)
+    // are NOT pooled, preventing use-after-free bugs
+    SegmentPool pool;
+    BufferChain chain;
+    chain.SetRecycleCallback(pool.MakeRecycler());
+
+    // Acquire and fill a segment
+    auto seg = pool.Acquire();
+    seg->size = 100;
+    chain.Append(seg);  // Chain and seg both hold references
+
+    // Get a keepalive reference (simulating RecordRef)
+    auto keepalive = chain.GetSegmentAt(0);
+    EXPECT_EQ(keepalive.use_count(), 3);  // seg, chain, keepalive
+
+    // Clear local seg reference
+    seg.reset();
+
+    // Consume - segment should NOT be pooled (keepalive still holds it)
+    chain.Consume(100);
+    EXPECT_EQ(pool.PoolSize(), 0);  // NOT pooled due to keepalive
+    EXPECT_EQ(chain.Size(), 0);
+
+    // Release keepalive - segment will be destroyed (not pooled, just freed)
+    keepalive.reset();
+    EXPECT_EQ(pool.PoolSize(), 0);  // Still not pooled (it was freed, not returned)
 }
 
 // Edge case tests

@@ -11,9 +11,16 @@ void LiveClient::Sink::OnData(RecordBatch&& batch) {
 
     // Iterate through each record in the batch and call the handler
     for (const auto& ref : batch) {
-        // Create a Record view from the RecordRef data
-        // Note: The Record constructor expects a non-const pointer to the header.
-        // The RecordRef's keepalive ensures the buffer remains valid for this scope.
+        // Create a databento::Record view from the RecordRef data.
+        //
+        // const_cast justification:
+        // - databento::Record's constructor requires a non-const RecordHeader*
+        //   because it allows mutation for some use cases.
+        // - Our RecordRef stores const data since we treat received records as
+        //   read-only (zero-copy from network buffers).
+        // - The cast is safe: we don't mutate the data, and databento::Record
+        //   is a non-owning view that doesn't take ownership.
+        // - The RecordRef's keepalive ensures the buffer remains valid for this scope.
         auto* data = const_cast<std::byte*>(ref.data);
         databento::Record rec{reinterpret_cast<databento::RecordHeader*>(data)};
 

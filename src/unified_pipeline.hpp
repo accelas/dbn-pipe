@@ -9,6 +9,9 @@
 #include <memory_resource>
 #include <span>
 #include <string>
+#include <type_traits>
+
+#include <databento/record.hpp>
 
 #include "error.hpp"
 #include "pipeline.hpp"
@@ -358,9 +361,19 @@ private:
     }
 
     void HandleRecordBatch(RecordBatch&& batch) override {
-        // batch_handler_ must be set - no fallback to per-record iteration
         if (batch_handler_) {
             batch_handler_(std::move(batch));
+        } else if (record_handler_) {
+            // Fallback: iterate and call per-record handler
+            // Only enabled when Record is constructible from RecordHeader*
+            if constexpr (std::is_constructible_v<Record, const databento::RecordHeader*>) {
+                for (const auto& ref : batch) {
+                    Record rec{reinterpret_cast<const databento::RecordHeader*>(ref.data)};
+                    record_handler_(rec);
+                }
+            }
+            // If Record is not constructible, silently drop batch
+            // (user should use batch handler for custom Record types)
         }
     }
 
