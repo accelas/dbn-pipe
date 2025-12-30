@@ -579,7 +579,11 @@ void TlsSocket<D>::DoClose() {
     // Skip if already finalized or if suspended (can't emit Done while suspended)
     if (!this->IsFinalized() && !this->IsSuspended()) {
         this->ForwardData(*downstream_, pending_read_chain_);
-        this->EmitDone(*downstream_);
+        // Re-check suspension after ForwardData (downstream may have suspended)
+        // and verify chain was consumed before emitting Done
+        if (!this->IsSuspended() && pending_read_chain_.Empty()) {
+            this->EmitDone(*downstream_);
+        }
     }
 
     // Clear pending buffers to release segments promptly
