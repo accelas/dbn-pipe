@@ -69,16 +69,16 @@ public:
     void OnResume() {
         auto guard = this->TryGuard();
         if (!guard) return;
+        ProcessPending();
+        if (this->IsSuspended()) return;
+        if (upstream_) upstream_->Resume();
+    }
 
+    void ProcessPending() {
         // Re-deliver any unconsumed output from previous OnData call
         if (this->ForwardData(*downstream_, output_chain_)) return;
         // Process any pending input
         ProcessPendingData();
-        if (this->IsSuspended()) return;
-        // Only propagate resume upstream if we're still not suspended
-        if (upstream_) {
-            upstream_->Resume();
-        }
     }
 
     void FlushAndComplete() {

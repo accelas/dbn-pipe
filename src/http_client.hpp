@@ -68,9 +68,15 @@ public:
     }
 
     void OnResume() {
-        // Process any pending body data first
         auto guard = this->TryGuard();
         if (!guard) return;
+        ProcessPending();
+        if (this->IsSuspended()) return;
+        if (upstream_) upstream_->Resume();
+    }
+
+    void ProcessPending() {
+        // Forward any pending body data first
         if (this->ForwardData(*downstream_, pending_chain_)) return;
 
         // If message was complete but we suspended during final flush, complete now
@@ -97,11 +103,6 @@ public:
         // Process pending input if any
         if (!pending_input_.Empty()) {
             ProcessPendingInput();
-            if (this->IsSuspended()) return;
-        }
-        // Only propagate resume upstream if we're still not suspended
-        if (upstream_) {
-            upstream_->Resume();
         }
     }
 
