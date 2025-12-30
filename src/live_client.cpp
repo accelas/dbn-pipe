@@ -10,12 +10,11 @@ void LiveClient::Sink::OnData(RecordBatch&& batch) {
     if (!client_->record_handler_) return;
 
     // Iterate through each record in the batch and call the handler
-    for (size_t i = 0; i < batch.size(); ++i) {
-        // Create a Record view from the raw data
+    for (const auto& ref : batch) {
+        // Create a Record view from the RecordRef data
         // Note: The Record constructor expects a non-const pointer to the header.
-        // The RecordBatch owns the buffer, so we need to cast away const for the
-        // databento::Record API. The record is only valid for this scope.
-        auto* data = const_cast<std::byte*>(batch.GetRecordData(i));
+        // The RecordRef's keepalive ensures the buffer remains valid for this scope.
+        auto* data = const_cast<std::byte*>(ref.data);
         databento::Record rec{reinterpret_cast<databento::RecordHeader*>(data)};
 
         client_->record_handler_(rec);
