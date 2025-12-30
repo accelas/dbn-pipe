@@ -10,10 +10,21 @@
 #include <memory>
 #include <thread>
 
+#include "src/buffer_chain.hpp"
 #include "src/reactor.hpp"
 #include "src/tcp_socket.hpp"
 
 using namespace databento_async;
+
+// Helper to create BufferChain from string
+BufferChain ToChain(std::string_view str) {
+    BufferChain chain;
+    auto seg = std::make_shared<Segment>();
+    std::memcpy(seg->data.data(), str.data(), str.size());
+    seg->size = str.size();
+    chain.Append(std::move(seg));
+    return chain;
+}
 
 // Helper to create sockaddr_storage from IPv4 address and port
 sockaddr_storage make_addr(const char* ip, int port) {
@@ -119,11 +130,16 @@ TEST(TcpSocketTest, ReadWrite) {
     std::string received;
 
     sock.OnConnect([&]() {
-        sock.Write(std::as_bytes(std::span{"hello", 5}));
+        sock.Write(ToChain("hello"));
     });
 
-    sock.OnRead([&](std::span<const std::byte> data) {
-        received.append(reinterpret_cast<const char*>(data.data()), data.size());
+    sock.OnRead([&](BufferChain chain) {
+        while (!chain.Empty()) {
+            size_t chunk_size = chain.ContiguousSize();
+            const std::byte* ptr = chain.DataAt(0);
+            received.append(reinterpret_cast<const char*>(ptr), chunk_size);
+            chain.Consume(chunk_size);
+        }
         if (received == "world") {
             reactor.Stop();
         }
@@ -192,7 +208,7 @@ TEST(TcpSocketTest, PauseReadStopsCallbacks) {
         connected = true;
     });
 
-    sock.OnRead([&](std::span<const std::byte> /*data*/) {
+    sock.OnRead([&](BufferChain /*chain*/) {
         read_count++;
     });
 

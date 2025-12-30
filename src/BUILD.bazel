@@ -1,15 +1,6 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 cc_library(
-    name = "parser",
-    hdrs = ["parser.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "@databento_cpp//:databento_headers",
-    ],
-)
-
-cc_library(
     name = "error",
     hdrs = ["error.hpp"],
     visibility = ["//visibility:public"],
@@ -23,22 +14,14 @@ cc_library(
 )
 
 cc_library(
-    name = "data_source",
-    hdrs = ["data_source.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        ":error",
-        ":parser",
-        "@databento_cpp//:databento_headers",
-    ],
-)
-
-cc_library(
     name = "tcp_socket",
     srcs = ["tcp_socket.cpp"],
     hdrs = ["tcp_socket.hpp"],
     visibility = ["//visibility:public"],
-    deps = [":reactor"],
+    deps = [
+        ":buffer_chain",
+        ":reactor",
+    ],
 )
 
 cc_library(
@@ -71,7 +54,6 @@ cc_library(
     deps = [
         ":error",
         ":reactor",
-        "@databento_cpp//:databento_headers",
     ],
 )
 
@@ -81,6 +63,7 @@ cc_library(
     hdrs = ["tls_socket.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":buffer_chain",
         ":error",
         ":pipeline",
         ":reactor",
@@ -108,10 +91,10 @@ cc_library(
     hdrs = ["zstd_decompressor.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":buffer_chain",
         ":error",
         ":pipeline",
         ":reactor",
-        ":tls_socket",
         "@zstd",
     ],
 )
@@ -138,6 +121,7 @@ cc_library(
     hdrs = ["dbn_parser_component.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":buffer_chain",
         ":error",
         ":pipeline",
         ":record_batch",
@@ -151,6 +135,7 @@ cc_library(
     hdrs = ["cram_auth.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":buffer_chain",
         ":cram_auth_utils",
         ":error",
         ":pipeline",
@@ -171,6 +156,12 @@ cc_library(
 cc_library(
     name = "dns_resolver",
     hdrs = ["dns_resolver.hpp"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "buffer_chain",
+    hdrs = ["buffer_chain.hpp"],
     visibility = ["//visibility:public"],
 )
 
@@ -208,6 +199,7 @@ cc_library(
     name = "live_protocol",
     hdrs = ["live_protocol.hpp"],
     deps = [
+        ":buffer_chain",
         ":cram_auth",
         ":dbn_parser_component",
         ":pipeline",
@@ -224,6 +216,7 @@ cc_library(
     name = "historical_protocol",
     hdrs = ["historical_protocol.hpp"],
     deps = [
+        ":buffer_chain",
         ":dbn_parser_component",
         ":http_client",
         ":pipeline",
@@ -248,6 +241,7 @@ cc_library(
         ":protocol_driver",
         ":reactor",
         ":tcp_socket",
+        "@databento_cpp//:databento_headers",
     ],
     visibility = ["//visibility:public"],
 )
@@ -259,6 +253,7 @@ cc_library(
         ":unified_pipeline",
         ":live_protocol",
         ":historical_protocol",
+        "@databento_cpp//:databento_headers",
     ],
     visibility = ["//visibility:public"],
 )

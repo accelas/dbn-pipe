@@ -82,12 +82,18 @@ void HistoricalClient::Sink::OnData(RecordBatch&& batch) {
     if (!valid_) return;
 
     // Iterate through each record in the batch and call the handler
-    for (size_t i = 0; i < batch.size(); ++i) {
-        // Create a Record view from the raw data
-        // Note: The Record constructor expects a non-const pointer to the header.
-        // The RecordBatch owns the buffer, so we need to cast away const for the
-        // databento::Record API. The record is only valid for this scope.
-        auto* data = const_cast<std::byte*>(batch.GetRecordData(i));
+    for (const auto& ref : batch) {
+        // Create a databento::Record view from the RecordRef data.
+        //
+        // const_cast justification:
+        // - databento::Record's constructor requires a non-const RecordHeader*
+        //   because it allows mutation for some use cases.
+        // - Our RecordRef stores const data since we treat received records as
+        //   read-only (zero-copy from network buffers).
+        // - The cast is safe: we don't mutate the data, and databento::Record
+        //   is a non-owning view that doesn't take ownership.
+        // - The RecordRef's keepalive ensures the buffer remains valid for this scope.
+        auto* data = const_cast<std::byte*>(ref.data);
         databento::Record rec{reinterpret_cast<databento::RecordHeader*>(data)};
 
         client_->HandleRecord(rec);
@@ -265,8 +271,8 @@ void HistoricalClient::BuildPipeline() {
         HandleTcpConnect();
     });
 
-    tcp_->OnRead([this](std::span<const std::byte> data) {
-        HandleTcpRead(data);
+    tcp_->OnRead([this](BufferChain chain) {
+        HandleTcpRead(std::move(chain));
     });
 
     tcp_->OnError([this](std::error_code ec) {
@@ -274,9 +280,9 @@ void HistoricalClient::BuildPipeline() {
     });
 
     // 8. Wire TlsSocket to write encrypted data back through TcpSocket
-    tls_->SetUpstreamWriteCallback([this](std::pmr::vector<std::byte> encrypted) {
+    tls_->SetUpstreamWriteCallback([this](BufferChain encrypted) {
         if (tcp_ && tcp_->IsConnected()) {
-            tcp_->Write(std::span<const std::byte>(encrypted.data(), encrypted.size()));
+            tcp_->Write(std::move(encrypted));
         }
     });
 }
@@ -309,15 +315,11 @@ void HistoricalClient::HandleTcpConnect() {
     tls_->StartHandshake();
 }
 
-void HistoricalClient::HandleTcpRead(std::span<const std::byte> data) {
-    HIST_DEBUG("TCP read: " << data.size() << " bytes, state=" << static_cast<int>(state_));
+void HistoricalClient::HandleTcpRead(BufferChain data) {
+    HIST_DEBUG("TCP read: " << data.Size() << " bytes, state=" << static_cast<int>(state_));
 
-    // Convert span to pmr::vector for TlsSocket
-    std::pmr::vector<std::byte> buffer(&pool_);
-    buffer.assign(data.begin(), data.end());
-
-    // Feed encrypted data to TLS layer
-    tls_->Read(std::move(buffer));
+    // Feed encrypted data to TLS layer (zero-copy)
+    tls_->Read(std::move(data));
 
     // After TLS processes data, check if handshake just completed
     if (state_ == State::TlsHandshaking && tls_->IsHandshakeComplete()) {
@@ -370,13 +372,20 @@ void HistoricalClient::SendHttpRequest() {
     std::string request = BuildHttpRequest();
     HIST_DEBUG("Sending HTTP request:\n" << request.substr(0, 200) << "...");
 
-    // Convert to pmr::vector<byte> for TlsSocket::Write
-    std::pmr::vector<std::byte> buffer(&pool_);
-    buffer.resize(request.size());
-    std::memcpy(buffer.data(), request.data(), request.size());
+    // Convert to BufferChain for TlsSocket::Write
+    BufferChain chain;
+    size_t offset = 0;
+    while (offset < request.size()) {
+        auto seg = std::make_shared<Segment>();
+        size_t to_copy = std::min(Segment::kSize, request.size() - offset);
+        std::memcpy(seg->data.data(), request.data() + offset, to_copy);
+        seg->size = to_copy;
+        chain.Append(std::move(seg));
+        offset += to_copy;
+    }
 
     state_ = State::ReceivingResponse;
-    tls_->Write(std::move(buffer));
+    tls_->Write(std::move(chain));
 }
 
 std::string HistoricalClient::BuildHttpRequest() const {

@@ -10,6 +10,7 @@
 
 #include <databento/record.hpp>
 
+#include "buffer_chain.hpp"
 #include "dbn_parser_component.hpp"
 #include "error.hpp"
 #include "cram_auth.hpp"
@@ -141,7 +142,7 @@ private:
     // Handle TCP socket events
     void HandleConnect();
     void HandleSocketError(std::error_code ec);
-    void HandleRead(std::span<const std::byte> data);
+    void HandleRead(BufferChain data);
 
     // Map CramAuthState to LiveClient::State
     void UpdateStateFromProtocol();

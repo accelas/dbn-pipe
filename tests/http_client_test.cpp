@@ -1,10 +1,12 @@
 // tests/http_client_test.cpp
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "src/buffer_chain.hpp"
 #include "src/http_client.hpp"
 #include "src/pipeline.hpp"
 #include "src/reactor.hpp"
@@ -18,8 +20,13 @@ struct MockHttpDownstream {
     bool done = false;
     bool error_called = false;
 
-    void Read(std::pmr::vector<std::byte> data) {
-        body.insert(body.end(), data.begin(), data.end());
+    void OnData(BufferChain& chain) {
+        while (!chain.Empty()) {
+            size_t chunk_size = chain.ContiguousSize();
+            const std::byte* ptr = chain.DataAt(0);
+            body.insert(body.end(), ptr, ptr + chunk_size);
+            chain.Consume(chunk_size);
+        }
     }
     void OnError(const Error& e) {
         last_error = e;
@@ -30,6 +37,16 @@ struct MockHttpDownstream {
 
 // Verify MockHttpDownstream satisfies Downstream concept
 static_assert(Downstream<MockHttpDownstream>);
+
+// Helper to create BufferChain from string
+BufferChain ToChain(const std::string& str) {
+    BufferChain chain;
+    auto seg = std::make_shared<Segment>();
+    std::memcpy(seg->data.data(), str.data(), str.size());
+    seg->size = str.size();
+    chain.Append(std::move(seg));
+    return chain;
+}
 
 TEST(HttpClientTest, FactoryCreatesInstance) {
     Reactor reactor;
@@ -50,12 +67,8 @@ TEST(HttpClientTest, ParsesSuccessResponse) {
         "\r\n"
         "hello";
 
-    std::pmr::vector<std::byte> data;
-    for (char c : response) {
-        data.push_back(static_cast<std::byte>(c));
-    }
-
-    http->Read(std::move(data));
+    auto chain = ToChain(response);
+    http->OnData(chain);
 
     EXPECT_EQ(downstream->body.size(), 5);
     EXPECT_TRUE(downstream->done);
@@ -70,20 +83,14 @@ TEST(HttpClientTest, ParsesChunkedResponse) {
     std::string part1 = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhello";
     std::string part2 = "world";
 
-    std::pmr::vector<std::byte> data1;
-    for (char c : part1) {
-        data1.push_back(static_cast<std::byte>(c));
-    }
-    http->Read(std::move(data1));
+    auto chain1 = ToChain(part1);
+    http->OnData(chain1);
 
     EXPECT_EQ(downstream->body.size(), 5);
     EXPECT_FALSE(downstream->done);  // Not complete yet
 
-    std::pmr::vector<std::byte> data2;
-    for (char c : part2) {
-        data2.push_back(static_cast<std::byte>(c));
-    }
-    http->Read(std::move(data2));
+    auto chain2 = ToChain(part2);
+    http->OnData(chain2);
 
     EXPECT_EQ(downstream->body.size(), 10);
     EXPECT_TRUE(downstream->done);
@@ -100,12 +107,8 @@ TEST(HttpClientTest, HandlesHttpError400) {
         "\r\n"
         "Bad Request";
 
-    std::pmr::vector<std::byte> data;
-    for (char c : response) {
-        data.push_back(static_cast<std::byte>(c));
-    }
-
-    http->Read(std::move(data));
+    auto chain = ToChain(response);
+    http->OnData(chain);
 
     EXPECT_TRUE(downstream->error_called);
     EXPECT_EQ(downstream->last_error.code, ErrorCode::HttpError);
@@ -126,12 +129,8 @@ TEST(HttpClientTest, HandlesHttpError500) {
         "\r\n"
         "failed";
 
-    std::pmr::vector<std::byte> data;
-    for (char c : response) {
-        data.push_back(static_cast<std::byte>(c));
-    }
-
-    http->Read(std::move(data));
+    auto chain = ToChain(response);
+    http->OnData(chain);
 
     EXPECT_TRUE(downstream->error_called);
     EXPECT_EQ(downstream->last_error.code, ErrorCode::HttpError);
@@ -149,12 +148,8 @@ TEST(HttpClientTest, HandlesRedirect301AsError) {
         "Content-Length: 0\r\n"
         "\r\n";
 
-    std::pmr::vector<std::byte> data;
-    for (char c : response) {
-        data.push_back(static_cast<std::byte>(c));
-    }
-
-    http->Read(std::move(data));
+    auto chain = ToChain(response);
+    http->OnData(chain);
 
     // Redirects (status >= 300) are treated as errors per the design
     EXPECT_TRUE(downstream->error_called);
@@ -199,12 +194,8 @@ TEST(HttpClientTest, EmptyBodyResponse) {
         "Content-Length: 0\r\n"
         "\r\n";
 
-    std::pmr::vector<std::byte> data;
-    for (char c : response) {
-        data.push_back(static_cast<std::byte>(c));
-    }
-
-    http->Read(std::move(data));
+    auto chain = ToChain(response);
+    http->OnData(chain);
 
     EXPECT_TRUE(downstream->body.empty());
     EXPECT_TRUE(downstream->done);
@@ -221,21 +212,14 @@ TEST(HttpClientTest, StatusCodeAccessor) {
         "Content-Length: 5\r\n"
         "\r\n";
 
-    std::pmr::vector<std::byte> data;
-    for (char c : headers) {
-        data.push_back(static_cast<std::byte>(c));
-    }
-
-    http->Read(std::move(data));
+    auto chain1 = ToChain(headers);
+    http->OnData(chain1);
 
     // After headers, status code should be set (but may be reset on message complete)
     // We verify by sending the complete response and checking final state
     std::string body = "hello";
-    std::pmr::vector<std::byte> bodyData;
-    for (char c : body) {
-        bodyData.push_back(static_cast<std::byte>(c));
-    }
-    http->Read(std::move(bodyData));
+    auto chain2 = ToChain(body);
+    http->OnData(chain2);
 
     // After message complete, state is reset for keep-alive
     EXPECT_EQ(http->StatusCode(), 0);

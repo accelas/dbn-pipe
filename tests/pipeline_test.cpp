@@ -3,40 +3,34 @@
 
 #include <vector>
 
-#include <databento/record.hpp>
-
+#include "src/buffer_chain.hpp"
 #include "src/pipeline.hpp"
 #include "src/reactor.hpp"
 
 using namespace databento_async;
 
-// Mock downstream that satisfies Downstream concept
+// Mock downstream that satisfies Downstream concept (receives BufferChain)
 struct MockDownstream {
     std::vector<std::byte> received;
     bool error_called = false;
     bool done_called = false;
 
-    void Read(std::pmr::vector<std::byte> data) {
-        received.insert(received.end(), data.begin(), data.end());
+    void OnData(BufferChain& chain) {
+        // Copy data from chain to received vector
+        while (!chain.Empty()) {
+            size_t chunk_size = chain.ContiguousSize();
+            const std::byte* ptr = chain.DataAt(0);
+            received.insert(received.end(), ptr, ptr + chunk_size);
+            chain.Consume(chunk_size);
+        }
     }
-    void OnError(const Error&) { error_called = true; }
-    void OnDone() { done_called = true; }
-};
-
-// Mock record downstream that satisfies RecordDownstream concept
-struct MockRecordDownstream {
-    int record_count = 0;
-    bool error_called = false;
-    bool done_called = false;
-
-    void OnRecord(const databento::Record&) { ++record_count; }
     void OnError(const Error&) { error_called = true; }
     void OnDone() { done_called = true; }
 };
 
 // Mock upstream that satisfies Upstream concept
 struct MockUpstream {
-    void Write(std::pmr::vector<std::byte>) {}
+    void Write(BufferChain) {}
     void Suspend() {}
     void Resume() {}
     void Close() {}
@@ -44,16 +38,8 @@ struct MockUpstream {
 
 // Verify concepts compile
 static_assert(TerminalDownstream<MockDownstream>);
-static_assert(TerminalDownstream<MockRecordDownstream>);
 static_assert(Downstream<MockDownstream>);
-static_assert(RecordDownstream<MockRecordDownstream>);
 static_assert(Upstream<MockUpstream>);
-
-// Verify MockDownstream does not satisfy RecordDownstream
-static_assert(!RecordDownstream<MockDownstream>);
-
-// Verify MockRecordDownstream does not satisfy Downstream
-static_assert(!Downstream<MockRecordDownstream>);
 
 TEST(PipelineTest, ConceptsSatisfied) {
     MockDownstream ds;
@@ -62,17 +48,7 @@ TEST(PipelineTest, ConceptsSatisfied) {
 }
 
 TEST(PipelineTest, TerminalDownstreamConcept) {
-    // Both MockDownstream and MockRecordDownstream satisfy TerminalDownstream
     static_assert(TerminalDownstream<MockDownstream>);
-    static_assert(TerminalDownstream<MockRecordDownstream>);
-    SUCCEED();
-}
-
-TEST(PipelineTest, RecordDownstreamConcept) {
-    // MockRecordDownstream satisfies RecordDownstream
-    static_assert(RecordDownstream<MockRecordDownstream>);
-    // MockDownstream does not satisfy RecordDownstream (no OnRecord)
-    static_assert(!RecordDownstream<MockDownstream>);
     SUCCEED();
 }
 
@@ -94,10 +70,7 @@ public:
 
     void DisableWatchers() {}  // Required by base
     void DoClose() { do_close_called = true; }
-
-    // Suspendable hooks (required by base)
-    void OnSuspend() {}
-    void OnResume() {}
+    void ProcessPending() {}   // Required by base
     void FlushAndComplete() {}
 };
 
