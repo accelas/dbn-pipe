@@ -81,15 +81,16 @@ public:
     void OnResume() {
         auto guard = this->TryGuard();
         if (!guard) return;
+        ProcessPending();
+        if (this->IsSuspended()) return;
+        if (upstream_) upstream_->Resume();
+    }
 
+    void ProcessPending() {
         // Forward any buffered decrypted data first
         if (this->ForwardData(*downstream_, pending_read_chain_)) return;
         // Process more data from SSL
         ProcessPendingReads();
-        // Only propagate resume upstream if we're still not suspended
-        if (upstream_ && !this->IsSuspended()) {
-            upstream_->Resume();
-        }
     }
 
     void FlushAndComplete() {

@@ -108,7 +108,12 @@ public:
     void OnResume() {
         auto guard = this->TryGuard();
         if (!guard) return;
+        ProcessPending();
+        if (this->IsSuspended()) return;
+        if (upstream_) upstream_->Resume();
+    }
 
+    void ProcessPending() {
         // Process pending binary data through streaming chain
         if (!pending_chain_.Empty()) {
             // Check overflow before splicing (use subtraction pattern)
@@ -120,11 +125,7 @@ public:
             }
             streaming_chain_.Splice(std::move(pending_chain_));
         }
-        if (this->ForwardData(*downstream_, streaming_chain_)) return;
-        // Only propagate resume upstream if we're still not suspended
-        if (upstream_) {
-            upstream_->Resume();
-        }
+        this->ForwardData(*downstream_, streaming_chain_);
     }
 
     void FlushAndComplete() {
