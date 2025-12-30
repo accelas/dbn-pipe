@@ -91,19 +91,6 @@ cc_library(
     hdrs = ["zstd_decompressor.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":error",
-        ":pipeline",
-        ":reactor",
-        ":tls_socket",
-        "@zstd",
-    ],
-)
-
-cc_library(
-    name = "zstd_chain_decompressor",
-    hdrs = ["zstd_chain_decompressor.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
         ":buffer_chain",
         ":error",
         ":pipeline",
@@ -239,7 +226,7 @@ cc_library(
         ":sink_adapter",
         ":tcp_socket",
         ":tls_socket",
-        ":zstd_chain_decompressor",
+        ":zstd_decompressor",
     ],
     visibility = ["//visibility:public"],
 )
