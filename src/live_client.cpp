@@ -167,7 +167,7 @@ void LiveClient::Start() {
         protocol_->StartStreaming();
 
         // Only update state if protocol actually transitioned
-        if (protocol_->GetState() == LiveProtocolState::Streaming) {
+        if (protocol_->GetState() == CramAuthState::Streaming) {
             state_ = State::Streaming;
         }
     }
@@ -239,20 +239,20 @@ void LiveClient::UpdateStateFromProtocol() {
     }
 
     switch (protocol_->GetState()) {
-        case LiveProtocolState::WaitingGreeting:
+        case CramAuthState::WaitingGreeting:
             state_ = State::WaitingGreeting;
             break;
-        case LiveProtocolState::WaitingChallenge:
+        case CramAuthState::WaitingChallenge:
             state_ = State::WaitingChallenge;
             session_id_ = protocol_->GetGreeting().session_id;
             break;
-        case LiveProtocolState::Authenticating:
+        case CramAuthState::Authenticating:
             state_ = State::Authenticating;
             break;
-        case LiveProtocolState::Ready:
+        case CramAuthState::Ready:
             state_ = State::Ready;
             break;
-        case LiveProtocolState::Streaming:
+        case CramAuthState::Streaming:
             state_ = State::Streaming;
             break;
     }

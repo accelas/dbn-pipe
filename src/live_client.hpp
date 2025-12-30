@@ -12,7 +12,7 @@
 
 #include "dbn_parser_component.hpp"
 #include "error.hpp"
-#include "live_protocol_handler.hpp"
+#include "cram_auth.hpp"
 #include "pipeline.hpp"
 #include "reactor.hpp"
 #include "record_batch.hpp"
@@ -22,7 +22,7 @@ namespace databento_async {
 
 // LiveClient - orchestrates pipeline for live data streaming.
 //
-// Architecture: TcpSocket -> LiveProtocolHandler -> DbnParserComponent -> Sink
+// Architecture: TcpSocket -> CramAuth -> DbnParserComponent -> Sink
 //
 // The Sink is an inner class that bridges parsed records back to the client's
 // callbacks (OnRecord/OnError/OnComplete).
@@ -71,7 +71,7 @@ public:
 
     // Pipeline type aliases
     using ParserType = DbnParserComponent<Sink>;
-    using ProtocolType = LiveProtocolHandler<ParserType>;
+    using ProtocolType = CramAuth<ParserType>;
 
     LiveClient(Reactor& reactor, std::string api_key);
     ~LiveClient();
@@ -143,7 +143,7 @@ private:
     void HandleSocketError(std::error_code ec);
     void HandleRead(std::span<const std::byte> data);
 
-    // Map LiveProtocolState to LiveClient::State
+    // Map CramAuthState to LiveClient::State
     void UpdateStateFromProtocol();
 
     Reactor& reactor_;
