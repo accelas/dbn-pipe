@@ -3,8 +3,6 @@
 
 #include <vector>
 
-#include <databento/record.hpp>
-
 #include "src/pipeline.hpp"
 #include "src/reactor.hpp"
 
@@ -23,17 +21,6 @@ struct MockDownstream {
     void OnDone() { done_called = true; }
 };
 
-// Mock record downstream that satisfies RecordDownstream concept
-struct MockRecordDownstream {
-    int record_count = 0;
-    bool error_called = false;
-    bool done_called = false;
-
-    void OnRecord(const databento::Record&) { ++record_count; }
-    void OnError(const Error&) { error_called = true; }
-    void OnDone() { done_called = true; }
-};
-
 // Mock upstream that satisfies Upstream concept
 struct MockUpstream {
     void Write(std::pmr::vector<std::byte>) {}
@@ -44,16 +31,8 @@ struct MockUpstream {
 
 // Verify concepts compile
 static_assert(TerminalDownstream<MockDownstream>);
-static_assert(TerminalDownstream<MockRecordDownstream>);
 static_assert(Downstream<MockDownstream>);
-static_assert(RecordDownstream<MockRecordDownstream>);
 static_assert(Upstream<MockUpstream>);
-
-// Verify MockDownstream does not satisfy RecordDownstream
-static_assert(!RecordDownstream<MockDownstream>);
-
-// Verify MockRecordDownstream does not satisfy Downstream
-static_assert(!Downstream<MockRecordDownstream>);
 
 TEST(PipelineTest, ConceptsSatisfied) {
     MockDownstream ds;
@@ -62,17 +41,7 @@ TEST(PipelineTest, ConceptsSatisfied) {
 }
 
 TEST(PipelineTest, TerminalDownstreamConcept) {
-    // Both MockDownstream and MockRecordDownstream satisfy TerminalDownstream
     static_assert(TerminalDownstream<MockDownstream>);
-    static_assert(TerminalDownstream<MockRecordDownstream>);
-    SUCCEED();
-}
-
-TEST(PipelineTest, RecordDownstreamConcept) {
-    // MockRecordDownstream satisfies RecordDownstream
-    static_assert(RecordDownstream<MockRecordDownstream>);
-    // MockDownstream does not satisfy RecordDownstream (no OnRecord)
-    static_assert(!RecordDownstream<MockDownstream>);
     SUCCEED();
 }
 

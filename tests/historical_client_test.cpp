@@ -164,7 +164,6 @@ TEST_F(HistoricalClientTest, PipelineIncludesParser) {
 }
 
 // Test that ApplicationSink receives parsed records instead of raw bytes
-// This verifies the new RecordDownstream interface
 TEST_F(HistoricalClientTest, SinkReceivesRecords) {
     Reactor reactor;
     HistoricalClient client(reactor, "db-test-api-key-12345");
