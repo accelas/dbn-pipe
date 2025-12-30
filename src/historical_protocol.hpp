@@ -19,7 +19,7 @@
 #include "sink_adapter.hpp"
 #include "tcp_socket.hpp"
 #include "tls_socket.hpp"
-#include "zstd_chain_decompressor.hpp"
+#include "zstd_decompressor.hpp"
 
 namespace databento_async {
 
@@ -123,7 +123,7 @@ struct HistoricalProtocol {
     struct ChainImpl : ChainType {
         using SinkAdapterType = SinkAdapter<Record>;
         using ParserType = DbnParserComponent<SinkAdapterType>;
-        using ZstdType = ZstdChainDecompressor<ParserType>;
+        using ZstdType = ZstdDecompressor<ParserType>;
         using HttpType = HttpClient<ZstdType>;
         using TlsType = TlsSocket<HttpType>;
 
