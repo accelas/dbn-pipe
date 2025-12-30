@@ -65,10 +65,38 @@ public:
 
     // Add segment to chain (called by socket layer after read)
     void Append(std::shared_ptr<Segment> seg) {
+        assert((!seg || seg->size <= Segment::kSize) &&
+               "Segment size exceeds capacity - possible buffer overflow");
         if (seg && seg->size > 0) {
             total_size_ += seg->size;
             segments_.push_back(std::move(seg));
         }
+    }
+
+    // Splice all segments from another chain (transfers ownership).
+    // The source chain is left empty after this operation.
+    // PRECONDITION: 'other' must not have partially consumed data (consumed_offset_ == 0).
+    // Use Consume() to remove partial data before splicing if needed.
+    // If this chain has no recycle callback, inherits the callback from 'other'.
+    void Splice(BufferChain&& other) {
+        if (other.Empty()) return;
+
+        // Assert precondition: splicing a partially-consumed chain would corrupt data
+        assert(other.consumed_offset_ == 0 &&
+               "Cannot splice a partially-consumed chain - call Consume() first");
+
+        // Inherit recycle callback if we don't have one
+        if (!recycle_callback_ && other.recycle_callback_) {
+            recycle_callback_ = other.recycle_callback_;
+        }
+
+        total_size_ += other.total_size_;
+        for (auto& seg : other.segments_) {
+            segments_.push_back(std::move(seg));
+        }
+        other.segments_.clear();
+        other.consumed_offset_ = 0;
+        other.total_size_ = 0;
     }
 
     // Consume bytes from front (called by parser after processing records).
@@ -193,6 +221,13 @@ public:
     // Number of segments in chain.
     size_t SegmentCount() const noexcept { return segments_.size(); }
 
+    // Contiguous bytes available from offset 0 (in first segment).
+    // Returns how many bytes can be accessed with DataAt(0) without crossing segments.
+    size_t ContiguousSize() const noexcept {
+        if (segments_.empty()) return 0;
+        return segments_.front()->size - consumed_offset_;
+    }
+
     // Clear all data. Segments are recycled if callback is set.
     void Clear() {
         if (recycle_callback_) {
@@ -203,6 +238,40 @@ public:
         segments_.clear();
         consumed_offset_ = 0;
         total_size_ = 0;
+    }
+
+    // Check if this chain has been partially consumed (consumed_offset_ > 0).
+    // A fresh chain (not partially consumed) can be safely Splice'd.
+    bool IsPartiallyConsumed() const noexcept {
+        return consumed_offset_ > 0;
+    }
+
+    // Compact the chain by removing consumed bytes from the first segment.
+    // After this call, consumed_offset_ == 0 and the chain can be Splice'd.
+    // If the first segment is shared, creates a new segment to avoid corruption.
+    void Compact() {
+        if (consumed_offset_ == 0 || segments_.empty()) return;
+
+        auto& first = segments_.front();
+        size_t remaining = first->size - consumed_offset_;
+
+        // Check if segment is shared (use_count > 1 means others hold references)
+        if (first.use_count() > 1) {
+            // Create a new segment with the remaining data
+            auto new_seg = std::make_shared<Segment>();
+            std::memcpy(new_seg->data.data(),
+                        first->data.data() + consumed_offset_,
+                        remaining);
+            new_seg->size = remaining;
+            first = std::move(new_seg);
+        } else {
+            // Safe to modify in place - move remaining bytes to start
+            std::memmove(first->data.data(),
+                         first->data.data() + consumed_offset_,
+                         remaining);
+            first->size = remaining;
+        }
+        consumed_offset_ = 0;
     }
 
 private:

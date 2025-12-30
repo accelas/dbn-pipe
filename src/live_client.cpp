@@ -80,8 +80,8 @@ void LiveClient::BuildPipeline() {
         HandleConnect();
     });
 
-    tcp_->OnRead([this](std::span<const std::byte> data) {
-        HandleRead(data);
+    tcp_->OnRead([this](BufferChain chain) {
+        HandleRead(std::move(chain));
     });
 
     tcp_->OnError([this](std::error_code ec) {
@@ -89,9 +89,9 @@ void LiveClient::BuildPipeline() {
     });
 
     // Wire protocol write callback to TCP socket
-    protocol_->SetWriteCallback([this](std::pmr::vector<std::byte> data) {
+    protocol_->SetWriteCallback([this](BufferChain data) {
         if (tcp_) {
-            tcp_->Write(std::span<const std::byte>(data.data(), data.size()));
+            tcp_->Write(std::move(data));
         }
     });
 
@@ -223,12 +223,10 @@ void LiveClient::HandleSocketError(std::error_code ec) {
     // Synchronous teardown is NOT safe since we're inside TcpSocket callback
 }
 
-void LiveClient::HandleRead(std::span<const std::byte> data) {
+void LiveClient::HandleRead(BufferChain data) {
     if (!protocol_) return;
 
-    // Create pmr::vector from span
-    std::pmr::vector<std::byte> pmr_data(data.begin(), data.end());
-    protocol_->Read(std::move(pmr_data));
+    protocol_->OnData(data);
 
     // Update state based on protocol state
     UpdateStateFromProtocol();

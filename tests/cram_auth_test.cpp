@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "src/buffer_chain.hpp"
 #include "src/cram_auth.hpp"
 #include "src/pipeline.hpp"
 #include "src/reactor.hpp"
@@ -13,14 +14,19 @@
 using namespace databento_async;
 
 // Mock downstream that satisfies Downstream concept
-struct MockDownstream {
+struct MockCramDownstream {
     std::vector<std::byte> received;
     Error last_error;
     bool error_called = false;
     bool done_called = false;
 
-    void Read(std::pmr::vector<std::byte> data) {
-        received.insert(received.end(), data.begin(), data.end());
+    void OnData(BufferChain& chain) {
+        while (!chain.Empty()) {
+            size_t chunk_size = chain.ContiguousSize();
+            const std::byte* ptr = chain.DataAt(0);
+            received.insert(received.end(), ptr, ptr + chunk_size);
+            chain.Consume(chunk_size);
+        }
     }
     void OnError(const Error& e) {
         last_error = e;
@@ -29,15 +35,33 @@ struct MockDownstream {
     void OnDone() { done_called = true; }
 };
 
-// Verify MockDownstream satisfies Downstream concept
-static_assert(Downstream<MockDownstream>);
+// Verify MockCramDownstream satisfies Downstream concept
+static_assert(Downstream<MockCramDownstream>);
 
-// Helper to create byte vector from string
-std::pmr::vector<std::byte> ToBytes(const std::string& str) {
-    std::pmr::vector<std::byte> result;
-    result.resize(str.size());
-    std::memcpy(result.data(), str.data(), str.size());
-    return result;
+// Helper to create BufferChain from string
+BufferChain ToChain(const std::string& str) {
+    BufferChain chain;
+    auto seg = std::make_shared<Segment>();
+    std::memcpy(seg->data.data(), str.data(), str.size());
+    seg->size = str.size();
+    chain.Append(std::move(seg));
+    return chain;
+}
+
+// Helper to create BufferChain from byte vector
+// Splits data across multiple segments if needed (each segment is 64KB max)
+BufferChain ToChain(const std::pmr::vector<std::byte>& bytes) {
+    BufferChain chain;
+    size_t offset = 0;
+    while (offset < bytes.size()) {
+        auto seg = std::make_shared<Segment>();
+        size_t to_copy = std::min(Segment::kSize, bytes.size() - offset);
+        std::memcpy(seg->data.data(), bytes.data() + offset, to_copy);
+        seg->size = to_copy;
+        chain.Append(std::move(seg));
+        offset += to_copy;
+    }
+    return chain;
 }
 
 // Helper to convert bytes to string for comparison
@@ -51,19 +75,36 @@ protected:
         // Initialize reactor thread ID for Suspend/Resume assertions
         reactor_.Poll(0);
 
-        downstream_ = std::make_shared<MockDownstream>();
-        handler_ = CramAuth<MockDownstream>::Create(
+        downstream_ = std::make_shared<MockCramDownstream>();
+        handler_ = CramAuth<MockCramDownstream>::Create(
             reactor_, downstream_, "test_api_key");
     }
 
+    // Helper to send string data to handler
+    void SendData(const std::string& str) {
+        auto chain = ToChain(str);
+        handler_->OnData(chain);
+    }
+
+    // Helper to send byte data to handler
+    void SendBytes(std::pmr::vector<std::byte> bytes) {
+        auto chain = ToChain(bytes);
+        handler_->OnData(chain);
+    }
+
     Reactor reactor_;
-    std::shared_ptr<MockDownstream> downstream_;
-    std::shared_ptr<CramAuth<MockDownstream>> handler_;
+    std::shared_ptr<MockCramDownstream> downstream_;
+    std::shared_ptr<CramAuth<MockCramDownstream>> handler_;
     std::vector<std::byte> sent_data_;
 
     void SetupWriteCallback() {
-        handler_->SetWriteCallback([this](std::pmr::vector<std::byte> data) {
-            sent_data_.insert(sent_data_.end(), data.begin(), data.end());
+        handler_->SetWriteCallback([this](BufferChain chain) {
+            while (!chain.Empty()) {
+                size_t chunk_size = chain.ContiguousSize();
+                const std::byte* ptr = chain.DataAt(0);
+                sent_data_.insert(sent_data_.end(), ptr, ptr + chunk_size);
+                chain.Consume(chunk_size);
+            }
         });
     }
 };
@@ -77,7 +118,7 @@ TEST_F(CramAuthTest, InitialStateIsWaitingGreeting) {
 }
 
 TEST_F(CramAuthTest, ReceivesGreetingTransitionsToWaitingChallenge) {
-    handler_->Read(ToBytes("session123|v1.0\n"));
+    SendData("session123|v1.0\n");
 
     EXPECT_EQ(handler_->GetState(), CramAuthState::WaitingChallenge);
     EXPECT_EQ(handler_->GetGreeting().session_id, "session123");
@@ -85,7 +126,7 @@ TEST_F(CramAuthTest, ReceivesGreetingTransitionsToWaitingChallenge) {
 }
 
 TEST_F(CramAuthTest, ReceivesGreetingWithCRLF) {
-    handler_->Read(ToBytes("session456|v2.0\r\n"));
+    SendData("session456|v2.0\r\n");
 
     EXPECT_EQ(handler_->GetState(), CramAuthState::WaitingChallenge);
     EXPECT_EQ(handler_->GetGreeting().session_id, "session456");
@@ -93,7 +134,7 @@ TEST_F(CramAuthTest, ReceivesGreetingWithCRLF) {
 }
 
 TEST_F(CramAuthTest, InvalidGreetingEmitsError) {
-    handler_->Read(ToBytes("invalid_greeting_no_pipe\n"));
+    SendData("invalid_greeting_no_pipe\n");
 
     EXPECT_TRUE(downstream_->error_called);
     EXPECT_EQ(downstream_->last_error.code, ErrorCode::InvalidGreeting);
@@ -103,11 +144,11 @@ TEST_F(CramAuthTest, ReceivesChallengeAndSendsAuth) {
     SetupWriteCallback();
 
     // Send greeting first
-    handler_->Read(ToBytes("session|v1\n"));
+    SendData("session|v1\n");
     EXPECT_EQ(handler_->GetState(), CramAuthState::WaitingChallenge);
 
     // Send challenge
-    handler_->Read(ToBytes("cram=test_challenge\n"));
+    SendData("cram=test_challenge\n");
 
     EXPECT_EQ(handler_->GetState(), CramAuthState::Authenticating);
 
@@ -120,10 +161,10 @@ TEST_F(CramAuthTest, ReceivesChallengeAndSendsAuth) {
 
 TEST_F(CramAuthTest, InvalidChallengeEmitsError) {
     // Send greeting first
-    handler_->Read(ToBytes("session|v1\n"));
+    SendData("session|v1\n");
 
     // Send invalid challenge
-    handler_->Read(ToBytes("invalid_challenge\n"));
+    SendData("invalid_challenge\n");
 
     EXPECT_TRUE(downstream_->error_called);
     EXPECT_EQ(downstream_->last_error.code, ErrorCode::InvalidChallenge);
@@ -133,9 +174,9 @@ TEST_F(CramAuthTest, AuthSuccessTransitionsToReady) {
     SetupWriteCallback();
 
     // Complete handshake
-    handler_->Read(ToBytes("session|v1\n"));
-    handler_->Read(ToBytes("cram=challenge\n"));
-    handler_->Read(ToBytes("success\n"));  // Any non-error response
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
+    SendData("success\n");  // Any non-error response
 
     EXPECT_EQ(handler_->GetState(), CramAuthState::Ready);
     EXPECT_FALSE(downstream_->error_called);
@@ -145,9 +186,9 @@ TEST_F(CramAuthTest, AuthFailureEmitsError) {
     SetupWriteCallback();
 
     // Complete handshake but fail auth
-    handler_->Read(ToBytes("session|v1\n"));
-    handler_->Read(ToBytes("cram=challenge\n"));
-    handler_->Read(ToBytes("err=invalid_api_key\n"));
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
+    SendData("err=invalid_api_key\n");
 
     EXPECT_TRUE(downstream_->error_called);
     EXPECT_EQ(downstream_->last_error.code, ErrorCode::AuthFailed);
@@ -157,9 +198,9 @@ TEST_F(CramAuthTest, StreamingModePassesBinaryDataToDownstream) {
     SetupWriteCallback();
 
     // Complete handshake
-    handler_->Read(ToBytes("session|v1\n"));
-    handler_->Read(ToBytes("cram=challenge\n"));
-    handler_->Read(ToBytes("success\n"));
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
+    SendData("success\n");
     EXPECT_EQ(handler_->GetState(), CramAuthState::Ready);
 
     // Subscribe and start streaming
@@ -172,7 +213,7 @@ TEST_F(CramAuthTest, StreamingModePassesBinaryDataToDownstream) {
     binary_data.push_back(std::byte{0x01});
     binary_data.push_back(std::byte{0x02});
     binary_data.push_back(std::byte{0x03});
-    handler_->Read(std::move(binary_data));
+    SendBytes(std::move(binary_data));
 
     ASSERT_EQ(downstream_->received.size(), 3);
     EXPECT_EQ(downstream_->received[0], std::byte{0x01});
@@ -184,10 +225,10 @@ TEST_F(CramAuthTest, SubscribeSendsSubscriptionWhenReady) {
     SetupWriteCallback();
 
     // Complete handshake
-    handler_->Read(ToBytes("session|v1\n"));
-    handler_->Read(ToBytes("cram=challenge\n"));
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
     sent_data_.clear();  // Clear auth message
-    handler_->Read(ToBytes("success\n"));
+    SendData("success\n");
 
     // Subscribe
     handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
@@ -209,10 +250,10 @@ TEST_F(CramAuthTest, SubscribeQueuesIfNotReady) {
     EXPECT_TRUE(sent_data_.empty());
 
     // Complete handshake
-    handler_->Read(ToBytes("session|v1\n"));
-    handler_->Read(ToBytes("cram=challenge\n"));
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
     sent_data_.clear();
-    handler_->Read(ToBytes("success\n"));
+    SendData("success\n");
 
     // Now subscription should be sent
     std::string sent = ToString(sent_data_);
@@ -223,9 +264,9 @@ TEST_F(CramAuthTest, StartStreamingSendsStartSession) {
     SetupWriteCallback();
 
     // Complete handshake and subscribe
-    handler_->Read(ToBytes("session|v1\n"));
-    handler_->Read(ToBytes("cram=challenge\n"));
-    handler_->Read(ToBytes("success\n"));
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
+    SendData("success\n");
     handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
     sent_data_.clear();
 
@@ -240,7 +281,7 @@ TEST_F(CramAuthTest, StartStreamingSendsStartSession) {
 TEST_F(CramAuthTest, LineBufferOverflowEmitsError) {
     // Send data that exceeds kMaxLineLength (8KB) without newline
     std::string large_line(9 * 1024, 'x');  // 9KB
-    handler_->Read(ToBytes(large_line));
+    SendData(large_line);
 
     EXPECT_TRUE(downstream_->error_called);
     EXPECT_EQ(downstream_->last_error.code, ErrorCode::BufferOverflow);
@@ -251,9 +292,9 @@ TEST_F(CramAuthTest, BinaryBufferOverflowEmitsError) {
     SetupWriteCallback();
 
     // Complete handshake and start streaming
-    handler_->Read(ToBytes("session|v1\n"));
-    handler_->Read(ToBytes("cram=challenge\n"));
-    handler_->Read(ToBytes("success\n"));
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
+    SendData("success\n");
     handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
     handler_->StartStreaming();
 
@@ -266,7 +307,7 @@ TEST_F(CramAuthTest, BinaryBufferOverflowEmitsError) {
         if (downstream_->error_called) break;
 
         std::pmr::vector<std::byte> large_data(kChunkSize, std::byte{0x42});
-        handler_->Read(std::move(large_data));
+        SendBytes(std::move(large_data));
     }
 
     EXPECT_TRUE(downstream_->error_called);
@@ -288,9 +329,9 @@ TEST_F(CramAuthTest, SuspendedBuffersDataAndResumeDrains) {
     SetupWriteCallback();
 
     // Complete handshake and start streaming
-    handler_->Read(ToBytes("session|v1\n"));
-    handler_->Read(ToBytes("cram=challenge\n"));
-    handler_->Read(ToBytes("success\n"));
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
+    SendData("success\n");
     handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
     handler_->StartStreaming();
 
@@ -301,7 +342,7 @@ TEST_F(CramAuthTest, SuspendedBuffersDataAndResumeDrains) {
     std::pmr::vector<std::byte> data1;
     data1.push_back(std::byte{0xAA});
     data1.push_back(std::byte{0xBB});
-    handler_->Read(std::move(data1));
+    SendBytes(std::move(data1));
 
     // Data should be buffered, not forwarded
     EXPECT_TRUE(downstream_->received.empty());
@@ -324,9 +365,9 @@ TEST_F(CramAuthTest, OnDoneForwardsToDownstream) {
     SetupWriteCallback();
 
     // Complete handshake and start streaming
-    handler_->Read(ToBytes("session|v1\n"));
-    handler_->Read(ToBytes("cram=challenge\n"));
-    handler_->Read(ToBytes("success\n"));
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
+    SendData("success\n");
     handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
     handler_->StartStreaming();
 
@@ -338,7 +379,7 @@ TEST_F(CramAuthTest, OnDoneForwardsToDownstream) {
 
 TEST_F(CramAuthTest, OnDoneBeforeStreamingEmitsError) {
     // Simulate connection close during authentication
-    handler_->Read(ToBytes("session|v1\n"));
+    SendData("session|v1\n");
     handler_->OnDone();
 
     EXPECT_TRUE(downstream_->error_called);
@@ -368,13 +409,13 @@ TEST_F(CramAuthTest, ImplementsSuspendableInterface) {
 
 TEST_F(CramAuthTest, ChunkedGreetingParsed) {
     // Send greeting in multiple chunks
-    handler_->Read(ToBytes("sess"));
+    SendData("sess");
     EXPECT_EQ(handler_->GetState(), CramAuthState::WaitingGreeting);
 
-    handler_->Read(ToBytes("ion|v"));
+    SendData("ion|v");
     EXPECT_EQ(handler_->GetState(), CramAuthState::WaitingGreeting);
 
-    handler_->Read(ToBytes("1\n"));
+    SendData("1\n");
     EXPECT_EQ(handler_->GetState(), CramAuthState::WaitingChallenge);
     EXPECT_EQ(handler_->GetGreeting().session_id, "session");
 }
@@ -383,7 +424,7 @@ TEST_F(CramAuthTest, MultipleMessagesInSingleRead) {
     SetupWriteCallback();
 
     // Send greeting and challenge in single packet
-    handler_->Read(ToBytes("session|v1\ncram=test\n"));
+    SendData("session|v1\ncram=test\n");
 
     EXPECT_EQ(handler_->GetState(), CramAuthState::Authenticating);
     EXPECT_FALSE(sent_data_.empty());  // Auth was sent
@@ -393,9 +434,9 @@ TEST_F(CramAuthTest, RemainingDataAfterStreamingTransitionForwarded) {
     SetupWriteCallback();
 
     // Complete handshake
-    handler_->Read(ToBytes("session|v1\n"));
-    handler_->Read(ToBytes("cram=challenge\n"));
-    handler_->Read(ToBytes("success\n"));
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
+    SendData("success\n");
     handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
     handler_->StartStreaming();
 
@@ -405,7 +446,7 @@ TEST_F(CramAuthTest, RemainingDataAfterStreamingTransitionForwarded) {
     // After start_session response, server immediately sends binary data
     // This simulates the case where start confirmation and binary data
     // arrive in the same packet
-    handler_->Read(ToBytes("\x01\x02\x03"));
+    SendData("\x01\x02\x03");
 
     // Binary data should be forwarded
     ASSERT_EQ(downstream_->received.size(), 3);

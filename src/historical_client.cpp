@@ -271,8 +271,8 @@ void HistoricalClient::BuildPipeline() {
         HandleTcpConnect();
     });
 
-    tcp_->OnRead([this](std::span<const std::byte> data) {
-        HandleTcpRead(data);
+    tcp_->OnRead([this](BufferChain chain) {
+        HandleTcpRead(std::move(chain));
     });
 
     tcp_->OnError([this](std::error_code ec) {
@@ -280,9 +280,9 @@ void HistoricalClient::BuildPipeline() {
     });
 
     // 8. Wire TlsSocket to write encrypted data back through TcpSocket
-    tls_->SetUpstreamWriteCallback([this](std::pmr::vector<std::byte> encrypted) {
+    tls_->SetUpstreamWriteCallback([this](BufferChain encrypted) {
         if (tcp_ && tcp_->IsConnected()) {
-            tcp_->Write(std::span<const std::byte>(encrypted.data(), encrypted.size()));
+            tcp_->Write(std::move(encrypted));
         }
     });
 }
@@ -315,15 +315,11 @@ void HistoricalClient::HandleTcpConnect() {
     tls_->StartHandshake();
 }
 
-void HistoricalClient::HandleTcpRead(std::span<const std::byte> data) {
-    HIST_DEBUG("TCP read: " << data.size() << " bytes, state=" << static_cast<int>(state_));
+void HistoricalClient::HandleTcpRead(BufferChain data) {
+    HIST_DEBUG("TCP read: " << data.Size() << " bytes, state=" << static_cast<int>(state_));
 
-    // Convert span to pmr::vector for TlsSocket
-    std::pmr::vector<std::byte> buffer(&pool_);
-    buffer.assign(data.begin(), data.end());
-
-    // Feed encrypted data to TLS layer
-    tls_->Read(std::move(buffer));
+    // Feed encrypted data to TLS layer (zero-copy)
+    tls_->Read(std::move(data));
 
     // After TLS processes data, check if handshake just completed
     if (state_ == State::TlsHandshaking && tls_->IsHandshakeComplete()) {
@@ -376,13 +372,20 @@ void HistoricalClient::SendHttpRequest() {
     std::string request = BuildHttpRequest();
     HIST_DEBUG("Sending HTTP request:\n" << request.substr(0, 200) << "...");
 
-    // Convert to pmr::vector<byte> for TlsSocket::Write
-    std::pmr::vector<std::byte> buffer(&pool_);
-    buffer.resize(request.size());
-    std::memcpy(buffer.data(), request.data(), request.size());
+    // Convert to BufferChain for TlsSocket::Write
+    BufferChain chain;
+    size_t offset = 0;
+    while (offset < request.size()) {
+        auto seg = std::make_shared<Segment>();
+        size_t to_copy = std::min(Segment::kSize, request.size() - offset);
+        std::memcpy(seg->data.data(), request.data() + offset, to_copy);
+        seg->size = to_copy;
+        chain.Append(std::move(seg));
+        offset += to_copy;
+    }
 
     state_ = State::ReceivingResponse;
-    tls_->Write(std::move(buffer));
+    tls_->Write(std::move(chain));
 }
 
 std::string HistoricalClient::BuildHttpRequest() const {

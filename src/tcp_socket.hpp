@@ -11,6 +11,7 @@
 #include <system_error>
 #include <vector>
 
+#include "buffer_chain.hpp"
 #include "reactor.hpp"
 
 namespace databento_async {
@@ -20,7 +21,7 @@ template<typename F>
 concept ConnectHandler = std::invocable<F>;
 
 template<typename F>
-concept ReadHandler = std::invocable<F, std::span<const std::byte>>;
+concept ReadHandler = std::invocable<F, BufferChain>;
 
 template<typename F>
 concept WriteHandler = std::invocable<F>;
@@ -31,7 +32,7 @@ concept ErrorHandler = std::invocable<F, std::error_code>;
 class TcpSocket {
 public:
     using ConnectCallback = std::function<void()>;
-    using ReadCallback = std::function<void(std::span<const std::byte>)>;
+    using ReadCallback = std::function<void(BufferChain)>;
     using WriteCallback = std::function<void()>;
     using ErrorCallback = std::function<void(std::error_code)>;
 
@@ -48,7 +49,7 @@ public:
     void Connect(const sockaddr_storage& addr);
 
     // Write data (queued if not yet writable)
-    void Write(std::span<const std::byte> data);
+    void Write(BufferChain data);
 
     // Close connection
     void Close();
@@ -86,14 +87,12 @@ private:
     bool read_paused_ = false;
 
     std::vector<std::byte> write_buffer_;
-    std::vector<std::byte> read_buffer_;
+    SegmentPool segment_pool_{4};  // Pool for zero-copy reads
 
     ConnectCallback on_connect_ = []() {};
-    ReadCallback on_read_ = [](std::span<const std::byte>) {};
+    ReadCallback on_read_ = [](BufferChain) {};
     WriteCallback on_write_ = []() {};
     ErrorCallback on_error_ = [](std::error_code) {};
-
-    static constexpr size_t kReadBufferSize = 65536;
 };
 
 }  // namespace databento_async

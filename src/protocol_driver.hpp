@@ -3,9 +3,9 @@
 
 #include <concepts>
 #include <memory>
-#include <memory_resource>
 #include <string>
 
+#include "buffer_chain.hpp"
 #include "pipeline_base.hpp"
 #include "reactor.hpp"
 #include "tcp_socket.hpp"
@@ -35,7 +35,7 @@ concept ProtocolDriver = requires {
         TcpSocket& tcp,
         std::shared_ptr<typename P::ChainType> chain,
         const typename P::Request& request,
-        std::pmr::vector<std::byte> data
+        BufferChain data
     ) {
         // Build component chain, returns entry point
         { P::BuildChain(reactor, sink, api_key) }
