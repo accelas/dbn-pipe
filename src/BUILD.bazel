@@ -99,6 +99,19 @@ cc_library(
 )
 
 cc_library(
+    name = "zstd_chain_decompressor",
+    hdrs = ["zstd_chain_decompressor.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":buffer_chain",
+        ":error",
+        ":pipeline",
+        ":reactor",
+        "@zstd",
+    ],
+)
+
+cc_library(
     name = "historical_client",
     srcs = ["historical_client.cpp"],
     hdrs = ["historical_client.hpp"],
@@ -222,7 +235,7 @@ cc_library(
         ":sink_adapter",
         ":tcp_socket",
         ":tls_socket",
-        ":zstd_decompressor",
+        ":zstd_chain_decompressor",
     ],
     visibility = ["//visibility:public"],
 )
