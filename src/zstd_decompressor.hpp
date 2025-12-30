@@ -19,11 +19,11 @@ namespace databento_async {
 
 // ZstdDecompressor handles streaming zstd decompression.
 // Sits between HttpClient (upstream) and application (downstream) in the pipeline.
+// PipelineComponent provides Suspendable interface with suspend count semantics.
 //
 // Template parameter D must satisfy the Downstream concept.
 template <Downstream D>
 class ZstdDecompressor : public PipelineComponent<ZstdDecompressor<D>>,
-                         public Suspendable,
                          public std::enable_shared_from_this<ZstdDecompressor<D>> {
 public:
     // Factory method for shared_from_this safety
@@ -47,20 +47,6 @@ public:
     // Handle EOF from upstream
     void OnDone();
 
-    // Suspendable interface
-    void Suspend() override {
-        this->suspended_ = true;
-    }
-
-    void Resume() override {
-        this->suspended_ = false;
-        // Process any buffered data
-        ProcessPendingData();
-    }
-
-    // Pipeline interface
-    void Close() { this->RequestClose(); }
-
     // Write is not supported for decompressor (data flows downstream only)
     void Write(std::pmr::vector<std::byte> /*data*/) {
         throw std::logic_error(
@@ -77,6 +63,23 @@ public:
     }
 
     void DoClose();
+
+    // Suspendable hooks (called by PipelineComponent base)
+    void OnSuspend() {
+        // ZstdDecompressor doesn't need to do anything special on suspend
+    }
+
+    void OnResume() {
+        // Process any buffered data
+        ProcessPendingData();
+    }
+
+    void FlushAndComplete() {
+        // Flush pending data then signal done
+        ProcessPendingData();
+        downstream_->OnDone();
+        this->RequestClose();
+    }
 
 private:
     // Private constructor - use Create() factory method
@@ -100,6 +103,7 @@ private:
 
     // ZSTD streaming decompression context
     ZSTD_DStream* dstream_ = nullptr;
+
 
     // PMR pool for output buffers
     std::pmr::unsynchronized_pool_resource pool_;
@@ -160,7 +164,7 @@ void ZstdDecompressor<D>::Read(std::pmr::vector<std::byte> data) {
     if (!guard) return;
 
     // If suspended, buffer the data
-    if (this->suspended_) {
+    if (this->IsSuspended()) {
         if (pending_input_.size() + data.size() > kMaxPendingInput) {
             this->EmitError(*downstream_,
                 Error{ErrorCode::DecompressionError,
@@ -212,7 +216,7 @@ bool ZstdDecompressor<D>::DecompressAndForward(const std::byte* input, size_t in
 
     while (in_buf.pos < in_buf.size) {
         // Check if we got suspended during processing
-        if (this->suspended_) {
+        if (this->IsSuspended()) {
             // Buffer remaining input
             if (in_buf.pos < in_buf.size) {
                 const auto* remaining = static_cast<const std::byte*>(in_buf.src) + in_buf.pos;

@@ -70,6 +70,11 @@ public:
     bool IsConnected() const { return connected_; }
     int fd() const { return event_ ? event_->fd() : -1; }
 
+    // Backpressure control
+    void PauseRead();
+    void ResumeRead();
+    bool IsReadPaused() const { return read_paused_; }
+
 private:
     void HandleEvents(uint32_t events);
     void HandleReadable();
@@ -78,6 +83,7 @@ private:
     Reactor& reactor_;
     std::unique_ptr<Event> event_;
     bool connected_ = false;
+    bool read_paused_ = false;
 
     std::vector<std::byte> write_buffer_;
     std::vector<std::byte> read_buffer_;

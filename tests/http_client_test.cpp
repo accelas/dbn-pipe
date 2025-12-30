@@ -167,6 +167,9 @@ TEST(HttpClientTest, SuspendAndResumeWork) {
     auto downstream = std::make_shared<MockHttpDownstream>();
     auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
 
+    // Initialize reactor thread ID for Suspend/Resume assertions
+    reactor.Poll(0);
+
     // Initially not suspended
     EXPECT_FALSE(http->IsSuspended());
 

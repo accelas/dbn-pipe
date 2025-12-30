@@ -2,11 +2,53 @@
 #include "historical_client.hpp"
 
 #include <cstring>
+#include <iostream>
 #include <sstream>
 
 namespace databento_async {
 
+// Debug logging macro (disabled in production)
+#define HIST_DEBUG(msg) do {} while (0)
+
 namespace {
+
+// Base64 encode for HTTP Basic authentication
+std::string Base64Encode(std::string_view input) {
+    static const char* kBase64Chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    std::string result;
+    result.reserve(((input.size() + 2) / 3) * 4);
+
+    size_t i = 0;
+    while (i + 2 < input.size()) {
+        uint32_t triple = (static_cast<uint8_t>(input[i]) << 16) |
+                          (static_cast<uint8_t>(input[i + 1]) << 8) |
+                          static_cast<uint8_t>(input[i + 2]);
+        result += kBase64Chars[(triple >> 18) & 0x3F];
+        result += kBase64Chars[(triple >> 12) & 0x3F];
+        result += kBase64Chars[(triple >> 6) & 0x3F];
+        result += kBase64Chars[triple & 0x3F];
+        i += 3;
+    }
+
+    if (i + 1 == input.size()) {
+        uint32_t val = static_cast<uint8_t>(input[i]) << 16;
+        result += kBase64Chars[(val >> 18) & 0x3F];
+        result += kBase64Chars[(val >> 12) & 0x3F];
+        result += '=';
+        result += '=';
+    } else if (i + 2 == input.size()) {
+        uint32_t val = (static_cast<uint8_t>(input[i]) << 16) |
+                       (static_cast<uint8_t>(input[i + 1]) << 8);
+        result += kBase64Chars[(val >> 18) & 0x3F];
+        result += kBase64Chars[(val >> 12) & 0x3F];
+        result += kBase64Chars[(val >> 6) & 0x3F];
+        result += '=';
+    }
+
+    return result;
+}
 
 // URL-encode a string for use in query parameters
 std::string UrlEncode(std::string_view str) {
@@ -36,9 +78,20 @@ std::string UrlEncode(std::string_view str) {
 
 // Sink implementation
 
-void HistoricalClient::Sink::OnRecord(const databento::Record& rec) {
+void HistoricalClient::Sink::OnData(RecordBatch&& batch) {
     if (!valid_) return;
-    client_->HandleRecord(rec);
+
+    // Iterate through each record in the batch and call the handler
+    for (size_t i = 0; i < batch.size(); ++i) {
+        // Create a Record view from the raw data
+        // Note: The Record constructor expects a non-const pointer to the header.
+        // The RecordBatch owns the buffer, so we need to cast away const for the
+        // databento::Record API. The record is only valid for this scope.
+        auto* data = const_cast<std::byte*>(batch.GetRecordData(i));
+        databento::Record rec{reinterpret_cast<databento::RecordHeader*>(data)};
+
+        client_->HandleRecord(rec);
+    }
 }
 
 void HistoricalClient::Sink::OnError(const Error& e) {
@@ -47,7 +100,7 @@ void HistoricalClient::Sink::OnError(const Error& e) {
     client_->HandlePipelineError(e);
 }
 
-void HistoricalClient::Sink::OnDone() {
+void HistoricalClient::Sink::OnComplete() {
     if (!valid_) return;
     valid_ = false;  // Prevent further callbacks
     client_->HandlePipelineComplete();
@@ -112,6 +165,8 @@ void HistoricalClient::Request(std::string_view dataset,
 }
 
 void HistoricalClient::Connect(const sockaddr_storage& addr) {
+    HIST_DEBUG("Connect() called, state=" << static_cast<int>(state_));
+
     if (state_ != State::Disconnected) {
         if (error_handler_) {
             error_handler_(Error{ErrorCode::InvalidState,
@@ -133,6 +188,7 @@ void HistoricalClient::Connect(const sockaddr_storage& addr) {
     BuildPipeline();
 
     state_ = State::Connecting;
+    HIST_DEBUG("Initiating TCP connection...");
 
     // Initiate TCP connection
     tcp_->Connect(addr);
@@ -140,29 +196,43 @@ void HistoricalClient::Connect(const sockaddr_storage& addr) {
 
 void HistoricalClient::Start() {
     // For historical API, data starts flowing after HTTP response is received
-    // This method resumes the parser if it was paused
-    if (parser_) {
-        parser_->Resume();
-    }
+    // This is a no-op in the current implementation - data flows automatically
+    // after the HTTP response headers are received.
 }
 
 void HistoricalClient::Stop() {
     TeardownPipeline();
     state_ = State::Disconnected;
+    suspended_.store(false, std::memory_order_release);
 }
 
-void HistoricalClient::Pause() {
-    if (state_ != State::Streaming) return;
-    if (parser_) {
-        parser_->Suspend();
+void HistoricalClient::Suspend() {
+    assert(reactor_.IsInReactorThread() && "Suspend must be called from reactor thread");
+    // Idempotent: only pause if not already suspended
+    // atomic exchange returns the previous value
+    if (!suspended_.exchange(true, std::memory_order_acq_rel)) {
+        if (tcp_) {
+            tcp_->PauseRead();
+        }
     }
 }
 
 void HistoricalClient::Resume() {
-    if (state_ != State::Streaming) return;
-    if (parser_) {
-        parser_->Resume();
+    assert(reactor_.IsInReactorThread() && "Resume must be called from reactor thread");
+    // Idempotent: only resume if currently suspended
+    // atomic exchange returns the previous value
+    if (suspended_.exchange(false, std::memory_order_acq_rel)) {
+        if (tcp_) {
+            tcp_->ResumeRead();
+        }
     }
+}
+
+void HistoricalClient::Close() {
+    assert(reactor_.IsInReactorThread() && "Close must be called from reactor thread");
+    TeardownPipeline();
+    state_ = State::Disconnected;
+    suspended_.store(false, std::memory_order_release);
 }
 
 void HistoricalClient::BuildPipeline() {
@@ -172,11 +242,11 @@ void HistoricalClient::BuildPipeline() {
     sink_ = std::make_shared<Sink>(this);
 
     // 2. Create DbnParserComponent with sink as downstream
-    parser_ = ParserType::Create(reactor_, sink_);
+    // The new DbnParserComponent takes a reference, not shared_ptr
+    parser_ = std::make_shared<ParserType>(*sink_);
 
     // 3. Create ZstdDecompressor with parser as downstream
     zstd_ = ZstdType::Create(reactor_, parser_);
-    parser_->SetUpstream(zstd_.get());
 
     // 4. Create HttpClient with zstd as downstream
     http_ = HttpType::Create(reactor_, zstd_);
@@ -218,7 +288,7 @@ void HistoricalClient::TeardownPipeline() {
     }
 
     // Close components before reset to handle callback reentrancy
-    if (parser_) parser_->Close();
+    // Note: parser_ doesn't have Close() - just reset it
     if (zstd_) zstd_->Close();
     if (http_) http_->Close();
     if (tls_) tls_->Close();
@@ -234,11 +304,14 @@ void HistoricalClient::TeardownPipeline() {
 }
 
 void HistoricalClient::HandleTcpConnect() {
+    HIST_DEBUG("TCP connected! Starting TLS handshake...");
     state_ = State::TlsHandshaking;
     tls_->StartHandshake();
 }
 
 void HistoricalClient::HandleTcpRead(std::span<const std::byte> data) {
+    HIST_DEBUG("TCP read: " << data.size() << " bytes, state=" << static_cast<int>(state_));
+
     // Convert span to pmr::vector for TlsSocket
     std::pmr::vector<std::byte> buffer(&pool_);
     buffer.assign(data.begin(), data.end());
@@ -248,12 +321,14 @@ void HistoricalClient::HandleTcpRead(std::span<const std::byte> data) {
 
     // After TLS processes data, check if handshake just completed
     if (state_ == State::TlsHandshaking && tls_->IsHandshakeComplete()) {
+        HIST_DEBUG("TLS handshake complete! Sending HTTP request...");
         state_ = State::SendingRequest;
         SendHttpRequest();
     }
 }
 
 void HistoricalClient::HandleTcpError(std::error_code ec) {
+    HIST_DEBUG("TCP error: " << ec.message() << " (" << ec.value() << ")");
     state_ = State::Error;
     if (error_handler_) {
         error_handler_(Error{ErrorCode::ConnectionFailed, ec.message(), ec.value()});
@@ -263,6 +338,7 @@ void HistoricalClient::HandleTcpError(std::error_code ec) {
 }
 
 void HistoricalClient::HandleRecord(const databento::Record& rec) {
+    HIST_DEBUG("Received record! rtype=" << static_cast<int>(rec.Header().rtype));
     // Update state if this is the first record received
     if (state_ == State::SendingRequest || state_ == State::ReceivingResponse) {
         state_ = State::Streaming;
@@ -275,6 +351,7 @@ void HistoricalClient::HandleRecord(const databento::Record& rec) {
 }
 
 void HistoricalClient::HandlePipelineError(const Error& e) {
+    HIST_DEBUG("Pipeline error: " << e.message);
     state_ = State::Error;
     if (error_handler_) {
         error_handler_(e);
@@ -282,6 +359,7 @@ void HistoricalClient::HandlePipelineError(const Error& e) {
 }
 
 void HistoricalClient::HandlePipelineComplete() {
+    HIST_DEBUG("Pipeline complete!");
     state_ = State::Complete;
     if (complete_handler_) {
         complete_handler_();
@@ -290,6 +368,7 @@ void HistoricalClient::HandlePipelineComplete() {
 
 void HistoricalClient::SendHttpRequest() {
     std::string request = BuildHttpRequest();
+    HIST_DEBUG("Sending HTTP request:\n" << request.substr(0, 200) << "...");
 
     // Convert to pmr::vector<byte> for TlsSocket::Write
     std::pmr::vector<std::byte> buffer(&pool_);
@@ -316,7 +395,8 @@ std::string HistoricalClient::BuildHttpRequest() const {
 
     // Headers
     request << "Host: hist.databento.com\r\n";
-    request << "Authorization: Basic " << api_key_ << "\r\n";
+    // HTTP Basic auth: base64(api_key:)
+    request << "Authorization: Basic " << Base64Encode(api_key_ + ":") << "\r\n";
     request << "Accept: application/octet-stream\r\n";
     request << "Accept-Encoding: identity\r\n";  // We handle decompression ourselves
     request << "Connection: close\r\n";

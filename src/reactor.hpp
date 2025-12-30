@@ -3,9 +3,11 @@
 
 #include <sys/epoll.h>
 
+#include <atomic>
 #include <concepts>
 #include <cstdint>
 #include <functional>
+#include <thread>
 #include <vector>
 
 namespace databento_async {
@@ -117,11 +119,18 @@ public:
 
     int epoll_fd() const { return epoll_fd_; }
 
+    // Thread identification for assertion in Suspend/Resume/Close
+    // Returns true if called from the thread that is currently running Poll()/Run()
+    bool IsInReactorThread() const {
+        return reactor_thread_id_.load(std::memory_order_acquire) == std::this_thread::get_id();
+    }
+
 private:
     int epoll_fd_;
     bool running_ = false;
     std::vector<epoll_event> events_;
     std::vector<std::function<void()>> deferred_;
+    mutable std::atomic<std::thread::id> reactor_thread_id_{};
 
     static constexpr int kMaxEvents = 64;
 };

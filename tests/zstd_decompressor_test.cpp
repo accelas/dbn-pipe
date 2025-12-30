@@ -166,6 +166,9 @@ TEST(ZstdDecompressorTest, SuspendAndResumeWork) {
     auto downstream = std::make_shared<MockZstdDownstream>();
     auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(reactor, downstream);
 
+    // Initialize reactor thread ID for Suspend/Resume assertions
+    reactor.Poll(0);
+
     // Initially not suspended
     EXPECT_FALSE(decompressor->IsSuspended());
 
@@ -180,6 +183,9 @@ TEST(ZstdDecompressorTest, BuffersDataWhenSuspended) {
     Reactor reactor;
     auto downstream = std::make_shared<MockZstdDownstream>();
     auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(reactor, downstream);
+
+    // Initialize reactor thread ID for Suspend/Resume assertions
+    reactor.Poll(0);
 
     std::string original = "Data buffered while suspended.";
     auto compressed = CompressData(original);

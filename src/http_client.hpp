@@ -18,11 +18,11 @@ namespace databento_async {
 
 // HttpClient parses HTTP responses using llhttp.
 // Sits between TlsSocket (upstream) and ZstdDecompressor (downstream).
+// PipelineComponent provides Suspendable interface with suspend count semantics.
 //
 // Template parameter D must satisfy the Downstream concept.
 template <Downstream D>
 class HttpClient : public PipelineComponent<HttpClient<D>>,
-                   public Suspendable,
                    public std::enable_shared_from_this<HttpClient<D>> {
 public:
     // Factory method for shared_from_this safety
@@ -46,26 +46,6 @@ public:
     // Handle EOF from upstream
     void OnDone();
 
-    // Suspendable interface
-    void Suspend() override {
-        this->suspended_ = true;
-    }
-
-    void Resume() override {
-        this->suspended_ = false;
-        // Process any pending body data
-        if (!pending_body_.empty()) {
-            auto guard = this->TryGuard();
-            if (!guard) return;
-            auto body = std::move(pending_body_);
-            pending_body_ = std::pmr::vector<std::byte>{&body_pool_};
-            downstream_->Read(std::move(body));
-        }
-    }
-
-    // Pipeline interface
-    void Close() { this->RequestClose(); }
-
     // Send data upstream (for HTTP requests)
     void Write(std::pmr::vector<std::byte> data);
 
@@ -78,6 +58,33 @@ public:
     }
 
     void DoClose();
+
+    // Suspendable hooks (called by PipelineComponent base)
+    void OnSuspend() {
+        // HttpClient doesn't need to do anything special on suspend
+    }
+
+    void OnResume() {
+        // Process any pending body data
+        if (!pending_body_.empty()) {
+            auto guard = this->TryGuard();
+            if (!guard) return;
+            auto body = std::move(pending_body_);
+            pending_body_ = std::pmr::vector<std::byte>{&body_pool_};
+            downstream_->Read(std::move(body));
+        }
+    }
+
+    void FlushAndComplete() {
+        // Flush pending body then signal done
+        if (!pending_body_.empty()) {
+            auto body = std::move(pending_body_);
+            pending_body_ = std::pmr::vector<std::byte>{&body_pool_};
+            downstream_->Read(std::move(body));
+        }
+        downstream_->OnDone();
+        this->RequestClose();
+    }
 
     // Reset state for HTTP keep-alive
     void ResetMessageState();
@@ -112,8 +119,6 @@ private:
     // HTTP response state
     int status_code_ = 0;
     bool message_complete_ = false;
-
-    // Note: suspended_ is inherited from Suspendable base class
 
     // PMR pools for body chunks
     std::pmr::unsynchronized_pool_resource body_pool_;
@@ -275,7 +280,7 @@ int HttpClient<D>::OnBody(llhttp_t* parser, const char* at, size_t len) {
     }
 
     // If suspended, buffer the body data
-    if (self->suspended_) {
+    if (self->IsSuspended()) {
         if (self->pending_body_.size() + len > kMaxBufferedBody) {
             // Buffer overflow - pause parser
             llhttp_pause(parser);
@@ -294,7 +299,7 @@ int HttpClient<D>::OnBody(llhttp_t* parser, const char* at, size_t len) {
     self->downstream_->Read(std::move(chunk));
 
     // Check if downstream suspended us during the Read call
-    if (self->suspended_) {
+    if (self->IsSuspended()) {
         llhttp_pause(parser);
     }
 

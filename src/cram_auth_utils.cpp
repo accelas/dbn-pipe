@@ -1,5 +1,5 @@
-// src/cram_auth.cpp
-#include "cram_auth.hpp"
+// src/cram_auth_utils.cpp
+#include "cram_auth_utils.hpp"
 
 #include <openssl/sha.h>
 
@@ -8,7 +8,7 @@
 
 namespace databento_async {
 
-std::optional<Greeting> CramAuth::ParseGreeting(std::string_view data) {
+std::optional<Greeting> CramAuthUtils::ParseGreeting(std::string_view data) {
     // Format: "session_id|version\n"
     auto pipe = data.find('|');
     if (pipe == std::string_view::npos) {
@@ -26,7 +26,7 @@ std::optional<Greeting> CramAuth::ParseGreeting(std::string_view data) {
     };
 }
 
-std::optional<std::string> CramAuth::ParseChallenge(std::string_view data) {
+std::optional<std::string> CramAuthUtils::ParseChallenge(std::string_view data) {
     // Format: "cram=challenge\n"
     constexpr std::string_view prefix = "cram=";
     if (!data.starts_with(prefix)) {
@@ -41,7 +41,7 @@ std::optional<std::string> CramAuth::ParseChallenge(std::string_view data) {
     return std::string(data.substr(prefix.size(), newline - prefix.size()));
 }
 
-std::string CramAuth::ComputeResponse(std::string_view challenge,
+std::string CramAuthUtils::ComputeResponse(std::string_view challenge,
                                       std::string_view api_key) {
     // Build challenge_key = challenge + '|' + api_key
     std::string challenge_key;

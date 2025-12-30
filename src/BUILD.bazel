@@ -42,9 +42,9 @@ cc_library(
 )
 
 cc_library(
-    name = "cram_auth",
-    srcs = ["cram_auth.cpp"],
-    hdrs = ["cram_auth.hpp"],
+    name = "cram_auth_utils",
+    srcs = ["cram_auth_utils.cpp"],
+    hdrs = ["cram_auth_utils.hpp"],
     visibility = ["//visibility:public"],
     deps = ["@openssl_sys//:crypto"],
 )
@@ -55,9 +55,9 @@ cc_library(
     hdrs = ["live_client.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":cram_auth",
         ":dbn_parser_component",
         ":error",
-        ":live_protocol_handler",
         ":reactor",
         ":tcp_socket",
         "@databento_cpp//:databento_headers",
@@ -140,19 +140,18 @@ cc_library(
     deps = [
         ":error",
         ":pipeline",
-        ":reactor",
-        ":tls_socket",
+        ":record_batch",
         # Full library needed: uses RecordHeader::Size()
         "@databento_cpp//:databento_with_impl",
     ],
 )
 
 cc_library(
-    name = "live_protocol_handler",
-    hdrs = ["live_protocol_handler.hpp"],
+    name = "cram_auth",
+    hdrs = ["cram_auth.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":cram_auth",
+        ":cram_auth_utils",
         ":error",
         ":pipeline",
         ":reactor",
@@ -167,4 +166,99 @@ cc_library(
     deps = [
         "@databento_cpp//:databento_headers",
     ],
+)
+
+cc_library(
+    name = "dns_resolver",
+    hdrs = ["dns_resolver.hpp"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "record_batch",
+    hdrs = ["record_batch.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@databento_cpp//:databento_headers",
+    ],
+)
+
+cc_library(
+    name = "pipeline_base",
+    hdrs = ["pipeline_base.hpp"],
+    deps = [":error", ":reactor"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "sink_adapter",
+    hdrs = ["sink_adapter.hpp"],
+    deps = [":error", ":pipeline_base", ":record_batch"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "protocol_driver",
+    hdrs = ["protocol_driver.hpp"],
+    deps = [":pipeline_base", ":reactor", ":tcp_socket"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "live_protocol",
+    hdrs = ["live_protocol.hpp"],
+    deps = [
+        ":cram_auth",
+        ":dbn_parser_component",
+        ":pipeline",
+        ":pipeline_base",
+        ":protocol_driver",
+        ":reactor",
+        ":sink_adapter",
+        ":tcp_socket",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "historical_protocol",
+    hdrs = ["historical_protocol.hpp"],
+    deps = [
+        ":dbn_parser_component",
+        ":http_client",
+        ":pipeline",
+        ":pipeline_base",
+        ":protocol_driver",
+        ":reactor",
+        ":sink_adapter",
+        ":tcp_socket",
+        ":tls_socket",
+        ":zstd_decompressor",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "unified_pipeline",
+    hdrs = ["unified_pipeline.hpp"],
+    deps = [
+        ":error",
+        ":pipeline",
+        ":pipeline_base",
+        ":protocol_driver",
+        ":reactor",
+        ":tcp_socket",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "client",
+    hdrs = ["client.hpp"],
+    deps = [
+        ":unified_pipeline",
+        ":live_protocol",
+        ":historical_protocol",
+    ],
+    visibility = ["//visibility:public"],
 )
