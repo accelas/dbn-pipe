@@ -9,12 +9,12 @@
 #include <functional>
 #include <memory>
 #include <memory_resource>
-#include <span>
 #include <string>
 #include <string_view>
 
 #include <databento/record.hpp>
 
+#include "buffer_chain.hpp"
 #include "dbn_parser_component.hpp"
 #include "error.hpp"
 #include "http_client.hpp"
@@ -155,7 +155,7 @@ private:
 
     // TCP socket callbacks
     void HandleTcpConnect();
-    void HandleTcpRead(std::span<const std::byte> data);
+    void HandleTcpRead(BufferChain data);
     void HandleTcpError(std::error_code ec);
 
     // Pipeline event handlers (called from Sink)

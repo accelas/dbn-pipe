@@ -53,12 +53,6 @@ concept TerminalDownstream = requires(D& d, const Error& e) {
     { d.OnDone() } -> std::same_as<void>;
 };
 
-// Downstream interface - receives data flowing toward application
-template<typename D>
-concept Downstream = TerminalDownstream<D> && requires(D& d, std::pmr::vector<std::byte> data) {
-    { d.Read(std::move(data)) } -> std::same_as<void>;
-};
-
 // Forward declaration for RecordBatch
 class RecordBatch;
 
@@ -74,19 +68,19 @@ concept RecordSink = requires(S& s, RecordBatch&& batch, const Error& e) {
     { s.OnComplete() } -> std::same_as<void>;
 };
 
-// ChainSink interface - receives data via BufferChain for zero-copy parsing
-// Used by components that can process data directly from segment buffers
-template<typename S>
-concept ChainSink = requires(S& s, BufferChain& chain, const Error& e) {
-    { s.OnData(chain) } -> std::same_as<void>;
-    { s.OnError(e) } -> std::same_as<void>;
-    { s.OnComplete() } -> std::same_as<void>;
+// Downstream interface - receives data via BufferChain for zero-copy access
+// All pipeline components use this unified interface
+template<typename D>
+concept Downstream = requires(D& d, BufferChain& chain, const Error& e) {
+    { d.OnData(chain) } -> std::same_as<void>;
+    { d.OnError(e) } -> std::same_as<void>;
+    { d.OnDone() } -> std::same_as<void>;
 };
 
 // Upstream interface - control flowing toward socket
 template<typename U>
-concept Upstream = requires(U& u, std::pmr::vector<std::byte> data) {
-    { u.Write(std::move(data)) } -> std::same_as<void>;
+concept Upstream = requires(U& u, BufferChain chain) {
+    { u.Write(std::move(chain)) } -> std::same_as<void>;
     { u.Suspend() } -> std::same_as<void>;
     { u.Resume() } -> std::same_as<void>;
     { u.Close() } -> std::same_as<void>;

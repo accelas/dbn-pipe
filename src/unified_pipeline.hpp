@@ -6,8 +6,6 @@
 #include <concepts>
 #include <functional>
 #include <memory>
-#include <memory_resource>
-#include <span>
 #include <string>
 #include <type_traits>
 
@@ -320,14 +318,11 @@ private:
         }
     }
 
-    void HandleRead(std::span<const std::byte> data) {
+    void HandleRead(BufferChain data) {
         // Terminal state guard
         if (teardown_pending_) return;
 
-        std::pmr::vector<std::byte> buffer(&pool_);
-        buffer.assign(data.begin(), data.end());
-
-        bool now_ready = P::OnRead(chain_, std::move(buffer));
+        bool now_ready = P::OnRead(chain_, std::move(data));
 
         // If just became ready and Start() was already called, send request
         if (now_ready && !ready_to_send_) {
@@ -412,8 +407,6 @@ private:
     std::unique_ptr<TcpSocket> tcp_;
     std::shared_ptr<Sink<Record>> sink_;
     std::shared_ptr<typename P::ChainType> chain_;
-
-    std::pmr::unsynchronized_pool_resource pool_;
 
     std::function<void(const Record&)> record_handler_;
     std::function<void(RecordBatch&&)> batch_handler_;

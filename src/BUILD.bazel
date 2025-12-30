@@ -63,6 +63,7 @@ cc_library(
     hdrs = ["tls_socket.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":buffer_chain",
         ":error",
         ":pipeline",
         ":reactor",
@@ -147,6 +148,7 @@ cc_library(
     hdrs = ["cram_auth.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":buffer_chain",
         ":cram_auth_utils",
         ":error",
         ":pipeline",
@@ -210,6 +212,7 @@ cc_library(
     name = "live_protocol",
     hdrs = ["live_protocol.hpp"],
     deps = [
+        ":buffer_chain",
         ":cram_auth",
         ":dbn_parser_component",
         ":pipeline",
@@ -226,6 +229,7 @@ cc_library(
     name = "historical_protocol",
     hdrs = ["historical_protocol.hpp"],
     deps = [
+        ":buffer_chain",
         ":dbn_parser_component",
         ":http_client",
         ":pipeline",

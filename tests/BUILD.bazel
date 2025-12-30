@@ -63,6 +63,7 @@ cc_test(
     name = "pipeline_test",
     srcs = ["pipeline_test.cpp"],
     deps = [
+        "//src:buffer_chain",
         "//src:pipeline",
         "@googletest//:gtest_main",
     ],
@@ -72,6 +73,7 @@ cc_test(
     name = "tls_socket_test",
     srcs = ["tls_socket_test.cpp"],
     deps = [
+        "//src:buffer_chain",
         "//src:pipeline",
         "//src:reactor",
         "//src:tls_socket",
@@ -180,6 +182,7 @@ cc_test(
     name = "live_protocol_test",
     srcs = ["live_protocol_test.cpp"],
     deps = [
+        "//src:buffer_chain",
         "//src:live_protocol",
         "//src:protocol_driver",
         "//src:pipeline_base",

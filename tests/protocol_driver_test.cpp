@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 
+#include "src/buffer_chain.hpp"
 #include "src/protocol_driver.hpp"
 #include "src/reactor.hpp"
 #include "src/pipeline_base.hpp"
@@ -39,7 +40,7 @@ struct ValidProtocol {
         return true;
     }
 
-    static bool OnRead(std::shared_ptr<ChainType>&, std::pmr::vector<std::byte>) {
+    static bool OnRead(std::shared_ptr<ChainType>&, BufferChain) {
         return true;
     }
 

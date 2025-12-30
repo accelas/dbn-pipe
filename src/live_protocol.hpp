@@ -2,9 +2,9 @@
 #pragma once
 
 #include <memory>
-#include <memory_resource>
 #include <string>
 
+#include "buffer_chain.hpp"
 #include "cram_auth.hpp"
 #include "dbn_parser_component.hpp"
 #include "pipeline.hpp"
@@ -51,8 +51,8 @@ public:
     std::shared_ptr<CramType> GetCramAuth() { return cram_; }
 
     // Downstream interface - forward to CramAuth
-    void Read(std::pmr::vector<std::byte> data) {
-        cram_->Read(std::move(data));
+    void Read(BufferChain data) {
+        cram_->OnData(data);
     }
 
     void OnError(const Error& e) {
@@ -90,11 +90,11 @@ struct LiveProtocol {
     // We use a type-erased wrapper to avoid exposing the Record template
     struct ChainType {
         virtual ~ChainType() = default;
-        virtual void Read(std::pmr::vector<std::byte> data) = 0;
+        virtual void Read(BufferChain data) = 0;
         virtual void OnError(const Error& e) = 0;
         virtual void OnDone() = 0;
         virtual void Close() = 0;
-        virtual void SetWriteCallback(std::function<void(std::pmr::vector<std::byte>)> cb) = 0;
+        virtual void SetWriteCallback(std::function<void(BufferChain)> cb) = 0;
         virtual void Subscribe(std::string dataset, std::string symbols, std::string schema) = 0;
         virtual void StartStreaming() = 0;
     };
@@ -111,8 +111,8 @@ struct LiveProtocol {
             , cram_(CramType::Create(reactor, parser_, api_key))
         {}
 
-        void Read(std::pmr::vector<std::byte> data) override {
-            cram_->Read(std::move(data));
+        void Read(BufferChain data) override {
+            cram_->OnData(data);
         }
 
         void OnError(const Error& e) override {
@@ -127,7 +127,7 @@ struct LiveProtocol {
             cram_->RequestClose();
         }
 
-        void SetWriteCallback(std::function<void(std::pmr::vector<std::byte>)> cb) override {
+        void SetWriteCallback(std::function<void(BufferChain)> cb) override {
             cram_->SetWriteCallback(std::move(cb));
         }
 
@@ -157,8 +157,8 @@ struct LiveProtocol {
 
     // Wire TCP socket write to chain
     static void WireTcp(TcpSocket& tcp, std::shared_ptr<ChainType>& chain) {
-        chain->SetWriteCallback([&tcp](std::pmr::vector<std::byte> data) {
-            tcp.Write(std::span<const std::byte>(data.data(), data.size()));
+        chain->SetWriteCallback([&tcp](BufferChain data) {
+            tcp.Write(std::move(data));
         });
     }
 
@@ -168,8 +168,8 @@ struct LiveProtocol {
     }
 
     // Handle TCP read - forward data to chain
-    static bool OnRead(std::shared_ptr<ChainType>& chain, std::pmr::vector<std::byte> data) {
-        if (chain && !data.empty()) {
+    static bool OnRead(std::shared_ptr<ChainType>& chain, BufferChain data) {
+        if (chain && !data.Empty()) {
             chain->Read(std::move(data));
         }
         return true;  // Always ready after connect

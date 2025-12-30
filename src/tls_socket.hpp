@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "buffer_chain.hpp"
 #include "error.hpp"
 #include "pipeline.hpp"
 #include "reactor.hpp"
@@ -28,7 +29,7 @@ template <Downstream D>
 class TlsSocket : public PipelineComponent<TlsSocket<D>>,
                   public std::enable_shared_from_this<TlsSocket<D>> {
 public:
-    using UpstreamWriteCallback = std::function<void(std::pmr::vector<std::byte>)>;
+    using UpstreamWriteCallback = std::function<void(BufferChain)>;
 
     // Factory method for shared_from_this safety
     static std::shared_ptr<TlsSocket> Create(Reactor& reactor,
@@ -44,10 +45,10 @@ public:
     ~TlsSocket() { Cleanup(); }
 
     // Upstream interface: receive encrypted data from TcpSocket
-    void Read(std::pmr::vector<std::byte> data);
+    void Read(BufferChain data);
 
     // Upstream interface: write plaintext (from downstream) to be encrypted
-    void Write(std::pmr::vector<std::byte> data);
+    void Write(BufferChain data);
 
     // TLS-specific methods
     void StartHandshake();
@@ -61,6 +62,9 @@ public:
         upstream_write_ = std::move(cb);
     }
 
+    // Set upstream for backpressure control
+    void SetUpstream(Suspendable* up) { upstream_ = up; }
+
     // Required by PipelineComponent
     void DisableWatchers() {
         // No direct epoll watchers; TLS operates on memory BIOs
@@ -70,17 +74,40 @@ public:
 
     // Suspendable hooks (called by PipelineComponent base)
     void OnSuspend() {
-        // TlsSocket doesn't need to do anything special on suspend
+        // Propagate backpressure upstream
+        if (upstream_) upstream_->Suspend();
     }
 
     void OnResume() {
         // Process any buffered data
         ProcessPendingReads();
+        // Only propagate resume upstream if we're still not suspended
+        if (upstream_ && !this->IsSuspended()) {
+            upstream_->Resume();
+        }
     }
 
     void FlushAndComplete() {
-        // TlsSocket passes through - downstream handles completion
-        downstream_->OnDone();
+        // Deliver any remaining decrypted data
+        if (!pending_read_chain_.Empty()) {
+            downstream_->OnData(pending_read_chain_);
+        }
+
+        // If downstream suspended us during OnData, defer completion
+        if (this->IsSuspended()) {
+            this->DeferOnDone();
+            return;
+        }
+
+        // Check for incomplete data
+        if (!pending_read_chain_.Empty()) {
+            this->EmitError(*downstream_,
+                Error{ErrorCode::ParseError,
+                      "Incomplete data at end of TLS stream (" +
+                      std::to_string(pending_read_chain_.Size()) + " bytes remaining)"});
+        } else {
+            downstream_->OnDone();
+        }
         this->RequestClose();
     }
 
@@ -95,6 +122,7 @@ private:
     void FlushWbio();
     void ProcessHandshake();
     void ProcessPendingReads();
+    void RetryPendingWrites();
 
     // Error handling
     void HandleSSLError(int ssl_error, const char* operation);
@@ -107,7 +135,10 @@ private:
     std::shared_ptr<D> downstream_;
 
     // Upstream write callback
-    UpstreamWriteCallback upstream_write_ = [](std::pmr::vector<std::byte>) {};
+    UpstreamWriteCallback upstream_write_ = [](BufferChain) {};
+
+    // Upstream for backpressure control
+    Suspendable* upstream_ = nullptr;
 
     // OpenSSL state
     SSL_CTX* ctx_ = nullptr;
@@ -119,12 +150,23 @@ private:
     bool handshake_complete_ = false;
     bool handshake_started_ = false;
 
-    // PMR allocator for encryption/decryption buffers
+    // Pending write data (when SSL_write returns WANT_READ/WANT_WRITE)
+    BufferChain write_pending_;
+
+    // Pending read data (unconsumed decrypted data when suspended)
+    BufferChain pending_read_chain_;
+
+    // Segment pool for zero-copy output
+    SegmentPool segment_pool_{4};
+
+    // PMR allocator for encryption buffers (write path only)
     std::pmr::unsynchronized_pool_resource pool_;
     std::pmr::polymorphic_allocator<std::byte> alloc_{&pool_};
 
-    // Buffer size constants
-    static constexpr size_t kBufferSize = 16384;  // 16KB, typical TLS record size
+    // Buffer size limits
+    static constexpr size_t kMaxPendingRead = 16 * 1024 * 1024;   // 16MB decrypted
+    static constexpr size_t kMaxPendingWrite = 16 * 1024 * 1024;  // 16MB pending writes
+    static constexpr size_t kMaxRbioSize = 16 * 1024 * 1024;      // 16MB encrypted input
 };
 
 // Implementation - must be in header due to template
@@ -215,6 +257,11 @@ void TlsSocket<D>::ProcessHandshake() {
         // Handshake complete
         handshake_complete_ = true;
         FlushWbio();
+        // Drain any application data that arrived with the final handshake bytes
+        // Only if not suspended - ProcessPendingReads checks but be explicit
+        if (!this->IsSuspended()) {
+            ProcessPendingReads();
+        }
         return;
     }
 
@@ -229,6 +276,7 @@ void TlsSocket<D>::ProcessHandshake() {
         case SSL_ERROR_ZERO_RETURN:
             // Clean shutdown
             this->EmitDone(*downstream_);
+            this->RequestClose();
             break;
 
         default:
@@ -238,17 +286,33 @@ void TlsSocket<D>::ProcessHandshake() {
 }
 
 template <Downstream D>
-void TlsSocket<D>::Read(std::pmr::vector<std::byte> data) {
+void TlsSocket<D>::Read(BufferChain data) {
     auto guard = this->TryGuard();
     if (!guard) return;
 
-    // Feed encrypted data to the read BIO
-    int written = BIO_write(rbio_, data.data(), static_cast<int>(data.size()));
-    if (written <= 0) {
+    // Check for buffer overflow before accepting more data
+    size_t rbio_pending = BIO_ctrl_pending(rbio_);
+    if (rbio_pending + data.Size() > kMaxRbioSize) {
         this->EmitError(*downstream_,
-                        {ErrorCode::TlsHandshakeFailed, "BIO_write failed"});
+            Error{ErrorCode::BufferOverflow, "TLS encrypted input buffer overflow"});
         this->RequestClose();
         return;
+    }
+
+    // Feed encrypted data from chain to the read BIO
+    while (!data.Empty()) {
+        // Get contiguous chunk from chain
+        size_t chunk_size = data.ContiguousSize();
+        const std::byte* chunk_ptr = data.DataAt(0);
+
+        int written = BIO_write(rbio_, chunk_ptr, static_cast<int>(chunk_size));
+        if (written <= 0) {
+            this->EmitError(*downstream_,
+                            {ErrorCode::TlsHandshakeFailed, "BIO_write failed"});
+            this->RequestClose();
+            return;
+        }
+        data.Consume(static_cast<size_t>(written));
     }
 
     // If handshake not complete, continue it
@@ -271,29 +335,70 @@ template <Downstream D>
 void TlsSocket<D>::ProcessPendingReads() {
     if (this->IsClosed() || !handshake_complete_) return;
 
-    std::pmr::vector<std::byte> plaintext(kBufferSize, alloc_);
+    // Ensure recycling callback is set
+    pending_read_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
 
     while (true) {
-        int n = SSL_read(ssl_, plaintext.data(), static_cast<int>(plaintext.size()));
+        // Check if suspended - stop reading to apply backpressure
+        // (remaining encrypted data stays in rbio_, decrypted in pending_read_chain_)
+        if (this->IsSuspended()) {
+            // Don't deliver data while suspended - keep for OnResume
+            return;
+        }
+
+        auto seg = segment_pool_.Acquire();
+        int n = SSL_read(ssl_, seg->data.data(), static_cast<int>(Segment::kSize));
         if (n > 0) {
-            plaintext.resize(static_cast<size_t>(n));
-            downstream_->Read(std::move(plaintext));
-            plaintext = std::pmr::vector<std::byte>(kBufferSize, alloc_);
+            seg->size = static_cast<size_t>(n);
+            pending_read_chain_.Append(std::move(seg));
+
+            // Check for buffer overflow
+            if (pending_read_chain_.Size() > kMaxPendingRead) {
+                this->EmitError(*downstream_,
+                    Error{ErrorCode::BufferOverflow, "TLS decrypted output buffer overflow"});
+                this->RequestClose();
+                return;
+            }
+
+            // Deliver accumulated data and check for suspension
+            if (pending_read_chain_.Size() >= Segment::kSize) {
+                downstream_->OnData(pending_read_chain_);
+                if (this->IsSuspended()) {
+                    return;
+                }
+            }
         } else {
             int ssl_error = SSL_get_error(ssl_, n);
             switch (ssl_error) {
                 case SSL_ERROR_WANT_READ:
-                    // No more data available
+                    // No more data available - deliver what we have
+                    if (!pending_read_chain_.Empty()) {
+                        downstream_->OnData(pending_read_chain_);
+                    }
                     return;
 
                 case SSL_ERROR_WANT_WRITE:
                     // Need to flush write BIO
+                    if (!pending_read_chain_.Empty()) {
+                        downstream_->OnData(pending_read_chain_);
+                    }
                     FlushWbio();
+                    // Retry any pending writes
+                    RetryPendingWrites();
                     return;
 
                 case SSL_ERROR_ZERO_RETURN:
-                    // Clean TLS shutdown
+                    // Clean TLS shutdown - deliver remaining data first
+                    if (!pending_read_chain_.Empty()) {
+                        downstream_->OnData(pending_read_chain_);
+                        // Check if downstream suspended - defer completion
+                        if (this->IsSuspended()) {
+                            this->DeferOnDone();
+                            return;
+                        }
+                    }
                     this->EmitDone(*downstream_);
+                    this->RequestClose();
                     return;
 
                 default:
@@ -305,27 +410,85 @@ void TlsSocket<D>::ProcessPendingReads() {
 }
 
 template <Downstream D>
-void TlsSocket<D>::Write(std::pmr::vector<std::byte> data) {
+void TlsSocket<D>::Write(BufferChain data) {
     auto guard = this->TryGuard();
     if (!guard) return;
 
     if (!handshake_complete_) {
         this->EmitError(*downstream_,
             {ErrorCode::TlsHandshakeFailed, "Write called before handshake complete"});
+        this->RequestClose();
         return;
     }
 
-    // Write plaintext to SSL for encryption
-    int written = SSL_write(ssl_, data.data(), static_cast<int>(data.size()));
-    if (written <= 0) {
-        int ssl_error = SSL_get_error(ssl_, written);
-        if (ssl_error != SSL_ERROR_WANT_WRITE && ssl_error != SSL_ERROR_WANT_READ) {
-            HandleSSLError(ssl_error, "SSL_write");
+    // Prepend any pending write data
+    if (!write_pending_.Empty()) {
+        // Check for buffer overflow
+        if (write_pending_.Size() + data.Size() > kMaxPendingWrite) {
+            this->EmitError(*downstream_,
+                Error{ErrorCode::BufferOverflow, "TLS write buffer overflow"});
+            this->RequestClose();
             return;
         }
+        // Compact both chains if partially consumed before splicing
+        if (write_pending_.IsPartiallyConsumed()) {
+            write_pending_.Compact();
+        }
+        if (data.IsPartiallyConsumed()) {
+            data.Compact();
+        }
+        write_pending_.Splice(std::move(data));
+        data = std::move(write_pending_);
+    }
+
+    // Write plaintext to SSL for encryption (iterate over chain segments)
+    while (!data.Empty()) {
+        size_t chunk_size = data.ContiguousSize();
+        const std::byte* ptr = data.DataAt(0);
+        int written = SSL_write(ssl_, ptr, static_cast<int>(chunk_size));
+        if (written <= 0) {
+            int ssl_error = SSL_get_error(ssl_, written);
+            if (ssl_error != SSL_ERROR_WANT_WRITE && ssl_error != SSL_ERROR_WANT_READ) {
+                HandleSSLError(ssl_error, "SSL_write");
+                return;
+            }
+            // Save remaining data for later retry (use move, not Splice,
+            // because data may have consumed_offset_ > 0 from partial write)
+            write_pending_ = std::move(data);
+            break;
+        }
+        data.Consume(static_cast<size_t>(written));
     }
 
     // Flush encrypted data to upstream
+    FlushWbio();
+}
+
+template <Downstream D>
+void TlsSocket<D>::RetryPendingWrites() {
+    if (write_pending_.Empty()) return;
+
+    // Move pending data to local and retry
+    BufferChain data = std::move(write_pending_);
+
+    while (!data.Empty()) {
+        size_t chunk_size = data.ContiguousSize();
+        const std::byte* ptr = data.DataAt(0);
+        int written = SSL_write(ssl_, ptr, static_cast<int>(chunk_size));
+        if (written <= 0) {
+            int ssl_error = SSL_get_error(ssl_, written);
+            if (ssl_error != SSL_ERROR_WANT_WRITE && ssl_error != SSL_ERROR_WANT_READ) {
+                HandleSSLError(ssl_error, "SSL_write");
+                return;
+            }
+            // Still blocked, save remaining data (use move, not Splice,
+            // because data may have consumed_offset_ > 0 from partial write)
+            write_pending_ = std::move(data);
+            break;
+        }
+        data.Consume(static_cast<size_t>(written));
+    }
+
     FlushWbio();
 }
 
@@ -335,11 +498,23 @@ void TlsSocket<D>::FlushWbio() {
     int pending = BIO_ctrl_pending(wbio_);
     if (pending <= 0) return;
 
-    std::pmr::vector<std::byte> encrypted(static_cast<size_t>(pending), alloc_);
-    int read = BIO_read(wbio_, encrypted.data(), pending);
-    if (read > 0) {
-        encrypted.resize(static_cast<size_t>(read));
-        upstream_write_(std::move(encrypted));
+    // Create BufferChain with encrypted data
+    BufferChain chain;
+    while (pending > 0) {
+        auto seg = std::make_shared<Segment>();
+        size_t to_read = std::min(static_cast<size_t>(pending), Segment::kSize);
+        int read = BIO_read(wbio_, seg->data.data(), static_cast<int>(to_read));
+        if (read > 0) {
+            seg->size = static_cast<size_t>(read);
+            chain.Append(std::move(seg));
+            pending -= read;
+        } else {
+            break;
+        }
+    }
+
+    if (!chain.Empty()) {
+        upstream_write_(std::move(chain));
     }
 }
 
@@ -368,6 +543,9 @@ void TlsSocket<D>::HandleSSLError(int ssl_error, const char* operation) {
                             {ErrorCode::TlsHandshakeFailed, std::move(msg)});
             break;
     }
+
+    // Close the socket after any SSL error
+    this->RequestClose();
 }
 
 template <Downstream D>
@@ -407,8 +585,29 @@ void TlsSocket<D>::DoClose() {
 
     Cleanup();
 
-    // Notify downstream
-    this->EmitDone(*downstream_);
+    // Deliver any remaining decrypted data before clearing
+    if (!this->IsFinalized() && !pending_read_chain_.Empty()) {
+        downstream_->OnData(pending_read_chain_);
+        // If downstream didn't consume all and didn't suspend, it's incomplete data
+        if (!pending_read_chain_.Empty() && !this->IsSuspended()) {
+            this->EmitError(*downstream_,
+                Error{ErrorCode::ParseError,
+                      "Incomplete data at TLS close (" +
+                      std::to_string(pending_read_chain_.Size()) + " bytes remaining)"});
+        }
+    }
+
+    // Clear pending buffers to release segments promptly
+    pending_read_chain_.Clear();
+    write_pending_.Clear();
+
+    // Notify downstream only if not already finalized (error may have been emitted)
+    if (!this->IsFinalized()) {
+        this->EmitDone(*downstream_);
+    }
+
+    // Release downstream reference for cleanup consistency
+    downstream_.reset();
 }
 
 }  // namespace databento_async
