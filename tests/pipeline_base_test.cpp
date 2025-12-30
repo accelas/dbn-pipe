@@ -30,6 +30,7 @@ TEST(PipelineBaseTest, SinkInvalidationStopsCallbacks) {
         bool* complete_flag;
 
         void HandleRecord(const MockRecord&) override { *record_flag = true; }
+        void HandleRecordBatch(RecordBatch&&) override {}
         void HandlePipelineError(const Error&) override { *error_flag = true; }
         void HandlePipelineComplete() override { *complete_flag = true; }
     };
@@ -67,6 +68,7 @@ TEST(PipelineBaseTest, SinkRequiresReactorThread) {
 
     struct MockPipeline : TestPipelineBase {
         void HandleRecord(const MockRecord&) override {}
+        void HandleRecordBatch(RecordBatch&&) override {}
         void HandlePipelineError(const Error&) override {}
         void HandlePipelineComplete() override {}
     };
