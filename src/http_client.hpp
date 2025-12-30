@@ -51,29 +51,12 @@ public:
     // Send data upstream (for HTTP requests)
     void Write(BufferChain data);
 
-    // Set upstream for control flow
-    void SetUpstream(Suspendable* up) { upstream_ = up; }
-
     // Required by PipelineComponent
     void DisableWatchers() {
         // No direct epoll watchers; HTTP operates on parsed data
     }
 
     void DoClose();
-
-    // Suspendable hooks (called by PipelineComponent base)
-    void OnSuspend() {
-        // Propagate backpressure upstream
-        if (upstream_) upstream_->Suspend();
-    }
-
-    void OnResume() {
-        auto guard = this->TryGuard();
-        if (!guard) return;
-        ProcessPending();
-        if (this->IsSuspended()) return;
-        if (upstream_) upstream_->Resume();
-    }
 
     void ProcessPending() {
         // Forward any pending body data first
@@ -220,9 +203,6 @@ private:
 
     // Downstream component
     std::shared_ptr<D> downstream_;
-
-    // Upstream for backpressure control
-    Suspendable* upstream_ = nullptr;
 
     // llhttp state
     llhttp_t parser_;

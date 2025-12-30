@@ -93,12 +93,12 @@ concept Upstream = requires(U& u, BufferChain chain) {
 // - Reentrancy-safe close via processing guards
 // - Suspend count for nested backpressure
 // - Deferred OnDone when suspended
+// - Automatic upstream backpressure propagation
 //
 // Derived classes must implement:
 // - DoClose() - cleanup on close
 // - DisableWatchers() - disable I/O watchers
-// - OnSuspend() - called when suspend count goes 0→1 (optional)
-// - OnResume() - called when suspend count goes 1→0 (optional)
+// - ProcessPending() - forward buffered data and process pending input
 // - FlushAndComplete() - flush pending data and emit OnDone (for deferred OnDone)
 template<typename Derived>
 class PipelineComponent : public Suspendable {
@@ -178,34 +178,43 @@ public:
     // Suspendable interface implementation
     // =========================================================================
 
-    // Increment suspend count. On 0→1 transition, calls derived OnSuspend().
+    // Increment suspend count. On 0→1 transition, propagates suspend upstream.
     void Suspend() override {
         assert(reactor_.IsInReactorThread() && "Suspend must be called from reactor thread");
         int prev = suspend_count_.fetch_add(1, std::memory_order_acq_rel);
         if (prev == 0) {
-            // 0→1 transition: actually suspend
-            static_cast<Derived*>(this)->OnSuspend();
+            // 0→1 transition: propagate backpressure upstream
+            if (upstream_) upstream_->Suspend();
         }
     }
 
-    // Decrement suspend count. On 1→0 transition, calls derived OnResume()
+    // Decrement suspend count. On 1→0 transition, processes pending data
     // and completes any deferred OnDone.
     void Resume() override {
         assert(reactor_.IsInReactorThread() && "Resume must be called from reactor thread");
         int prev = suspend_count_.fetch_sub(1, std::memory_order_acq_rel);
         assert(prev > 0 && "Resume called more times than Suspend");
         if (prev == 1) {
-            // 1→0 transition: actually resume
-            static_cast<Derived*>(this)->OnResume();
+            // 1→0 transition: process pending data and resume upstream
+            auto guard = TryGuard();
+            if (guard) {
+                static_cast<Derived*>(this)->ProcessPending();
+                if (!IsSuspended() && upstream_) {
+                    upstream_->Resume();
+                }
+            }
 
             // Complete deferred OnDone if pending AND still not suspended
-            // (OnResume might have pushed data causing downstream to re-suspend)
+            // (ProcessPending might have pushed data causing downstream to re-suspend)
             if (done_pending_ && !IsSuspended()) {
                 done_pending_ = false;
                 static_cast<Derived*>(this)->FlushAndComplete();
             }
         }
     }
+
+    // Set upstream for backpressure propagation
+    void SetUpstream(Suspendable* up) { upstream_ = up; }
 
     // Terminate connection via RequestClose
     void Close() override {
@@ -319,6 +328,7 @@ protected:
     }
 
     Reactor& reactor_;
+    Suspendable* upstream_ = nullptr;  // Upstream for backpressure propagation
 
 private:
     int processing_count_ = 0;

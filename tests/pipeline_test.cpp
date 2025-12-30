@@ -70,10 +70,7 @@ public:
 
     void DisableWatchers() {}  // Required by base
     void DoClose() { do_close_called = true; }
-
-    // Suspendable hooks (required by base)
-    void OnSuspend() {}
-    void OnResume() {}
+    void ProcessPending() {}   // Required by base
     void FlushAndComplete() {}
 };
 
