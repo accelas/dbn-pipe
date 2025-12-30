@@ -155,13 +155,22 @@ void DbnParserComponent<S>::OnData(BufferChain& chain) {
         RecordRef ref;
         ref.size = record_size;
 
+        // Try zero-copy path: requires contiguous AND 8-byte aligned data
+        bool use_zero_copy = false;
         if (chain.IsContiguous(0, record_size)) {
-            // Fast path: record entirely in one segment
-            // Direct pointer, zero copy
-            ref.data = chain.DataAt(0);
-            ref.keepalive = chain.GetSegmentAt(0);  // Keep segment alive
-        } else {
-            // Slow path: record spans segments, allocate aligned scratch buffer
+            const std::byte* ptr = chain.DataAt(0);
+            // Check 8-byte alignment (required for RecordHeader access)
+            if ((reinterpret_cast<uintptr_t>(ptr) % 8) == 0) {
+                // Fast path: contiguous and aligned, zero copy
+                ref.data = ptr;
+                ref.keepalive = chain.GetSegmentAt(0);
+                use_zero_copy = true;
+            }
+        }
+
+        if (!use_zero_copy) {
+            // Slow path: copy to aligned buffer
+            // (record spans segments OR data is misaligned)
             auto scratch = std::shared_ptr<std::byte[]>(
                 new (std::align_val_t{8}) std::byte[record_size],
                 [](std::byte* p) { operator delete[](p, std::align_val_t{8}); }
