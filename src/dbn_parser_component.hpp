@@ -44,7 +44,10 @@ constexpr size_t kMaxRecordSize = 64 * 1024;
 template <RecordSink S>
 class DbnParserComponent {
 public:
-    explicit DbnParserComponent(S& sink) : sink_(sink) {}
+    explicit DbnParserComponent(S& sink) : sink_(sink) {
+        // Set up segment recycling for legacy Read() path
+        parse_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
+    }
 
     // Primary interface - parse bytes from caller-managed chain into records.
     // Leaves incomplete records in the chain for next call.
