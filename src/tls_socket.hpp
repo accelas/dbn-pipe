@@ -62,29 +62,12 @@ public:
         upstream_write_ = std::move(cb);
     }
 
-    // Set upstream for backpressure control
-    void SetUpstream(Suspendable* up) { upstream_ = up; }
-
     // Required by PipelineComponent
     void DisableWatchers() {
         // No direct epoll watchers; TLS operates on memory BIOs
     }
 
     void DoClose();
-
-    // Suspendable hooks (called by PipelineComponent base)
-    void OnSuspend() {
-        // Propagate backpressure upstream
-        if (upstream_) upstream_->Suspend();
-    }
-
-    void OnResume() {
-        auto guard = this->TryGuard();
-        if (!guard) return;
-        ProcessPending();
-        if (this->IsSuspended()) return;
-        if (upstream_) upstream_->Resume();
-    }
 
     void ProcessPending() {
         // Forward any buffered decrypted data first
@@ -125,9 +108,6 @@ private:
 
     // Upstream write callback
     UpstreamWriteCallback upstream_write_ = [](BufferChain) {};
-
-    // Upstream for backpressure control
-    Suspendable* upstream_ = nullptr;
 
     // OpenSSL state
     SSL_CTX* ctx_ = nullptr;

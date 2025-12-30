@@ -52,27 +52,10 @@ public:
             "ZstdDecompressor::Write() is not supported");
     }
 
-    // Set upstream for control flow (backpressure)
-    void SetUpstream(Suspendable* up) { upstream_ = up; }
-
     // Required by PipelineComponent
     void DisableWatchers() {}
 
     void DoClose();
-
-    // Suspendable hooks
-    void OnSuspend() {
-        // Propagate backpressure upstream
-        if (upstream_) upstream_->Suspend();
-    }
-
-    void OnResume() {
-        auto guard = this->TryGuard();
-        if (!guard) return;
-        ProcessPending();
-        if (this->IsSuspended()) return;
-        if (upstream_) upstream_->Resume();
-    }
 
     void ProcessPending() {
         // Re-deliver any unconsumed output from previous OnData call
@@ -137,7 +120,6 @@ private:
     }
 
     std::shared_ptr<D> downstream_;
-    Suspendable* upstream_ = nullptr;
 
     ZSTD_DStream* dstream_ = nullptr;
 

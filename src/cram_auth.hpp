@@ -78,9 +78,6 @@ public:
     void OnError(const Error& e);
     void OnDone();
 
-    // Set upstream for backpressure propagation
-    void SetUpstream(Suspendable* up) { upstream_ = up; }
-
     // Set callback for sending data back through the socket
     void SetWriteCallback(WriteCallback cb) { write_callback_ = std::move(cb); }
 
@@ -99,19 +96,6 @@ public:
     // PipelineComponent requirements
     void DisableWatchers() {}
     void DoClose();
-
-    // Suspendable hooks (called by PipelineComponent base)
-    void OnSuspend() {
-        if (upstream_) upstream_->Suspend();
-    }
-
-    void OnResume() {
-        auto guard = this->TryGuard();
-        if (!guard) return;
-        ProcessPending();
-        if (this->IsSuspended()) return;
-        if (upstream_) upstream_->Resume();
-    }
 
     void ProcessPending() {
         // Process pending binary data through streaming chain
@@ -172,7 +156,6 @@ private:
     void SendPendingSubscription();
 
     std::shared_ptr<D> downstream_;
-    Suspendable* upstream_ = nullptr;
     WriteCallback write_callback_ = [](BufferChain) {};
 
     std::string api_key_;
