@@ -237,6 +237,7 @@ cc_library(
         ":protocol_driver",
         ":reactor",
         ":tcp_socket",
+        "@databento_cpp//:databento_headers",
     ],
     visibility = ["//visibility:public"],
 )
@@ -248,6 +249,7 @@ cc_library(
         ":unified_pipeline",
         ":live_protocol",
         ":historical_protocol",
+        "@databento_cpp//:databento_headers",
     ],
     visibility = ["//visibility:public"],
 )

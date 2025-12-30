@@ -86,6 +86,9 @@ private:
     bool metadata_parsed_ = false;         // Whether DBN header has been skipped
 
     // Internal chain for legacy Read() path
+    // Note: Each Read() fills segments to capacity before acquiring new ones.
+    // Cross-Read() segment reuse was considered but adds complexity
+    // (must track pending segment state vs chain state).
     SegmentPool segment_pool_{8};          // Pool for segment allocation
     BufferChain parse_chain_;              // Internal chain for byte->chain conversion
 
@@ -122,21 +125,12 @@ void DbnParserComponent<S>::OnData(BufferChain& chain) {
 
     while (chain.Size() >= sizeof(databento::RecordHeader)) {
         // Read record size from header
-        // Need to check if header is contiguous first
+        // Always copy header to ensure proper alignment (records may not be
+        // 8-byte aligned after metadata skip or partial segment consume)
         databento::RecordHeader header_copy;
-        size_t record_size;
-
-        if (chain.IsContiguous(0, sizeof(databento::RecordHeader))) {
-            // Fast path: header in single segment, direct access
-            const auto* header = reinterpret_cast<const databento::RecordHeader*>(
-                chain.DataAt(0));
-            record_size = header->Size();
-        } else {
-            // Slow path: header spans segments, need to copy
-            chain.CopyTo(0, sizeof(databento::RecordHeader),
-                        reinterpret_cast<std::byte*>(&header_copy));
-            record_size = header_copy.Size();
-        }
+        chain.CopyTo(0, sizeof(databento::RecordHeader),
+                    reinterpret_cast<std::byte*>(&header_copy));
+        size_t record_size = header_copy.Size();
 
         // Validate record size - must be at least header size
         if (record_size < sizeof(databento::RecordHeader)) {
@@ -208,18 +202,19 @@ void DbnParserComponent<S>::Read(std::pmr::vector<std::byte> data) {
     }
 
     // Append incoming bytes to internal chain using segments from pool
+    // Fill each segment to capacity before acquiring a new one
     size_t offset = 0;
     while (offset < data.size()) {
-        // Get or create a segment with space
+        // Acquire a segment from pool
         auto seg = segment_pool_.Acquire();
 
-        // Copy as much as will fit
+        // Fill segment as much as possible
         size_t to_copy = std::min(data.size() - offset, seg->Remaining());
         std::memcpy(seg->data.data() + seg->size, data.data() + offset, to_copy);
         seg->size += to_copy;
         offset += to_copy;
 
-        // Add segment to chain
+        // Append to chain (ownership transferred)
         parse_chain_.Append(std::move(seg));
     }
 
