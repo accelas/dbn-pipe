@@ -78,9 +78,6 @@ public:
     void OnError(const Error& e);
     void OnDone();
 
-    // Set upstream for backpressure propagation
-    void SetUpstream(Suspendable* up) { upstream_ = up; }
-
     // Set callback for sending data back through the socket
     void SetWriteCallback(WriteCallback cb) { write_callback_ = std::move(cb); }
 
@@ -100,51 +97,37 @@ public:
     void DisableWatchers() {}
     void DoClose();
 
-    // Suspendable hooks (called by PipelineComponent base)
-    void OnSuspend() {
-        if (upstream_) upstream_->Suspend();
-    }
-
-    void OnResume() {
+    void ProcessPending() {
         // Process pending binary data through streaming chain
         if (!pending_chain_.Empty()) {
+            // Check overflow before splicing (use subtraction pattern)
+            if (pending_chain_.Size() > kMaxPendingData - streaming_chain_.Size()) {
+                this->EmitError(*downstream_,
+                    Error{ErrorCode::BufferOverflow, "Binary buffer overflow"});
+                this->RequestClose();
+                return;
+            }
             streaming_chain_.Splice(std::move(pending_chain_));
         }
-        if (!streaming_chain_.Empty()) {
-            downstream_->OnData(streaming_chain_);
-        }
-        // Only propagate resume upstream if we're still not suspended
-        // (downstream may have re-suspended us during OnData)
-        if (upstream_ && !this->IsSuspended()) {
-            upstream_->Resume();
-        }
+        this->ForwardData(*downstream_, streaming_chain_);
     }
 
     void FlushAndComplete() {
         // Process any pending data
         if (!pending_chain_.Empty()) {
+            // Check overflow before splicing (use subtraction pattern)
+            if (pending_chain_.Size() > kMaxPendingData - streaming_chain_.Size()) {
+                this->EmitError(*downstream_,
+                    Error{ErrorCode::BufferOverflow, "Binary buffer overflow"});
+                this->RequestClose();
+                return;
+            }
             streaming_chain_.Splice(std::move(pending_chain_));
         }
-        if (!streaming_chain_.Empty()) {
-            downstream_->OnData(streaming_chain_);
+        // Flush and complete - only close if completion happened
+        if (this->CompleteWithFlush(*downstream_, streaming_chain_)) {
+            this->RequestClose();
         }
-
-        // If downstream suspended us during OnData, defer completion again
-        if (this->IsSuspended()) {
-            this->DeferOnDone();
-            return;
-        }
-
-        // Check for incomplete data (downstream should have consumed everything)
-        if (!streaming_chain_.Empty()) {
-            this->EmitError(*downstream_,
-                Error{ErrorCode::ParseError,
-                      "Incomplete record at end of stream (" +
-                      std::to_string(streaming_chain_.Size()) + " bytes remaining)"});
-        } else {
-            downstream_->OnDone();
-        }
-        this->RequestClose();
     }
 
     // Buffer limits
@@ -173,7 +156,6 @@ private:
     void SendPendingSubscription();
 
     std::shared_ptr<D> downstream_;
-    Suspendable* upstream_ = nullptr;
     WriteCallback write_callback_ = [](BufferChain) {};
 
     std::string api_key_;
@@ -238,7 +220,7 @@ void CramAuth<D>::OnData(BufferChain& data) {
         // Binary mode: use persistent chain to retain incomplete records
         if (this->IsSuspended()) {
             // Check buffer overflow
-            if (pending_chain_.Size() + data.Size() > kMaxPendingData) {
+            if (data.Size() > kMaxPendingData - pending_chain_.Size()) {
                 this->EmitError(*downstream_,
                     Error{ErrorCode::BufferOverflow, "Binary buffer overflow"});
                 this->RequestClose();
@@ -250,13 +232,26 @@ void CramAuth<D>::OnData(BufferChain& data) {
             }
             pending_chain_.Splice(std::move(data));
         } else {
-            // Splice pending data first if any
+            // Splice pending data first if any (with overflow check)
             if (!pending_chain_.Empty()) {
+                if (pending_chain_.Size() > kMaxPendingData - streaming_chain_.Size()) {
+                    this->EmitError(*downstream_,
+                        Error{ErrorCode::BufferOverflow, "Binary buffer overflow"});
+                    this->RequestClose();
+                    return;
+                }
                 streaming_chain_.Splice(std::move(pending_chain_));
             }
             // Compact if upstream passed a partially consumed chain
             if (data.IsPartiallyConsumed()) {
                 data.Compact();
+            }
+            // Check overflow before splicing (use subtraction pattern)
+            if (data.Size() > kMaxPendingData - streaming_chain_.Size()) {
+                this->EmitError(*downstream_,
+                    Error{ErrorCode::BufferOverflow, "Binary buffer overflow"});
+                this->RequestClose();
+                return;
             }
             // Splice new data into persistent chain
             streaming_chain_.Splice(std::move(data));
@@ -273,14 +268,46 @@ void CramAuth<D>::OnData(BufferChain& data) {
             data.Consume(1);
 
             if (b == std::byte{'\n'}) {
+                // Check line buffer overflow before adding newline
+                if (line_buffer_.size() >= kMaxLineLength) {
+                    this->EmitError(*downstream_,
+                        Error{ErrorCode::BufferOverflow, "Line buffer overflow"});
+                    this->RequestClose();
+                    return;
+                }
                 // Complete line - push newline and process
                 line_buffer_.push_back(b);
                 ProcessLineBuffer();
                 // Check if we're now in streaming mode
                 if (state_ == CramAuthState::Streaming) {
-                    // Pass remaining data as binary
+                    // Pass remaining data as binary through streaming chain
                     if (!data.Empty()) {
-                        downstream_->OnData(data);
+                        // Compact if partially consumed from line extraction
+                        if (data.IsPartiallyConsumed()) {
+                            data.Compact();
+                        }
+                        // Buffer to pending if suspended, otherwise forward
+                        if (this->IsSuspended()) {
+                            // Check overflow before buffering
+                            if (data.Size() > kMaxPendingData - pending_chain_.Size()) {
+                                this->EmitError(*downstream_,
+                                    Error{ErrorCode::BufferOverflow, "Binary buffer overflow"});
+                                this->RequestClose();
+                                return;
+                            }
+                            pending_chain_.Splice(std::move(data));
+                        } else {
+                            // Check overflow before splicing (use subtraction pattern)
+                            if (data.Size() > kMaxPendingData - streaming_chain_.Size()) {
+                                this->EmitError(*downstream_,
+                                    Error{ErrorCode::BufferOverflow, "Binary buffer overflow"});
+                                this->RequestClose();
+                                return;
+                            }
+                            streaming_chain_.Splice(std::move(data));
+                            // Pass through persistent chain - handles suspension
+                            downstream_->OnData(streaming_chain_);
+                        }
                     }
                     return;
                 }
@@ -333,6 +360,13 @@ void CramAuth<D>::ProcessLineBuffer() {
 
         // If we transitioned to Streaming, any remaining data is binary
         if (state_ == CramAuthState::Streaming && !line_buffer_.empty()) {
+            // Check overflow before appending (use subtraction pattern)
+            if (line_buffer_.size() > kMaxPendingData - streaming_chain_.Size()) {
+                this->EmitError(*downstream_,
+                    Error{ErrorCode::BufferOverflow, "Binary buffer overflow"});
+                this->RequestClose();
+                return;
+            }
             // Create a chain with leftover bytes (one-time copy at auth completion)
             auto seg = std::make_shared<Segment>();
             std::memcpy(seg->data.data(), line_buffer_.data(), line_buffer_.size());
@@ -524,6 +558,14 @@ void CramAuth<D>::SendLine(std::string_view line) {
     std::string with_newline(line);
     with_newline += '\n';
 
+    // Check line fits in segment (64KB limit for auth/subscription lines)
+    if (with_newline.size() > Segment::kSize) {
+        this->EmitError(*downstream_,
+            Error{ErrorCode::BufferOverflow, "Line too large to send"});
+        this->RequestClose();
+        return;
+    }
+
     // Create BufferChain with single segment for the line
     auto seg = std::make_shared<Segment>();
     std::memcpy(seg->data.data(), with_newline.data(), with_newline.size());
@@ -537,11 +579,7 @@ void CramAuth<D>::SendLine(std::string_view line) {
 
 template <Downstream D>
 void CramAuth<D>::OnError(const Error& e) {
-    auto guard = this->TryGuard();
-    if (!guard) return;
-
-    this->EmitError(*downstream_, e);
-    this->RequestClose();
+    this->PropagateError(*downstream_, e);
 }
 
 template <Downstream D>
