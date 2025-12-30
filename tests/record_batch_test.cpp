@@ -1,6 +1,9 @@
+// tests/record_batch_test.cpp
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <cstring>
+#include <memory>
 
 #include <databento/constants.hpp>
 #include <databento/enums.hpp>
@@ -11,16 +14,36 @@
 using namespace databento;
 using namespace databento_async;
 
+// Helper to create an aligned buffer for testing
+class AlignedBuffer {
+public:
+    static constexpr size_t kMaxSize = 1024;
+
+    AlignedBuffer() = default;
+
+    std::byte* data() { return buffer_.data(); }
+    const std::byte* data() const { return buffer_.data(); }
+
+    // Create a shared_ptr keepalive that points to this buffer
+    std::shared_ptr<void> MakeKeepalive() {
+        return std::shared_ptr<void>(this, [](void*){});  // No-op deleter
+    }
+
+private:
+    alignas(8) std::array<std::byte, kMaxSize> buffer_{};
+};
+
 TEST(RecordBatchTest, EmptyBatch) {
     RecordBatch batch;
     EXPECT_EQ(batch.size(), 0);
     EXPECT_TRUE(batch.empty());
 }
 
-TEST(RecordBatchTest, SingleRecord) {
+TEST(RecordBatchTest, SingleRecordRef) {
+    AlignedBuffer buffer;
+
     // Create a valid MboMsg
-    alignas(8) std::byte record_buffer[sizeof(MboMsg)] = {};
-    auto* msg = reinterpret_cast<MboMsg*>(record_buffer);
+    auto* msg = reinterpret_cast<MboMsg*>(buffer.data());
     msg->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
     msg->hd.rtype = RType::Mbo;
     msg->hd.publisher_id = 1;
@@ -31,47 +54,43 @@ TEST(RecordBatchTest, SingleRecord) {
     msg->side = Side::Bid;
     msg->action = Action::Add;
 
-    // Build RecordBatch
+    // Build RecordBatch with RecordRef
     RecordBatch batch;
-    batch.buffer.resize(sizeof(MboMsg));
-    std::memcpy(batch.buffer.data(), record_buffer, sizeof(MboMsg));
-    batch.offsets.push_back(0);
+    RecordRef ref;
+    ref.data = buffer.data();
+    ref.size = sizeof(MboMsg);
+    ref.keepalive = buffer.MakeKeepalive();
+    batch.Add(std::move(ref));
 
     EXPECT_EQ(batch.size(), 1);
     EXPECT_FALSE(batch.empty());
 
-    // Test GetHeader
-    RecordHeader header = batch.GetHeader(0);
+    // Test Header() access
+    const auto& header = batch[0].Header();
     EXPECT_EQ(header.rtype, RType::Mbo);
     EXPECT_EQ(header.publisher_id, 1);
     EXPECT_EQ(header.instrument_id, 12345);
 
-    // Test GetRecordData
-    const std::byte* data = batch.GetRecordData(0);
-    EXPECT_EQ(data, batch.buffer.data());
-
-    // Verify we can copy out the full record
-    MboMsg copied;
-    std::memcpy(&copied, data, sizeof(MboMsg));
-    EXPECT_EQ(copied.order_id, 999);
-    EXPECT_EQ(copied.price, 100 * kFixedPriceScale);
-    EXPECT_EQ(copied.size, 10);
-    EXPECT_EQ(copied.side, Side::Bid);
-    EXPECT_EQ(copied.action, Action::Add);
+    // Test As<T>() typed access
+    const auto& record = batch[0].As<MboMsg>();
+    EXPECT_EQ(record.order_id, 999);
+    EXPECT_EQ(record.price, 100 * kFixedPriceScale);
+    EXPECT_EQ(record.size, 10);
+    EXPECT_EQ(record.side, Side::Bid);
+    EXPECT_EQ(record.action, Action::Add);
 }
 
-TEST(RecordBatchTest, MultipleRecords) {
-    // Create two MboMsg records
-    alignas(8) std::byte msg1_buffer[sizeof(MboMsg)] = {};
-    alignas(8) std::byte msg2_buffer[sizeof(MboMsg)] = {};
+TEST(RecordBatchTest, MultipleRecordRefs) {
+    AlignedBuffer buffer1;
+    AlignedBuffer buffer2;
 
-    auto* msg1 = reinterpret_cast<MboMsg*>(msg1_buffer);
+    auto* msg1 = reinterpret_cast<MboMsg*>(buffer1.data());
     msg1->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
     msg1->hd.rtype = RType::Mbo;
     msg1->hd.instrument_id = 111;
     msg1->order_id = 1001;
 
-    auto* msg2 = reinterpret_cast<MboMsg*>(msg2_buffer);
+    auto* msg2 = reinterpret_cast<MboMsg*>(buffer2.data());
     msg2->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
     msg2->hd.rtype = RType::Mbo;
     msg2->hd.instrument_id = 222;
@@ -79,126 +98,261 @@ TEST(RecordBatchTest, MultipleRecords) {
 
     // Build RecordBatch with both records
     RecordBatch batch;
-    batch.buffer.resize(2 * sizeof(MboMsg));
-    std::memcpy(batch.buffer.data(), msg1_buffer, sizeof(MboMsg));
-    std::memcpy(batch.buffer.data() + sizeof(MboMsg), msg2_buffer, sizeof(MboMsg));
-    batch.offsets.push_back(0);
-    batch.offsets.push_back(sizeof(MboMsg));
+
+    RecordRef ref1;
+    ref1.data = buffer1.data();
+    ref1.size = sizeof(MboMsg);
+    ref1.keepalive = buffer1.MakeKeepalive();
+    batch.Add(std::move(ref1));
+
+    RecordRef ref2;
+    ref2.data = buffer2.data();
+    ref2.size = sizeof(MboMsg);
+    ref2.keepalive = buffer2.MakeKeepalive();
+    batch.Add(std::move(ref2));
 
     EXPECT_EQ(batch.size(), 2);
     EXPECT_FALSE(batch.empty());
 
     // Verify first record
-    RecordHeader hdr1 = batch.GetHeader(0);
-    EXPECT_EQ(hdr1.instrument_id, 111);
-
-    MboMsg copied1;
-    std::memcpy(&copied1, batch.GetRecordData(0), sizeof(MboMsg));
-    EXPECT_EQ(copied1.order_id, 1001);
+    EXPECT_EQ(batch[0].Header().instrument_id, 111);
+    EXPECT_EQ(batch[0].As<MboMsg>().order_id, 1001);
 
     // Verify second record
-    RecordHeader hdr2 = batch.GetHeader(1);
-    EXPECT_EQ(hdr2.instrument_id, 222);
-
-    MboMsg copied2;
-    std::memcpy(&copied2, batch.GetRecordData(1), sizeof(MboMsg));
-    EXPECT_EQ(copied2.order_id, 2002);
-}
-
-TEST(RecordBatchTest, UnalignedBuffer) {
-    // Test that RecordBatch works correctly even when buffer is not aligned
-    // This is the key use case - avoiding alignment UB
-
-    alignas(8) std::byte msg_buffer[sizeof(MboMsg)] = {};
-    auto* msg = reinterpret_cast<MboMsg*>(msg_buffer);
-    msg->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
-    msg->hd.rtype = RType::Mbo;
-    msg->hd.instrument_id = 42;
-    msg->order_id = 12345;
-    msg->price = 50 * kFixedPriceScale;
-
-    // Create batch with 1-byte offset prefix to simulate unaligned data
-    RecordBatch batch;
-    batch.buffer.resize(1 + sizeof(MboMsg));  // 1 byte padding + record
-    batch.buffer[0] = std::byte{0xFF};        // Padding byte
-    std::memcpy(batch.buffer.data() + 1, msg_buffer, sizeof(MboMsg));
-    batch.offsets.push_back(1);  // Record starts at offset 1 (unaligned)
-
-    EXPECT_EQ(batch.size(), 1);
-
-    // GetHeader should work via memcpy even with unaligned source
-    RecordHeader header = batch.GetHeader(0);
-    EXPECT_EQ(header.rtype, RType::Mbo);
-    EXPECT_EQ(header.instrument_id, 42);
-
-    // GetRecordData returns unaligned pointer - caller must use memcpy
-    const std::byte* data = batch.GetRecordData(0);
-    EXPECT_EQ(data, batch.buffer.data() + 1);
-
-    // Safe access via memcpy
-    MboMsg copied;
-    std::memcpy(&copied, data, sizeof(MboMsg));
-    EXPECT_EQ(copied.order_id, 12345);
-    EXPECT_EQ(copied.price, 50 * kFixedPriceScale);
+    EXPECT_EQ(batch[1].Header().instrument_id, 222);
+    EXPECT_EQ(batch[1].As<MboMsg>().order_id, 2002);
 }
 
 TEST(RecordBatchTest, DifferentRecordTypes) {
-    // Test batch with different record types (MboMsg and TradeMsg)
-    alignas(8) std::byte mbo_buffer[sizeof(MboMsg)] = {};
-    alignas(8) std::byte trade_buffer[sizeof(TradeMsg)] = {};
+    AlignedBuffer mbo_buffer;
+    AlignedBuffer trade_buffer;
 
-    auto* mbo = reinterpret_cast<MboMsg*>(mbo_buffer);
+    auto* mbo = reinterpret_cast<MboMsg*>(mbo_buffer.data());
     mbo->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
     mbo->hd.rtype = RType::Mbo;
     mbo->hd.instrument_id = 100;
     mbo->order_id = 5555;
 
-    auto* trade = reinterpret_cast<TradeMsg*>(trade_buffer);
+    auto* trade = reinterpret_cast<TradeMsg*>(trade_buffer.data());
     trade->hd.length = sizeof(TradeMsg) / kRecordHeaderLengthMultiplier;
-    trade->hd.rtype = RType::Mbp0;  // TradeMsg uses Mbp0 rtype
+    trade->hd.rtype = RType::Mbp0;
     trade->hd.instrument_id = 200;
     trade->price = 75 * kFixedPriceScale;
     trade->size = 100;
 
-    // Build batch
     RecordBatch batch;
-    batch.buffer.resize(sizeof(MboMsg) + sizeof(TradeMsg));
-    std::memcpy(batch.buffer.data(), mbo_buffer, sizeof(MboMsg));
-    std::memcpy(batch.buffer.data() + sizeof(MboMsg), trade_buffer, sizeof(TradeMsg));
-    batch.offsets.push_back(0);
-    batch.offsets.push_back(sizeof(MboMsg));
+
+    RecordRef ref1;
+    ref1.data = mbo_buffer.data();
+    ref1.size = sizeof(MboMsg);
+    ref1.keepalive = mbo_buffer.MakeKeepalive();
+    batch.Add(std::move(ref1));
+
+    RecordRef ref2;
+    ref2.data = trade_buffer.data();
+    ref2.size = sizeof(TradeMsg);
+    ref2.keepalive = trade_buffer.MakeKeepalive();
+    batch.Add(std::move(ref2));
 
     EXPECT_EQ(batch.size(), 2);
 
     // Check first record (MboMsg)
-    RecordHeader hdr1 = batch.GetHeader(0);
-    EXPECT_EQ(hdr1.rtype, RType::Mbo);
-    EXPECT_EQ(hdr1.instrument_id, 100);
-
-    MboMsg mbo_copy;
-    std::memcpy(&mbo_copy, batch.GetRecordData(0), sizeof(MboMsg));
-    EXPECT_EQ(mbo_copy.order_id, 5555);
+    EXPECT_EQ(batch[0].Header().rtype, RType::Mbo);
+    EXPECT_EQ(batch[0].Header().instrument_id, 100);
+    EXPECT_EQ(batch[0].As<MboMsg>().order_id, 5555);
 
     // Check second record (TradeMsg)
-    RecordHeader hdr2 = batch.GetHeader(1);
-    EXPECT_EQ(hdr2.rtype, RType::Mbp0);
-    EXPECT_EQ(hdr2.instrument_id, 200);
-
-    TradeMsg trade_copy;
-    std::memcpy(&trade_copy, batch.GetRecordData(1), sizeof(TradeMsg));
-    EXPECT_EQ(trade_copy.price, 75 * kFixedPriceScale);
-    EXPECT_EQ(trade_copy.size, 100);
+    EXPECT_EQ(batch[1].Header().rtype, RType::Mbp0);
+    EXPECT_EQ(batch[1].Header().instrument_id, 200);
+    EXPECT_EQ(batch[1].As<TradeMsg>().price, 75 * kFixedPriceScale);
+    EXPECT_EQ(batch[1].As<TradeMsg>().size, 100);
 }
 
-TEST(RecordBatchTest, GetRecordDataReturnsCorrectPointer) {
-    // Verify GetRecordData returns exactly buffer.data() + offset
-    RecordBatch batch;
-    batch.buffer.resize(100);
-    batch.offsets.push_back(0);
-    batch.offsets.push_back(30);
-    batch.offsets.push_back(70);
+TEST(RecordBatchTest, BatchClear) {
+    AlignedBuffer buffer;
+    auto* msg = reinterpret_cast<MboMsg*>(buffer.data());
+    msg->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
+    msg->hd.rtype = RType::Mbo;
 
-    EXPECT_EQ(batch.GetRecordData(0), batch.buffer.data());
-    EXPECT_EQ(batch.GetRecordData(1), batch.buffer.data() + 30);
-    EXPECT_EQ(batch.GetRecordData(2), batch.buffer.data() + 70);
+    RecordBatch batch;
+    RecordRef ref;
+    ref.data = buffer.data();
+    ref.size = sizeof(MboMsg);
+    ref.keepalive = buffer.MakeKeepalive();
+    batch.Add(std::move(ref));
+
+    EXPECT_EQ(batch.size(), 1);
+    EXPECT_FALSE(batch.empty());
+
+    batch.Clear();
+
+    EXPECT_EQ(batch.size(), 0);
+    EXPECT_TRUE(batch.empty());
+}
+
+TEST(RecordBatchTest, BatchIteration) {
+    AlignedBuffer buffer1;
+    AlignedBuffer buffer2;
+    AlignedBuffer buffer3;
+
+    for (size_t i = 0; i < 3; ++i) {
+        AlignedBuffer* buf = (i == 0) ? &buffer1 : (i == 1) ? &buffer2 : &buffer3;
+        auto* msg = reinterpret_cast<MboMsg*>(buf->data());
+        msg->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
+        msg->hd.rtype = RType::Mbo;
+        msg->hd.instrument_id = static_cast<uint32_t>(i + 1);
+    }
+
+    RecordBatch batch;
+
+    RecordRef ref1;
+    ref1.data = buffer1.data();
+    ref1.size = sizeof(MboMsg);
+    ref1.keepalive = buffer1.MakeKeepalive();
+    batch.Add(std::move(ref1));
+
+    RecordRef ref2;
+    ref2.data = buffer2.data();
+    ref2.size = sizeof(MboMsg);
+    ref2.keepalive = buffer2.MakeKeepalive();
+    batch.Add(std::move(ref2));
+
+    RecordRef ref3;
+    ref3.data = buffer3.data();
+    ref3.size = sizeof(MboMsg);
+    ref3.keepalive = buffer3.MakeKeepalive();
+    batch.Add(std::move(ref3));
+
+    // Test range-for iteration
+    size_t idx = 0;
+    for (const auto& ref : batch) {
+        EXPECT_EQ(ref.Header().instrument_id, idx + 1);
+        ++idx;
+    }
+    EXPECT_EQ(idx, 3);
+
+    // Test begin/end
+    EXPECT_EQ(batch.end() - batch.begin(), 3);
+}
+
+TEST(RecordBatchTest, BatchReservation) {
+    RecordBatch batch(128);  // Reserve for 128 records
+
+    EXPECT_EQ(batch.size(), 0);
+    EXPECT_TRUE(batch.empty());
+
+    // Add should work without reallocation up to reserved amount
+    AlignedBuffer buffer;
+    auto* msg = reinterpret_cast<MboMsg*>(buffer.data());
+    msg->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
+    msg->hd.rtype = RType::Mbo;
+
+    RecordRef ref;
+    ref.data = buffer.data();
+    ref.size = sizeof(MboMsg);
+    ref.keepalive = buffer.MakeKeepalive();
+    batch.Add(std::move(ref));
+
+    EXPECT_EQ(batch.size(), 1);
+}
+
+TEST(RecordBatchTest, BatchMoveSemantics) {
+    AlignedBuffer buffer;
+    auto* msg = reinterpret_cast<MboMsg*>(buffer.data());
+    msg->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
+    msg->hd.rtype = RType::Mbo;
+    msg->hd.instrument_id = 42;
+
+    RecordBatch batch1;
+    RecordRef ref;
+    ref.data = buffer.data();
+    ref.size = sizeof(MboMsg);
+    ref.keepalive = buffer.MakeKeepalive();
+    batch1.Add(std::move(ref));
+
+    // Move construct
+    RecordBatch batch2(std::move(batch1));
+    EXPECT_EQ(batch2.size(), 1);
+    EXPECT_EQ(batch2[0].Header().instrument_id, 42);
+
+    // Move assign
+    RecordBatch batch3;
+    batch3 = std::move(batch2);
+    EXPECT_EQ(batch3.size(), 1);
+    EXPECT_EQ(batch3[0].Header().instrument_id, 42);
+}
+
+TEST(RecordRefTest, HeaderAccess) {
+    AlignedBuffer buffer;
+    auto* msg = reinterpret_cast<MboMsg*>(buffer.data());
+    msg->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
+    msg->hd.rtype = RType::Mbo;
+    msg->hd.publisher_id = 7;
+    msg->hd.instrument_id = 999;
+
+    RecordRef ref;
+    ref.data = buffer.data();
+    ref.size = sizeof(MboMsg);
+    ref.keepalive = buffer.MakeKeepalive();
+
+    const auto& header = ref.Header();
+    EXPECT_EQ(header.rtype, RType::Mbo);
+    EXPECT_EQ(header.publisher_id, 7);
+    EXPECT_EQ(header.instrument_id, 999);
+    EXPECT_EQ(header.Size(), sizeof(MboMsg));
+}
+
+TEST(RecordRefTest, TypedAccessWithAs) {
+    AlignedBuffer buffer;
+    auto* msg = reinterpret_cast<MboMsg*>(buffer.data());
+    msg->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
+    msg->hd.rtype = RType::Mbo;
+    msg->order_id = 12345;
+    msg->price = 50 * kFixedPriceScale;
+    msg->size = 100;
+    msg->side = Side::Ask;
+    msg->action = Action::Cancel;
+
+    RecordRef ref;
+    ref.data = buffer.data();
+    ref.size = sizeof(MboMsg);
+    ref.keepalive = buffer.MakeKeepalive();
+
+    const auto& record = ref.As<MboMsg>();
+    EXPECT_EQ(record.order_id, 12345);
+    EXPECT_EQ(record.price, 50 * kFixedPriceScale);
+    EXPECT_EQ(record.size, 100);
+    EXPECT_EQ(record.side, Side::Ask);
+    EXPECT_EQ(record.action, Action::Cancel);
+}
+
+TEST(RecordRefTest, KeepaliveOwnership) {
+    bool destroyed = false;
+
+    {
+        RecordBatch batch;
+
+        // Create a keepalive that sets a flag when destroyed
+        auto keepalive = std::shared_ptr<bool>(new bool(true), [&destroyed](bool* p) {
+            destroyed = true;
+            delete p;
+        });
+
+        alignas(8) std::byte buffer[sizeof(MboMsg)] = {};
+        auto* msg = reinterpret_cast<MboMsg*>(buffer);
+        msg->hd.length = sizeof(MboMsg) / kRecordHeaderLengthMultiplier;
+        msg->hd.rtype = RType::Mbo;
+
+        RecordRef ref;
+        ref.data = buffer;
+        ref.size = sizeof(MboMsg);
+        ref.keepalive = keepalive;
+        batch.Add(std::move(ref));
+
+        // Keepalive should still be alive
+        EXPECT_FALSE(destroyed);
+    }
+
+    // After batch is destroyed, keepalive should be destroyed
+    EXPECT_TRUE(destroyed);
 }
