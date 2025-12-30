@@ -38,7 +38,10 @@ cc_library(
     srcs = ["tcp_socket.cpp"],
     hdrs = ["tcp_socket.hpp"],
     visibility = ["//visibility:public"],
-    deps = [":reactor"],
+    deps = [
+        ":buffer_chain",
+        ":reactor",
+    ],
 )
 
 cc_library(
@@ -138,6 +141,7 @@ cc_library(
     hdrs = ["dbn_parser_component.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":buffer_chain",
         ":error",
         ":pipeline",
         ":record_batch",
@@ -171,6 +175,12 @@ cc_library(
 cc_library(
     name = "dns_resolver",
     hdrs = ["dns_resolver.hpp"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "buffer_chain",
+    hdrs = ["buffer_chain.hpp"],
     visibility = ["//visibility:public"],
 )
 
