@@ -1,6 +1,7 @@
 // tests/live_protocol_test.cpp
 #include <gtest/gtest.h>
 
+#include "src/buffer_chain.hpp"
 #include "src/live_protocol.hpp"
 #include "src/protocol_driver.hpp"
 #include "src/pipeline_base.hpp"
@@ -26,7 +27,7 @@ TEST(LiveProtocolTest, OnConnectReturnsTrue) {
 TEST(LiveProtocolTest, OnReadReturnsTrue) {
     // Live protocol is always ready after connect
     std::shared_ptr<LiveProtocol::ChainType> chain;
-    std::pmr::vector<std::byte> data;
+    BufferChain data;
     EXPECT_TRUE(LiveProtocol::OnRead(chain, std::move(data)));
 }
 

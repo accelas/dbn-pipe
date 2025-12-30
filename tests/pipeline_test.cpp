@@ -3,19 +3,26 @@
 
 #include <vector>
 
+#include "src/buffer_chain.hpp"
 #include "src/pipeline.hpp"
 #include "src/reactor.hpp"
 
 using namespace databento_async;
 
-// Mock downstream that satisfies Downstream concept
+// Mock downstream that satisfies Downstream concept (receives BufferChain)
 struct MockDownstream {
     std::vector<std::byte> received;
     bool error_called = false;
     bool done_called = false;
 
-    void Read(std::pmr::vector<std::byte> data) {
-        received.insert(received.end(), data.begin(), data.end());
+    void OnData(BufferChain& chain) {
+        // Copy data from chain to received vector
+        while (!chain.Empty()) {
+            size_t chunk_size = chain.ContiguousSize();
+            const std::byte* ptr = chain.DataAt(0);
+            received.insert(received.end(), ptr, ptr + chunk_size);
+            chain.Consume(chunk_size);
+        }
     }
     void OnError(const Error&) { error_called = true; }
     void OnDone() { done_called = true; }
@@ -23,7 +30,7 @@ struct MockDownstream {
 
 // Mock upstream that satisfies Upstream concept
 struct MockUpstream {
-    void Write(std::pmr::vector<std::byte>) {}
+    void Write(BufferChain) {}
     void Suspend() {}
     void Resume() {}
     void Close() {}

@@ -63,6 +63,7 @@ cc_library(
     hdrs = ["tls_socket.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":buffer_chain",
         ":error",
         ":pipeline",
         ":reactor",
@@ -94,6 +95,19 @@ cc_library(
         ":pipeline",
         ":reactor",
         ":tls_socket",
+        "@zstd",
+    ],
+)
+
+cc_library(
+    name = "zstd_chain_decompressor",
+    hdrs = ["zstd_chain_decompressor.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":buffer_chain",
+        ":error",
+        ":pipeline",
+        ":reactor",
         "@zstd",
     ],
 )
@@ -134,6 +148,7 @@ cc_library(
     hdrs = ["cram_auth.hpp"],
     visibility = ["//visibility:public"],
     deps = [
+        ":buffer_chain",
         ":cram_auth_utils",
         ":error",
         ":pipeline",
@@ -197,6 +212,7 @@ cc_library(
     name = "live_protocol",
     hdrs = ["live_protocol.hpp"],
     deps = [
+        ":buffer_chain",
         ":cram_auth",
         ":dbn_parser_component",
         ":pipeline",
@@ -213,6 +229,7 @@ cc_library(
     name = "historical_protocol",
     hdrs = ["historical_protocol.hpp"],
     deps = [
+        ":buffer_chain",
         ":dbn_parser_component",
         ":http_client",
         ":pipeline",
@@ -222,7 +239,7 @@ cc_library(
         ":sink_adapter",
         ":tcp_socket",
         ":tls_socket",
-        ":zstd_decompressor",
+        ":zstd_chain_decompressor",
     ],
     visibility = ["//visibility:public"],
 )

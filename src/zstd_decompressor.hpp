@@ -4,16 +4,17 @@
 #include <zstd.h>
 
 #include <cstddef>
+#include <cstring>
 #include <memory>
 #include <memory_resource>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "buffer_chain.hpp"
 #include "error.hpp"
 #include "pipeline.hpp"
 #include "reactor.hpp"
-#include "tls_socket.hpp"
 
 namespace databento_async {
 
@@ -38,8 +39,8 @@ public:
 
     ~ZstdDecompressor() { Cleanup(); }
 
-    // Upstream interface: receive compressed data from HttpClient
-    void Read(std::pmr::vector<std::byte> data);
+    // Downstream interface: receive compressed data from HttpClient
+    void OnData(BufferChain& data);
 
     // Forward errors from upstream
     void OnError(const Error& e);
@@ -48,7 +49,7 @@ public:
     void OnDone();
 
     // Write is not supported for decompressor (data flows downstream only)
-    void Write(std::pmr::vector<std::byte> /*data*/) {
+    void Write(BufferChain /*data*/) {
         throw std::logic_error(
             "ZstdDecompressor::Write() is not supported - ZstdDecompressor is a "
             "receiver-only component for decompression.");
@@ -88,7 +89,12 @@ private:
     // Process buffered input data
     void ProcessPendingData();
 
-    // Decompress data and forward to downstream
+    // Decompress chain and forward to downstream
+    // Consumes data from chain as it processes
+    // Returns false on error
+    bool DecompressChain(BufferChain& chain);
+
+    // Decompress contiguous data and forward to downstream
     // Returns false on error
     bool DecompressAndForward(const std::byte* input, size_t input_size);
 
@@ -104,17 +110,13 @@ private:
     // ZSTD streaming decompression context
     ZSTD_DStream* dstream_ = nullptr;
 
+    // Segment pool for output
+    SegmentPool segment_pool_{8};
 
-    // PMR pool for output buffers
-    std::pmr::unsynchronized_pool_resource pool_;
-    std::pmr::polymorphic_allocator<std::byte> alloc_{&pool_};
-
-    // Pending input data when suspended
-    std::pmr::vector<std::byte> pending_input_{&pool_};
+    // Pending input chain when suspended
+    BufferChain pending_input_;
 
     // Buffer size constants
-    // ZSTD_DStreamOutSize() returns 128KB (131072) but is not constexpr
-    static constexpr size_t kOutputBufferSize = 128 * 1024;
     static constexpr size_t kMaxPendingInput = 16 * 1024 * 1024;  // 16MB
 
     // Track the last return value from ZSTD_decompressStream
@@ -159,33 +161,31 @@ void ZstdDecompressor<D>::DoClose() {
 }
 
 template <Downstream D>
-void ZstdDecompressor<D>::Read(std::pmr::vector<std::byte> data) {
+void ZstdDecompressor<D>::OnData(BufferChain& data) {
     auto guard = this->TryGuard();
     if (!guard) return;
 
     // If suspended, buffer the data
     if (this->IsSuspended()) {
-        if (pending_input_.size() + data.size() > kMaxPendingInput) {
+        if (pending_input_.Size() + data.Size() > kMaxPendingInput) {
             this->EmitError(*downstream_,
                 Error{ErrorCode::DecompressionError,
                       "Decompressor input buffer overflow"});
             this->RequestClose();
             return;
         }
-        pending_input_.insert(pending_input_.end(), data.begin(), data.end());
+        pending_input_.Splice(std::move(data));
         return;
     }
 
-    // If we have pending data, prepend it
-    if (!pending_input_.empty()) {
-        pending_input_.insert(pending_input_.end(), data.begin(), data.end());
-        auto combined = std::move(pending_input_);
-        pending_input_ = std::pmr::vector<std::byte>{&pool_};
-        if (!DecompressAndForward(combined.data(), combined.size())) {
+    // Process pending input first if any
+    if (!pending_input_.Empty()) {
+        pending_input_.Splice(std::move(data));
+        if (!DecompressChain(pending_input_)) {
             return;  // Error already emitted
         }
     } else {
-        if (!DecompressAndForward(data.data(), data.size())) {
+        if (!DecompressChain(data)) {
             return;  // Error already emitted
         }
     }
@@ -193,14 +193,32 @@ void ZstdDecompressor<D>::Read(std::pmr::vector<std::byte> data) {
 
 template <Downstream D>
 void ZstdDecompressor<D>::ProcessPendingData() {
-    if (this->IsClosed() || pending_input_.empty()) return;
+    if (this->IsClosed() || pending_input_.Empty()) return;
 
-    auto data = std::move(pending_input_);
-    pending_input_ = std::pmr::vector<std::byte>{&pool_};
-
-    if (!DecompressAndForward(data.data(), data.size())) {
+    if (!DecompressChain(pending_input_)) {
         return;  // Error already emitted
     }
+}
+
+template <Downstream D>
+bool ZstdDecompressor<D>::DecompressChain(BufferChain& chain) {
+    // Process each contiguous chunk from the chain
+    while (!chain.Empty()) {
+        size_t chunk_size = chain.ContiguousSize();
+        const std::byte* chunk_ptr = chain.DataAt(0);
+
+        if (!DecompressAndForward(chunk_ptr, chunk_size)) {
+            return false;
+        }
+
+        // If we got suspended, don't consume more
+        if (this->IsSuspended()) {
+            return true;
+        }
+
+        chain.Consume(chunk_size);
+    }
+    return true;
 }
 
 template <Downstream D>
@@ -217,18 +235,21 @@ bool ZstdDecompressor<D>::DecompressAndForward(const std::byte* input, size_t in
     while (in_buf.pos < in_buf.size) {
         // Check if we got suspended during processing
         if (this->IsSuspended()) {
-            // Buffer remaining input
+            // Buffer remaining input into pending_input_
             if (in_buf.pos < in_buf.size) {
                 const auto* remaining = static_cast<const std::byte*>(in_buf.src) + in_buf.pos;
                 size_t remaining_size = in_buf.size - in_buf.pos;
-                pending_input_.insert(pending_input_.end(), remaining, remaining + remaining_size);
+                auto seg = segment_pool_.Acquire();
+                std::memcpy(seg->data.data(), remaining, remaining_size);
+                seg->size = remaining_size;
+                pending_input_.Append(std::move(seg));
             }
             return true;
         }
 
-        // Allocate output buffer
-        std::pmr::vector<std::byte> output(kOutputBufferSize, alloc_);
-        ZSTD_outBuffer out_buf = {output.data(), output.size(), 0};
+        // Decompress into a segment
+        auto out_seg = segment_pool_.Acquire();
+        ZSTD_outBuffer out_buf = {out_seg->data.data(), Segment::kSize, 0};
 
         size_t result = ZSTD_decompressStream(dstream_, &out_buf, &in_buf);
         if (ZSTD_isError(result)) {
@@ -244,8 +265,11 @@ bool ZstdDecompressor<D>::DecompressAndForward(const std::byte* input, size_t in
 
         // Forward decompressed data to downstream
         if (out_buf.pos > 0) {
-            output.resize(out_buf.pos);
-            downstream_->Read(std::move(output));
+            out_seg->size = out_buf.pos;
+            BufferChain chain;
+            chain.SetRecycleCallback(segment_pool_.MakeRecycler());
+            chain.Append(std::move(out_seg));
+            downstream_->OnData(chain);
         }
     }
 
@@ -264,11 +288,10 @@ void ZstdDecompressor<D>::OnDone() {
     if (!guard) return;
 
     // Process any remaining buffered data
-    if (!pending_input_.empty()) {
-        if (!DecompressAndForward(pending_input_.data(), pending_input_.size())) {
+    if (!pending_input_.Empty()) {
+        if (!DecompressChain(pending_input_)) {
             return;  // Error already emitted
         }
-        pending_input_.clear();
     }
 
     // Check for incomplete zstd frame:
