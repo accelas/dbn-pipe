@@ -62,11 +62,23 @@ concept Downstream = TerminalDownstream<D> && requires(D& d, std::pmr::vector<st
 // Forward declaration for RecordBatch
 class RecordBatch;
 
+// Forward declaration for BufferChain
+class BufferChain;
+
 // RecordSink interface - receives batched records for backpressure pipeline
 // Used by simplified components that delegate lifecycle management to the sink
 template<typename S>
 concept RecordSink = requires(S& s, RecordBatch&& batch, const Error& e) {
     { s.OnData(std::move(batch)) } -> std::same_as<void>;
+    { s.OnError(e) } -> std::same_as<void>;
+    { s.OnComplete() } -> std::same_as<void>;
+};
+
+// ChainSink interface - receives data via BufferChain for zero-copy parsing
+// Used by components that can process data directly from segment buffers
+template<typename S>
+concept ChainSink = requires(S& s, BufferChain& chain, const Error& e) {
+    { s.OnData(chain) } -> std::same_as<void>;
     { s.OnError(e) } -> std::same_as<void>;
     { s.OnComplete() } -> std::same_as<void>;
 };
