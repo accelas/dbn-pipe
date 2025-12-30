@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <concepts>
 #include <functional>
 #include <memory>
 #include <memory_resource>
@@ -88,11 +89,21 @@ public:
         request_set_ = true;
     }
 
-    // Set callback for received records.
+    // Set callback for received records (one at a time).
     template <typename H>
+        requires std::invocable<H, const Record&>
     void OnRecord(H&& h) {
         assert(reactor_.IsInReactorThread());
         record_handler_ = std::forward<H>(h);
+    }
+
+    // Set callback for record batches (efficient bulk delivery).
+    // If set, per-record callback is ignored - batches go directly to this handler.
+    template <typename H>
+        requires std::invocable<H, RecordBatch&&>
+    void OnRecord(H&& h) {
+        assert(reactor_.IsInReactorThread());
+        batch_handler_ = std::forward<H>(h);
     }
 
     // Set callback for errors.
@@ -346,6 +357,13 @@ private:
         if (record_handler_) record_handler_(rec);
     }
 
+    void HandleRecordBatch(RecordBatch&& batch) override {
+        // batch_handler_ must be set - no fallback to per-record iteration
+        if (batch_handler_) {
+            batch_handler_(std::move(batch));
+        }
+    }
+
     void HandlePipelineError(const Error& e) override {
         state_ = PipelineState::Error;
         if (error_handler_) error_handler_(e);
@@ -385,6 +403,7 @@ private:
     std::pmr::unsynchronized_pool_resource pool_;
 
     std::function<void(const Record&)> record_handler_;
+    std::function<void(RecordBatch&&)> batch_handler_;
     std::function<void(const Error&)> error_handler_;
     std::function<void()> complete_handler_;
 };

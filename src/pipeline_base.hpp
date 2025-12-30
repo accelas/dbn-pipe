@@ -5,6 +5,7 @@
 
 #include "error.hpp"
 #include "reactor.hpp"
+#include "record_batch.hpp"
 
 namespace databento_async {
 
@@ -16,6 +17,7 @@ public:
     virtual ~PipelineBase() = default;
 
     virtual void HandleRecord(const Record& rec) = 0;
+    virtual void HandleRecordBatch(RecordBatch&& batch) = 0;
     virtual void HandlePipelineError(const Error& e) = 0;
     virtual void HandlePipelineComplete() = 0;
 };
@@ -43,6 +45,12 @@ public:
         assert(reactor_.IsInReactorThread());
         if (!valid_ || !pipeline_) return;
         pipeline_->HandleRecord(rec);
+    }
+
+    void OnRecordBatch(RecordBatch&& batch) {
+        assert(reactor_.IsInReactorThread());
+        if (!valid_ || !pipeline_) return;
+        pipeline_->HandleRecordBatch(std::move(batch));
     }
 
     void OnError(const Error& e) {
