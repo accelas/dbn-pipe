@@ -1,5 +1,6 @@
 // tests/historical_protocol_test.cpp
 #include <gtest/gtest.h>
+#include <sstream>
 
 #include "src/historical_protocol.hpp"
 #include "src/protocol_driver.hpp"
@@ -38,6 +39,7 @@ TEST(HistoricalProtocolTest, RequestHasTimeRange) {
 TEST(HistoricalProtocolTest, UrlEncodeHandlesSpecialChars) {
     // Test URL encoding helper
     std::string input = "ES Z4+test";
-    std::string encoded = HistoricalProtocol::UrlEncode(input);
-    EXPECT_EQ(encoded, "ES%20Z4%2Btest");
+    std::ostringstream out;
+    HistoricalProtocol::UrlEncode(out, input);
+    EXPECT_EQ(out.str(), "ES%20Z4%2Btest");
 }
