@@ -4,11 +4,14 @@
 #include <atomic>
 #include <cstddef>
 #include <cstring>
+#include <memory>
+#include <memory_resource>
+#include <new>
 #include <string>
-#include <vector>
 
 #include <databento/record.hpp>
 
+#include "buffer_chain.hpp"
 #include "error.hpp"
 #include "pipeline.hpp"
 #include "record_batch.hpp"
@@ -19,16 +22,21 @@ namespace databento_async {
 // Records larger than this are considered invalid
 constexpr size_t kMaxRecordSize = 64 * 1024;
 
-// DbnParserComponent - Simplified parser that outputs RecordBatch.
+// DbnParserComponent - Zero-copy parser that outputs RecordBatch.
 //
-// This component transforms raw bytes into batched records for the backpressure
-// pipeline. It delegates lifecycle management to the sink, keeping the parser
-// stateless except for carryover data from partial records.
+// This component transforms raw bytes from BufferChain into batched records
+// for the backpressure pipeline. It uses zero-copy references where possible,
+// only copying when records span segment boundaries.
+//
+// Two input paths:
+// - Direct: OnData(BufferChain&) - caller manages the chain (live path)
+// - Legacy: Read(pmr::vector<byte>) - internal chain management (historical path)
 //
 // Key features:
-// - Outputs RecordBatch instead of individual records
+// - Outputs RecordBatch with RecordRef entries (zero-copy when possible)
+// - Uses BufferChain for input (chain manages unconsumed data)
+// - Aligned scratch buffers for boundary-crossing records
 // - Overflow-safe bounds checking
-// - Carryover buffer for partial records across OnData calls
 // - One-shot error handling via atomic guard
 // - DBN metadata header parsing (skips DBN file header if present)
 //
@@ -36,18 +44,19 @@ constexpr size_t kMaxRecordSize = 64 * 1024;
 template <RecordSink S>
 class DbnParserComponent {
 public:
-    explicit DbnParserComponent(S& sink) : sink_(sink) {}
-
-    // Input from upstream - parse bytes into records
-    void OnData(std::vector<std::byte>&& buffer);
-
-    // Downstream concept compatibility - wraps OnData for pipeline integration
-    // Allows DbnParserComponent to be used with CramAuth which calls Read()
-    void Read(std::pmr::vector<std::byte> data) {
-        // Convert pmr::vector to regular vector
-        std::vector<std::byte> buffer(data.begin(), data.end());
-        OnData(std::move(buffer));
+    explicit DbnParserComponent(S& sink) : sink_(sink) {
+        // Set up segment recycling for legacy Read() path
+        parse_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
     }
+
+    // Primary interface - parse bytes from caller-managed chain into records.
+    // Leaves incomplete records in the chain for next call.
+    void OnData(BufferChain& chain);
+
+    // Legacy adapter interface for Downstream concept compatibility.
+    // Appends data to internal chain and calls OnData.
+    // Used by CramAuth, ZstdDecompressor, and other upstream components.
+    void Read(std::pmr::vector<std::byte> data);
 
     // TerminalDownstream interface for CramAuth compatibility
     void OnDone() noexcept { OnComplete(); }
@@ -55,25 +64,33 @@ public:
     // Forward error to sink (one-shot)
     void OnError(const Error& e) noexcept;
 
-    // Forward completion to sink (one-shot)
+    // Forward completion to sink (one-shot).
+    // Checks internal parse_chain_ for incomplete data when using legacy path.
     void OnComplete() noexcept;
+
+    // Forward completion to sink (one-shot).
+    // Checks that chain is empty (no incomplete records).
+    // Use this overload when caller manages the chain directly.
+    void OnComplete(BufferChain& chain) noexcept;
 
 private:
     // Report a terminal error and set error state
     void ReportTerminalError(const std::string& msg);
 
-    // Skip DBN metadata header if present
-    // Returns true if ready to parse records, false if waiting for more data
-    bool SkipMetadataIfNeeded(const std::vector<std::byte>& data, size_t& offset);
-
-    // Peek at record size from header at given offset
-    // Returns 0 if insufficient data for header
-    size_t PeekRecordSize(const std::vector<std::byte>& data, size_t offset) const;
+    // Skip DBN metadata header if present.
+    // Returns true if ready to parse records, false if waiting for more data.
+    bool SkipMetadataIfNeeded(BufferChain& chain);
 
     S& sink_;                              // Reference to sink
-    std::vector<std::byte> carryover_;     // Partial record from previous buffer
     std::atomic<bool> error_state_{false}; // One-shot error guard
     bool metadata_parsed_ = false;         // Whether DBN header has been skipped
+
+    // Internal chain for legacy Read() path
+    // Note: Each Read() fills segments to capacity before acquiring new ones.
+    // Cross-Read() segment reuse was considered but adds complexity
+    // (must track pending segment state vs chain state).
+    SegmentPool segment_pool_{8};          // Pool for segment allocation
+    BufferChain parse_chain_;              // Internal chain for byte->chain conversion
 
     // DBN file header structure (first 8 bytes of DBN stream)
     struct DbnHeader {
@@ -91,42 +108,48 @@ private:
 // Implementation
 
 template <RecordSink S>
-void DbnParserComponent<S>::OnData(std::vector<std::byte>&& buffer) {
+void DbnParserComponent<S>::OnData(BufferChain& chain) {
     // Check error state - if already in error, ignore all data
     if (error_state_.load(std::memory_order_acquire)) {
         return;
     }
 
-    // Combine carryover with incoming buffer
-    std::vector<std::byte> data;
-    if (!carryover_.empty()) {
-        data = std::move(carryover_);
-        data.insert(data.end(), buffer.begin(), buffer.end());
-    } else {
-        data = std::move(buffer);
-    }
-
-    size_t offset = 0;
-
     // Skip DBN metadata header if present
-    if (!SkipMetadataIfNeeded(data, offset)) {
-        // Need more data for metadata - save everything as carryover
-        carryover_ = std::move(data);
+    if (!SkipMetadataIfNeeded(chain)) {
+        // Need more data for metadata - leave in chain for next call
         return;
     }
 
     // Parse all complete records
     RecordBatch batch;
-    const size_t data_size = data.size();
 
-    while (offset < data_size) {
-        // Check if we have enough for a header
-        if (data_size - offset < sizeof(databento::RecordHeader)) {
-            // Partial header - save as carryover
-            break;
+    while (chain.Size() >= sizeof(databento::RecordHeader)) {
+        // Read record size from header
+        // Use zero-copy when header is contiguous and 8-byte aligned
+        size_t record_size;
+        const std::byte* header_ptr = nullptr;
+
+        if (chain.IsContiguous(0, sizeof(databento::RecordHeader))) {
+            header_ptr = chain.DataAt(0);
+            if ((reinterpret_cast<uintptr_t>(header_ptr) % 8) == 0) {
+                // Fast path: direct access to aligned header
+                record_size = reinterpret_cast<const databento::RecordHeader*>(
+                    header_ptr)->Size();
+            } else {
+                // Misaligned: copy header
+                databento::RecordHeader header_copy;
+                chain.CopyTo(0, sizeof(databento::RecordHeader),
+                            reinterpret_cast<std::byte*>(&header_copy));
+                record_size = header_copy.Size();
+                header_ptr = nullptr;  // Signal that we copied
+            }
+        } else {
+            // Header spans segments: copy
+            databento::RecordHeader header_copy;
+            chain.CopyTo(0, sizeof(databento::RecordHeader),
+                        reinterpret_cast<std::byte*>(&header_copy));
+            record_size = header_copy.Size();
         }
-
-        size_t record_size = PeekRecordSize(data, offset);
 
         // Validate record size - must be at least header size
         if (record_size < sizeof(databento::RecordHeader)) {
@@ -142,31 +165,42 @@ void DbnParserComponent<S>::OnData(std::vector<std::byte>&& buffer) {
             return;
         }
 
-        // Overflow-safe bounds check: record_size > data_size - offset
-        // Equivalent to: offset + record_size > data_size (but overflow-safe)
-        if (record_size > data_size - offset) {
-            // Partial record - save as carryover
-            break;
+        // Check if complete record is available
+        if (chain.Size() < record_size) {
+            break;  // Incomplete record, wait for more data
         }
 
-        // Record is complete - add to batch
-        // On first record, copy entire buffer up to end of last complete record
-        if (batch.empty()) {
-            // Reserve space - we'll copy the actual data after we know how much
+        // Build RecordRef for this record
+        RecordRef ref;
+        ref.size = record_size;
+
+        // Try zero-copy path: requires contiguous AND 8-byte aligned data
+        bool use_zero_copy = false;
+        if (chain.IsContiguous(0, record_size)) {
+            const std::byte* ptr = chain.DataAt(0);
+            // Check 8-byte alignment (required for RecordHeader access)
+            if ((reinterpret_cast<uintptr_t>(ptr) % 8) == 0) {
+                // Fast path: contiguous and aligned, zero copy
+                ref.data = ptr;
+                ref.keepalive = chain.GetSegmentAt(0);
+                use_zero_copy = true;
+            }
         }
-        batch.offsets.push_back(batch.buffer.size());
-        batch.buffer.insert(batch.buffer.end(),
-                           data.begin() + offset,
-                           data.begin() + offset + record_size);
 
-        offset += record_size;
-    }
+        if (!use_zero_copy) {
+            // Slow path: copy to aligned buffer
+            // (record spans segments OR data is misaligned)
+            auto scratch = std::shared_ptr<std::byte[]>(
+                new (std::align_val_t{8}) std::byte[record_size],
+                [](std::byte* p) { operator delete[](p, std::align_val_t{8}); }
+            );
+            chain.CopyTo(0, record_size, scratch.get());
+            ref.data = scratch.get();
+            ref.keepalive = scratch;
+        }
 
-    // Save any remaining partial data as carryover
-    if (offset < data_size) {
-        carryover_.assign(data.begin() + offset, data.end());
-    } else {
-        carryover_.clear();
+        batch.Add(std::move(ref));
+        chain.Consume(record_size);
     }
 
     // Deliver batch if not empty
@@ -185,16 +219,65 @@ void DbnParserComponent<S>::OnError(const Error& e) noexcept {
 }
 
 template <RecordSink S>
+void DbnParserComponent<S>::Read(std::pmr::vector<std::byte> data) {
+    // Check error state - if already in error, ignore all data
+    if (error_state_.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    if (data.empty()) {
+        return;
+    }
+
+    // Append incoming bytes to internal chain using segments from pool
+    // Fill each segment to capacity before acquiring a new one
+    size_t offset = 0;
+    while (offset < data.size()) {
+        // Acquire a segment from pool
+        auto seg = segment_pool_.Acquire();
+
+        // Fill segment as much as possible
+        size_t to_copy = std::min(data.size() - offset, seg->Remaining());
+        std::memcpy(seg->data.data() + seg->size, data.data() + offset, to_copy);
+        seg->size += to_copy;
+        offset += to_copy;
+
+        // Append to chain (ownership transferred)
+        parse_chain_.Append(std::move(seg));
+    }
+
+    // Parse using common logic
+    OnData(parse_chain_);
+}
+
+template <RecordSink S>
 void DbnParserComponent<S>::OnComplete() noexcept {
     // Check error state - if already in error, ignore completion
     if (error_state_.load(std::memory_order_acquire)) {
         return;
     }
 
-    // Check for incomplete record at end of stream
-    if (!carryover_.empty()) {
+    // Check for incomplete record in internal chain (legacy path)
+    if (!parse_chain_.Empty()) {
         ReportTerminalError("Incomplete record at end of stream (" +
-                          std::to_string(carryover_.size()) + " bytes remaining)");
+                          std::to_string(parse_chain_.Size()) + " bytes remaining)");
+        return;
+    }
+
+    sink_.OnComplete();
+}
+
+template <RecordSink S>
+void DbnParserComponent<S>::OnComplete(BufferChain& chain) noexcept {
+    // Check error state - if already in error, ignore completion
+    if (error_state_.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    // Check for incomplete record at end of stream
+    if (!chain.Empty()) {
+        ReportTerminalError("Incomplete record at end of stream (" +
+                          std::to_string(chain.Size()) + " bytes remaining)");
         return;
     }
 
@@ -207,25 +290,23 @@ void DbnParserComponent<S>::ReportTerminalError(const std::string& msg) {
     if (error_state_.exchange(true, std::memory_order_acq_rel)) {
         return;
     }
-    carryover_.clear();
     sink_.OnError(Error{ErrorCode::ParseError, msg});
 }
 
 template <RecordSink S>
-bool DbnParserComponent<S>::SkipMetadataIfNeeded(const std::vector<std::byte>& data,
-                                                   size_t& offset) {
+bool DbnParserComponent<S>::SkipMetadataIfNeeded(BufferChain& chain) {
     if (metadata_parsed_) {
         return true;
     }
 
     // Need at least sizeof(DbnHeader) bytes to check for magic
-    if (data.size() - offset < sizeof(DbnHeader)) {
+    if (chain.Size() < sizeof(DbnHeader)) {
         return false;
     }
 
-    // Read the header
+    // Read the header (may span segments, so always copy)
     DbnHeader header;
-    std::memcpy(&header, data.data() + offset, sizeof(header));
+    chain.CopyTo(0, sizeof(header), reinterpret_cast<std::byte*>(&header));
 
     // Check for "DBN" magic prefix
     if (header.magic[0] != 'D' || header.magic[1] != 'B' || header.magic[2] != 'N') {
@@ -246,26 +327,14 @@ bool DbnParserComponent<S>::SkipMetadataIfNeeded(const std::vector<std::byte>& d
     size_t total_metadata_size = sizeof(DbnHeader) + header.frame_size;
 
     // Wait for complete metadata
-    if (data.size() - offset < total_metadata_size) {
+    if (chain.Size() < total_metadata_size) {
         return false;
     }
 
     // Skip the entire metadata (header + content)
-    offset += total_metadata_size;
+    chain.Consume(total_metadata_size);
     metadata_parsed_ = true;
     return true;
-}
-
-template <RecordSink S>
-size_t DbnParserComponent<S>::PeekRecordSize(const std::vector<std::byte>& data,
-                                              size_t offset) const {
-    if (data.size() - offset < sizeof(databento::RecordHeader)) {
-        return 0;
-    }
-    // Use memcpy to avoid undefined behavior from unaligned access
-    databento::RecordHeader hdr;
-    std::memcpy(&hdr, data.data() + offset, sizeof(hdr));
-    return hdr.Size();
 }
 
 }  // namespace databento_async

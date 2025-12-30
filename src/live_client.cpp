@@ -10,12 +10,18 @@ void LiveClient::Sink::OnData(RecordBatch&& batch) {
     if (!client_->record_handler_) return;
 
     // Iterate through each record in the batch and call the handler
-    for (size_t i = 0; i < batch.size(); ++i) {
-        // Create a Record view from the raw data
-        // Note: The Record constructor expects a non-const pointer to the header.
-        // The RecordBatch owns the buffer, so we need to cast away const for the
-        // databento::Record API. The record is only valid for this scope.
-        auto* data = const_cast<std::byte*>(batch.GetRecordData(i));
+    for (const auto& ref : batch) {
+        // Create a databento::Record view from the RecordRef data.
+        //
+        // const_cast justification:
+        // - databento::Record's constructor requires a non-const RecordHeader*
+        //   because it allows mutation for some use cases.
+        // - Our RecordRef stores const data since we treat received records as
+        //   read-only (zero-copy from network buffers).
+        // - The cast is safe: we don't mutate the data, and databento::Record
+        //   is a non-owning view that doesn't take ownership.
+        // - The RecordRef's keepalive ensures the buffer remains valid for this scope.
+        auto* data = const_cast<std::byte*>(ref.data);
         databento::Record rec{reinterpret_cast<databento::RecordHeader*>(data)};
 
         client_->record_handler_(rec);
@@ -74,8 +80,8 @@ void LiveClient::BuildPipeline() {
         HandleConnect();
     });
 
-    tcp_->OnRead([this](std::span<const std::byte> data) {
-        HandleRead(data);
+    tcp_->OnRead([this](BufferChain chain) {
+        HandleRead(std::move(chain));
     });
 
     tcp_->OnError([this](std::error_code ec) {
@@ -83,9 +89,9 @@ void LiveClient::BuildPipeline() {
     });
 
     // Wire protocol write callback to TCP socket
-    protocol_->SetWriteCallback([this](std::pmr::vector<std::byte> data) {
+    protocol_->SetWriteCallback([this](BufferChain data) {
         if (tcp_) {
-            tcp_->Write(std::span<const std::byte>(data.data(), data.size()));
+            tcp_->Write(std::move(data));
         }
     });
 
@@ -217,12 +223,10 @@ void LiveClient::HandleSocketError(std::error_code ec) {
     // Synchronous teardown is NOT safe since we're inside TcpSocket callback
 }
 
-void LiveClient::HandleRead(std::span<const std::byte> data) {
+void LiveClient::HandleRead(BufferChain data) {
     if (!protocol_) return;
 
-    // Create pmr::vector from span
-    std::pmr::vector<std::byte> pmr_data(data.begin(), data.end());
-    protocol_->Read(std::move(pmr_data));
+    protocol_->OnData(data);
 
     // Update state based on protocol state
     UpdateStateFromProtocol();

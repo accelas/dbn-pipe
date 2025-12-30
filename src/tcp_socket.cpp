@@ -11,7 +11,7 @@
 namespace databento_async {
 
 TcpSocket::TcpSocket(Reactor& reactor)
-    : reactor_(reactor), read_buffer_(kReadBufferSize) {}
+    : reactor_(reactor) {}
 
 TcpSocket::~TcpSocket() { Close(); }
 
@@ -45,10 +45,16 @@ void TcpSocket::Connect(const sockaddr_storage& addr) {
     event_->OnEvent([this](uint32_t events) { HandleEvents(events); });
 }
 
-void TcpSocket::Write(std::span<const std::byte> data) {
+void TcpSocket::Write(BufferChain data) {
     if (!event_) return;
 
-    write_buffer_.insert(write_buffer_.end(), data.begin(), data.end());
+    // Extract bytes from chain into write buffer
+    while (!data.Empty()) {
+        size_t chunk_size = data.ContiguousSize();
+        const std::byte* ptr = data.DataAt(0);
+        write_buffer_.insert(write_buffer_.end(), ptr, ptr + chunk_size);
+        data.Consume(chunk_size);
+    }
 
     if (connected_ && !write_buffer_.empty()) {
         HandleWritable();
@@ -101,21 +107,38 @@ void TcpSocket::HandleEvents(uint32_t events) {
 }
 
 void TcpSocket::HandleReadable() {
+    BufferChain chain;
+    chain.SetRecycleCallback(segment_pool_.MakeRecycler());
+
     while (true) {
-        ssize_t n = read(fd(), read_buffer_.data(), read_buffer_.size());
+        auto seg = segment_pool_.Acquire();
+        ssize_t n = read(fd(), seg->data.data(), Segment::kSize);
         if (n > 0) {
-            on_read_(std::span{read_buffer_.data(), static_cast<size_t>(n)});
+            seg->size = static_cast<size_t>(n);
+            chain.Append(std::move(seg));
         } else if (n == 0) {
-            // EOF
+            // EOF - deliver accumulated data first, then signal error
+            if (!chain.Empty()) {
+                on_read_(std::move(chain));
+            }
             on_error_(std::make_error_code(std::errc::connection_reset));
-            break;
+            return;
         } else {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                break;  // No more data
+                break;  // No more data available
+            }
+            // Error - deliver accumulated data first, then signal error
+            if (!chain.Empty()) {
+                on_read_(std::move(chain));
             }
             on_error_(std::error_code(errno, std::system_category()));
-            break;
+            return;
         }
+    }
+
+    // Deliver accumulated data
+    if (!chain.Empty()) {
+        on_read_(std::move(chain));
     }
 }
 

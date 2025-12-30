@@ -2,10 +2,12 @@
 #include <gtest/gtest.h>
 #include <zstd.h>
 
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "src/buffer_chain.hpp"
 #include "src/zstd_decompressor.hpp"
 #include "src/pipeline.hpp"
 #include "src/reactor.hpp"
@@ -19,8 +21,13 @@ struct MockZstdDownstream {
     bool done = false;
     bool error_called = false;
 
-    void Read(std::pmr::vector<std::byte> incoming) {
-        data.insert(data.end(), incoming.begin(), incoming.end());
+    void OnData(BufferChain& chain) {
+        while (!chain.Empty()) {
+            size_t chunk_size = chain.ContiguousSize();
+            const std::byte* ptr = chain.DataAt(0);
+            data.insert(data.end(), ptr, ptr + chunk_size);
+            chain.Consume(chunk_size);
+        }
     }
     void OnError(const Error& e) {
         last_error = e;
@@ -62,6 +69,26 @@ std::string BytesToString(const std::vector<std::byte>& bytes) {
     return result;
 }
 
+// Helper to create BufferChain from byte vector
+BufferChain ToChain(const std::vector<std::byte>& bytes) {
+    BufferChain chain;
+    auto seg = std::make_shared<Segment>();
+    std::memcpy(seg->data.data(), bytes.data(), bytes.size());
+    seg->size = bytes.size();
+    chain.Append(std::move(seg));
+    return chain;
+}
+
+// Helper to create BufferChain from partial range
+BufferChain ToChain(const std::vector<std::byte>& bytes, size_t offset, size_t len) {
+    BufferChain chain;
+    auto seg = std::make_shared<Segment>();
+    std::memcpy(seg->data.data(), bytes.data() + offset, len);
+    seg->size = len;
+    chain.Append(std::move(seg));
+    return chain;
+}
+
 TEST(ZstdDecompressorTest, FactoryCreatesInstance) {
     Reactor reactor;
     auto downstream = std::make_shared<MockZstdDownstream>();
@@ -79,9 +106,8 @@ TEST(ZstdDecompressorTest, DecompressesSimpleData) {
     auto compressed = CompressData(original);
 
     // Feed compressed data
-    std::pmr::vector<std::byte> input;
-    input.assign(compressed.begin(), compressed.end());
-    decompressor->Read(std::move(input));
+    auto chain = ToChain(compressed);
+    decompressor->OnData(chain);
 
     // Signal end of stream
     decompressor->OnDone();
@@ -106,9 +132,8 @@ TEST(ZstdDecompressorTest, DecompressesLargeData) {
     auto compressed = CompressData(original);
 
     // Feed compressed data
-    std::pmr::vector<std::byte> input;
-    input.assign(compressed.begin(), compressed.end());
-    decompressor->Read(std::move(input));
+    auto chain = ToChain(compressed);
+    decompressor->OnData(chain);
 
     decompressor->OnDone();
 
@@ -128,11 +153,9 @@ TEST(ZstdDecompressorTest, DecompressesChunkedInput) {
     // Feed compressed data in small chunks
     size_t chunk_size = 10;
     for (size_t i = 0; i < compressed.size(); i += chunk_size) {
-        size_t end = std::min(i + chunk_size, compressed.size());
-        std::pmr::vector<std::byte> chunk;
-        chunk.assign(compressed.begin() + static_cast<long>(i),
-                     compressed.begin() + static_cast<long>(end));
-        decompressor->Read(std::move(chunk));
+        size_t len = std::min(chunk_size, compressed.size() - i);
+        auto chain = ToChain(compressed, i, len);
+        decompressor->OnData(chain);
     }
 
     decompressor->OnDone();
@@ -148,13 +171,11 @@ TEST(ZstdDecompressorTest, HandlesInvalidData) {
     auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(reactor, downstream);
 
     // Feed invalid compressed data
-    std::pmr::vector<std::byte> invalid_data;
-    invalid_data.push_back(std::byte{0xFF});
-    invalid_data.push_back(std::byte{0xFE});
-    invalid_data.push_back(std::byte{0xFD});
-    invalid_data.push_back(std::byte{0xFC});
-
-    decompressor->Read(std::move(invalid_data));
+    std::vector<std::byte> invalid_bytes = {
+        std::byte{0xFF}, std::byte{0xFE}, std::byte{0xFD}, std::byte{0xFC}
+    };
+    auto chain = ToChain(invalid_bytes);
+    decompressor->OnData(chain);
 
     EXPECT_TRUE(downstream->error_called);
     EXPECT_EQ(downstream->last_error.code, ErrorCode::DecompressionError);
@@ -194,9 +215,8 @@ TEST(ZstdDecompressorTest, BuffersDataWhenSuspended) {
     decompressor->Suspend();
 
     // Feed compressed data - should be buffered
-    std::pmr::vector<std::byte> input;
-    input.assign(compressed.begin(), compressed.end());
-    decompressor->Read(std::move(input));
+    auto chain = ToChain(compressed);
+    decompressor->OnData(chain);
 
     // Data should not be processed yet
     EXPECT_TRUE(downstream->data.empty());
@@ -238,9 +258,9 @@ TEST(ZstdDecompressorTest, EmptyInput) {
     auto downstream = std::make_shared<MockZstdDownstream>();
     auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(reactor, downstream);
 
-    // Send empty data
-    std::pmr::vector<std::byte> empty;
-    decompressor->Read(std::move(empty));
+    // Send empty data - create empty chain
+    BufferChain empty_chain;
+    decompressor->OnData(empty_chain);
 
     decompressor->OnDone();
 
@@ -261,14 +281,12 @@ TEST(ZstdDecompressorTest, MultipleFrames) {
     auto compressed2 = CompressData(original2);
 
     // Send first frame
-    std::pmr::vector<std::byte> input1;
-    input1.assign(compressed1.begin(), compressed1.end());
-    decompressor->Read(std::move(input1));
+    auto chain1 = ToChain(compressed1);
+    decompressor->OnData(chain1);
 
     // Send second frame
-    std::pmr::vector<std::byte> input2;
-    input2.assign(compressed2.begin(), compressed2.end());
-    decompressor->Read(std::move(input2));
+    auto chain2 = ToChain(compressed2);
+    decompressor->OnData(chain2);
 
     decompressor->OnDone();
 
@@ -303,9 +321,8 @@ TEST(ZstdDecompressorTest, IncompleteZstdFrameEmitsError) {
     }
 
     // Feed truncated compressed data
-    std::pmr::vector<std::byte> input;
-    input.assign(compressed.begin(), compressed.end());
-    decompressor->Read(std::move(input));
+    auto chain = ToChain(compressed);
+    decompressor->OnData(chain);
 
     // Signal end of stream - should detect incomplete frame
     decompressor->OnDone();

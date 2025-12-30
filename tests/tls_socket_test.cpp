@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "src/buffer_chain.hpp"
 #include "src/pipeline.hpp"
 #include "src/reactor.hpp"
 #include "src/tls_socket.hpp"
@@ -16,8 +17,13 @@ struct MockTlsDownstream {
     Error last_error;
     bool done = false;
 
-    void Read(std::pmr::vector<std::byte> data) {
-        received.insert(received.end(), data.begin(), data.end());
+    void OnData(BufferChain& chain) {
+        while (!chain.Empty()) {
+            size_t chunk_size = chain.ContiguousSize();
+            const std::byte* ptr = chain.DataAt(0);
+            received.insert(received.end(), ptr, ptr + chunk_size);
+            chain.Consume(chunk_size);
+        }
     }
     void OnError(const Error& e) { last_error = e; }
     void OnDone() { done = true; }
@@ -111,8 +117,13 @@ TEST(TlsSocketTest, StartHandshakeProducesData) {
 
     // Track if upstream write callback was called
     std::vector<std::byte> handshake_data;
-    tls->SetUpstreamWriteCallback([&](std::pmr::vector<std::byte> data) {
-        handshake_data.insert(handshake_data.end(), data.begin(), data.end());
+    tls->SetUpstreamWriteCallback([&](BufferChain chain) {
+        while (!chain.Empty()) {
+            size_t chunk_size = chain.ContiguousSize();
+            const std::byte* ptr = chain.DataAt(0);
+            handshake_data.insert(handshake_data.end(), ptr, ptr + chunk_size);
+            chain.Consume(chunk_size);
+        }
     });
 
     tls->StartHandshake();

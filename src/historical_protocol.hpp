@@ -7,10 +7,10 @@
 #include <functional>
 #include <iomanip>
 #include <memory>
-#include <memory_resource>
 #include <sstream>
 #include <string>
 
+#include "buffer_chain.hpp"
 #include "dbn_parser_component.hpp"
 #include "http_client.hpp"
 #include "pipeline.hpp"
@@ -36,7 +36,7 @@ struct HistoricalRequest {
 //
 // Satisfies the ProtocolDriver concept. Uses TLS -> HTTP -> Zstd -> DBN parser chain.
 //
-// Chain: TcpSocket -> TlsSocket -> HttpClient -> ZstdDecompressor -> DbnParser -> SinkAdapter -> Sink
+// Chain: TcpSocket -> TlsSocket -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> SinkAdapter -> Sink
 //
 // Historical protocol requires TLS handshake before sending HTTP request.
 // OnConnect starts the handshake and returns false (not ready yet).
@@ -107,11 +107,11 @@ struct HistoricalProtocol {
     // Type-erased wrapper to avoid exposing the Record template
     struct ChainType {
         virtual ~ChainType() = default;
-        virtual void Read(std::pmr::vector<std::byte> data) = 0;
+        virtual void Read(BufferChain data) = 0;
         virtual void OnError(const Error& e) = 0;
         virtual void OnDone() = 0;
         virtual void Close() = 0;
-        virtual void SetWriteCallback(std::function<void(std::pmr::vector<std::byte>)> cb) = 0;
+        virtual void SetWriteCallback(std::function<void(BufferChain)> cb) = 0;
         virtual void StartHandshake() = 0;
         virtual bool IsHandshakeComplete() const = 0;
         virtual void SendHttpRequest(const std::string& request) = 0;
@@ -140,7 +140,7 @@ struct HistoricalProtocol {
             zstd_->SetUpstream(http_.get());
         }
 
-        void Read(std::pmr::vector<std::byte> data) override {
+        void Read(BufferChain data) override {
             tls_->Read(std::move(data));
         }
 
@@ -158,7 +158,7 @@ struct HistoricalProtocol {
             tls_->RequestClose();
         }
 
-        void SetWriteCallback(std::function<void(std::pmr::vector<std::byte>)> cb) override {
+        void SetWriteCallback(std::function<void(BufferChain)> cb) override {
             tls_->SetUpstreamWriteCallback(std::move(cb));
         }
 
@@ -172,9 +172,13 @@ struct HistoricalProtocol {
 
         void SendHttpRequest(const std::string& request) override {
             // TLS is ready, write HTTP request through TLS
-            std::pmr::vector<std::byte> data(request.size());
-            std::memcpy(data.data(), request.data(), request.size());
-            tls_->Write(std::move(data));
+            BufferChain chain;
+            auto seg = std::make_shared<Segment>();
+            size_t to_copy = std::min(request.size(), Segment::kSize);
+            std::memcpy(seg->data.data(), request.data(), to_copy);
+            seg->size = to_copy;
+            chain.Append(std::move(seg));
+            tls_->Write(std::move(chain));
         }
 
         const std::string& GetApiKey() const override {
@@ -202,8 +206,8 @@ struct HistoricalProtocol {
 
     // Wire TCP socket write to chain
     static void WireTcp(TcpSocket& tcp, std::shared_ptr<ChainType>& chain) {
-        chain->SetWriteCallback([&tcp](std::pmr::vector<std::byte> data) {
-            tcp.Write(std::span<const std::byte>(data.data(), data.size()));
+        chain->SetWriteCallback([&tcp](BufferChain data) {
+            tcp.Write(std::move(data));
         });
     }
 
@@ -217,8 +221,8 @@ struct HistoricalProtocol {
     }
 
     // Handle TCP read - forward data to chain, return handshake status
-    static bool OnRead(std::shared_ptr<ChainType>& chain, std::pmr::vector<std::byte> data) {
-        if (chain && !data.empty()) {
+    static bool OnRead(std::shared_ptr<ChainType>& chain, BufferChain data) {
+        if (chain && !data.Empty()) {
             chain->Read(std::move(data));
         }
         // Return true when handshake is complete (ready to send request)
