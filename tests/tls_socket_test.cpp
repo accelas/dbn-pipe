@@ -50,6 +50,9 @@ TEST(TlsSocketTest, SuspendAndResumeWork) {
     auto downstream = std::make_shared<MockTlsDownstream>();
     auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
 
+    // Initialize reactor thread ID for Suspend/Resume assertions
+    reactor.Poll(0);
+
     // Initially not suspended
     EXPECT_FALSE(tls->IsSuspended());
 

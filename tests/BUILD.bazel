@@ -49,10 +49,21 @@ cc_test(
 )
 
 cc_test(
+    name = "cram_auth_utils_test",
+    srcs = ["cram_auth_utils_test.cpp"],
+    deps = [
+        "//src:cram_auth_utils",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "cram_auth_test",
     srcs = ["cram_auth_test.cpp"],
     deps = [
         "//src:cram_auth",
+        "//src:pipeline",
+        "//src:reactor",
         "@googletest//:gtest_main",
     ],
 )
@@ -131,16 +142,6 @@ cc_test(
     ],
 )
 
-cc_test(
-    name = "live_protocol_handler_test",
-    srcs = ["live_protocol_handler_test.cpp"],
-    deps = [
-        "//src:live_protocol_handler",
-        "//src:pipeline",
-        "//src:reactor",
-        "@googletest//:gtest_main",
-    ],
-)
 
 cc_test(
     name = "symbol_map_test",
@@ -158,6 +159,83 @@ cc_test(
     deps = [
         "//src:record_batch",
         "@databento_cpp//:databento_with_impl",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "pipeline_base_test",
+    srcs = ["pipeline_base_test.cpp"],
+    deps = [
+        "//src:pipeline_base",
+        "//src:error",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "protocol_driver_test",
+    srcs = ["protocol_driver_test.cpp"],
+    deps = [
+        "//src:protocol_driver",
+        "//src:pipeline_base",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "live_protocol_test",
+    srcs = ["live_protocol_test.cpp"],
+    deps = [
+        "//src:live_protocol",
+        "//src:protocol_driver",
+        "//src:pipeline_base",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "historical_protocol_test",
+    srcs = ["historical_protocol_test.cpp"],
+    deps = [
+        "//src:historical_protocol",
+        "//src:protocol_driver",
+        "//src:pipeline_base",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "unified_pipeline_test",
+    srcs = ["unified_pipeline_test.cpp"],
+    deps = [
+        "//src:unified_pipeline",
+        "//src:live_protocol",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "client_test",
+    srcs = ["client_test.cpp"],
+    deps = [
+        "//src:client",
+        "//src:reactor",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "pipeline_integration_test",
+    srcs = ["pipeline_integration_test.cpp"],
+    deps = [
+        "//src:client",
+        "//src:reactor",
         "@googletest//:gtest_main",
     ],
 )

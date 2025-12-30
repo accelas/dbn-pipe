@@ -1,0 +1,68 @@
+// tests/protocol_driver_test.cpp
+#include <gtest/gtest.h>
+
+#include <memory>
+#include <string>
+
+#include "src/protocol_driver.hpp"
+#include "src/reactor.hpp"
+#include "src/pipeline_base.hpp"
+
+using namespace databento_async;
+
+// Mock sink for testing
+struct MockRecord {};
+using TestSink = Sink<MockRecord>;
+
+// Mock chain type
+struct MockChain {
+    void Close() {}
+};
+
+// Valid protocol driver for testing
+struct ValidProtocol {
+    struct Request {
+        std::string data;
+    };
+
+    using ChainType = MockChain;
+
+    static std::shared_ptr<ChainType> BuildChain(
+        Reactor&, TestSink&, const std::string&
+    ) {
+        return std::make_shared<ChainType>();
+    }
+
+    static void WireTcp(TcpSocket&, std::shared_ptr<ChainType>&) {}
+
+    static bool OnConnect(std::shared_ptr<ChainType>&) {
+        return true;
+    }
+
+    static bool OnRead(std::shared_ptr<ChainType>&, std::pmr::vector<std::byte>) {
+        return true;
+    }
+
+    static void SendRequest(std::shared_ptr<ChainType>&, const Request&) {}
+
+    static void Teardown(std::shared_ptr<ChainType>& chain) {
+        if (chain) chain->Close();
+    }
+};
+
+TEST(ProtocolDriverTest, ValidProtocolSatisfiesConcept) {
+    static_assert(ProtocolDriver<ValidProtocol, MockRecord>);
+    SUCCEED();
+}
+
+// Invalid protocol missing BuildChain
+struct InvalidProtocol {
+    struct Request {};
+    using ChainType = MockChain;
+    // Missing BuildChain and other methods
+};
+
+TEST(ProtocolDriverTest, InvalidProtocolDoesNotSatisfyConcept) {
+    static_assert(!ProtocolDriver<InvalidProtocol, MockRecord>);
+    SUCCEED();
+}
