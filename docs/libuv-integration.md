@@ -280,9 +280,9 @@ int main() {
     });
 
     // Option 1: Per-record callback (simple API)
-    client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
-        // Access record via As<T>() for specific types
-        // rec.As<databento::TradeMsg>()
+    client->OnRecord([](const dbn_pipe::RecordRef& ref) {
+        // ref.Header() for record header
+        // ref.As<databento::TradeMsg>() for typed access
         std::cout << "Received record\n";
     });
 
