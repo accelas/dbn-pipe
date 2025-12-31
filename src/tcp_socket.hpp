@@ -36,7 +36,6 @@ class TcpSocket : public Suspendable,
                   public std::enable_shared_from_this<TcpSocket<D>> {
 public:
     using ConnectCallback = std::function<void()>;
-    using WriteCallback = std::function<void()>;
 
     TcpSocket(Reactor& reactor, std::shared_ptr<D> downstream)
         : reactor_(reactor), downstream_(std::move(downstream)) {}
@@ -101,6 +100,7 @@ public:
             return;
         }
 
+        // Start with EPOLLOUT to detect connect completion (EPOLLIN for early errors)
         event_ = std::make_unique<Event>(reactor_, sock_fd, EPOLLOUT | EPOLLIN | EPOLLET);
         event_->OnEvent([this](uint32_t events) { HandleEvents(events); });
     }
@@ -132,18 +132,15 @@ public:
         }
         connected_ = false;
         read_paused_ = false;
+        watching_write_ = false;
         suspend_count_ = 0;
         write_buffer_.clear();
     }
 
-    // Callbacks for connect/write completion (kept for compatibility)
+    // Callback for connect completion
     template <typename F>
         requires std::invocable<F>
     void OnConnect(F&& cb) { on_connect_ = std::forward<F>(cb); }
-
-    template <typename F>
-        requires std::invocable<F>
-    void OnWrite(F&& cb) { on_write_ = std::forward<F>(cb); }
 
     // State
     bool IsConnected() const { return connected_; }
@@ -228,6 +225,8 @@ private:
     void HandleWritable() {
         if (!connected_) {
             connected_ = true;
+            // Switch to read-only mode after connect (no EPOLLOUT unless writes pending)
+            UpdateEpollFlags();
             on_connect_();
         }
 
@@ -238,29 +237,50 @@ private:
                                     write_buffer_.begin() + n);
             } else {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    break;
+                    // Need to wait for writability - ensure EPOLLOUT is set
+                    if (!watching_write_) {
+                        watching_write_ = true;
+                        UpdateEpollFlags();
+                    }
+                    return;
                 }
                 downstream_->OnError(Error{ErrorCode::ConnectionFailed,
                                            "write() failed", errno});
-                break;
+                return;
             }
         }
 
-        if (write_buffer_.empty()) {
-            on_write_();
+        // Write buffer drained - stop watching for writability
+        if (watching_write_) {
+            watching_write_ = false;
+            UpdateEpollFlags();
         }
     }
 
     void PauseRead() {
         if (read_paused_ || !event_) return;
         read_paused_ = true;
-        event_->Modify(EPOLLOUT | EPOLLET);
+        UpdateEpollFlags();
     }
 
     void ResumeRead() {
         if (!read_paused_ || !event_) return;
         read_paused_ = false;
-        event_->Modify(EPOLLOUT | EPOLLIN | EPOLLET);
+        UpdateEpollFlags();
+    }
+
+    // Compute and apply correct epoll flags based on current state
+    void UpdateEpollFlags() {
+        if (!event_ || !connected_) return;
+
+        uint32_t flags = EPOLLET;
+        if (!read_paused_) {
+            flags |= EPOLLIN;
+        }
+        if (watching_write_) {
+            flags |= EPOLLOUT;
+        }
+        event_->Modify(flags);
     }
 
     Reactor& reactor_;
@@ -268,13 +288,13 @@ private:
     std::unique_ptr<Event> event_;
     bool connected_ = false;
     bool read_paused_ = false;
+    bool watching_write_ = false;
     int suspend_count_ = 0;
 
     std::vector<std::byte> write_buffer_;
     SegmentPool segment_pool_{4};
 
     ConnectCallback on_connect_ = []() {};
-    WriteCallback on_write_ = []() {};
 };
 
 }  // namespace databento_async
