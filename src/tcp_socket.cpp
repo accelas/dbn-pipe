@@ -67,19 +67,39 @@ void TcpSocket::Close() {
     }
     connected_ = false;
     read_paused_ = false;
+    read_paused_actual_ = false;
+    sync_pending_ = false;
     write_buffer_.clear();
 }
 
 void TcpSocket::PauseRead() {
     if (read_paused_ || !event_) return;
     read_paused_ = true;
-    event_->Modify(EPOLLOUT | EPOLLET);
+    if (!sync_pending_) {
+        sync_pending_ = true;
+        reactor_.Defer([this]() { SyncReadState(); });
+    }
 }
 
 void TcpSocket::ResumeRead() {
     if (!read_paused_ || !event_) return;
     read_paused_ = false;
-    event_->Modify(EPOLLOUT | EPOLLIN | EPOLLET);
+    if (!sync_pending_) {
+        sync_pending_ = true;
+        reactor_.Defer([this]() { SyncReadState(); });
+    }
+}
+
+void TcpSocket::SyncReadState() {
+    sync_pending_ = false;
+    if (!event_) return;
+    if (read_paused_ == read_paused_actual_) return;  // No change needed
+    read_paused_actual_ = read_paused_;
+    if (read_paused_) {
+        event_->Modify(EPOLLOUT | EPOLLET);
+    } else {
+        event_->Modify(EPOLLOUT | EPOLLIN | EPOLLET);
+    }
 }
 
 void TcpSocket::HandleEvents(uint32_t events) {

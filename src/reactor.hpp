@@ -126,6 +126,8 @@ public:
     }
 
 private:
+    void RunDeferred();
+
     int epoll_fd_;
     bool running_ = false;
     std::vector<epoll_event> events_;

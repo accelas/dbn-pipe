@@ -102,6 +102,9 @@ int Reactor::Poll(int timeout_ms) {
     // Record the reactor thread ID for IsInReactorThread() checks
     reactor_thread_id_.store(std::this_thread::get_id(), std::memory_order_release);
 
+    // Run deferred callbacks before polling (enables lazy epoll modifications)
+    RunDeferred();
+
     int n = epoll_wait(epoll_fd_, events_.data(), kMaxEvents, timeout_ms);
     if (n < 0) {
         if (errno == EINTR) {
@@ -115,7 +118,13 @@ int Reactor::Poll(int timeout_ms) {
         event->Handle(events_[i].events);
     }
 
-    // Run deferred callbacks
+    // Run deferred callbacks after events (for callbacks scheduled by handlers)
+    RunDeferred();
+
+    return n;
+}
+
+void Reactor::RunDeferred() {
     while (!deferred_.empty()) {
         auto callbacks = std::move(deferred_);
         deferred_.clear();
@@ -123,8 +132,6 @@ int Reactor::Poll(int timeout_ms) {
             cb();
         }
     }
-
-    return n;
 }
 
 void Reactor::Run() {

@@ -71,12 +71,13 @@ public:
     bool IsConnected() const { return connected_; }
     int fd() const { return event_ ? event_->fd() : -1; }
 
-    // Backpressure control
+    // Backpressure control (lazy - syscall deferred until event loop)
     void PauseRead();
     void ResumeRead();
     bool IsReadPaused() const { return read_paused_; }
 
 private:
+    void SyncReadState();  // Deferred sync of read pause state
     void HandleEvents(uint32_t events);
     void HandleReadable();
     void HandleWritable();
@@ -84,7 +85,9 @@ private:
     Reactor& reactor_;
     std::unique_ptr<Event> event_;
     bool connected_ = false;
-    bool read_paused_ = false;
+    bool read_paused_ = false;         // Desired state (logical)
+    bool read_paused_actual_ = false;  // Actual epoll state
+    bool sync_pending_ = false;        // Deferred sync scheduled
 
     std::vector<std::byte> write_buffer_;
     SegmentPool segment_pool_{4};  // Pool for zero-copy reads
