@@ -36,6 +36,7 @@ cc_library(
     srcs = ["reactor.cpp"],
     hdrs = ["reactor.hpp"],
     visibility = ["//visibility:public"],
+    deps = [":event_loop"],
 )
 
 cc_library(
