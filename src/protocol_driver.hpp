@@ -6,7 +6,7 @@
 #include <string>
 
 #include "buffer_chain.hpp"
-#include "pipeline_base.hpp"
+#include "pipeline_sink.hpp"
 #include "reactor.hpp"
 #include "tcp_socket.hpp"
 

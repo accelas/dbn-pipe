@@ -1,4 +1,4 @@
-// src/pipeline_base.hpp
+// src/pipeline_sink.hpp
 #pragma once
 
 #include <cassert>

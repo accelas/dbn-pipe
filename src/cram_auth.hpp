@@ -15,7 +15,7 @@
 #include "buffer_chain.hpp"
 #include "cram_auth_utils.hpp"
 #include "error.hpp"
-#include "pipeline.hpp"
+#include "pipeline_component.hpp"
 #include "reactor.hpp"
 #include "tls_socket.hpp"  // For Suspendable
 

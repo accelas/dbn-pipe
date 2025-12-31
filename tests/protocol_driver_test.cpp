@@ -7,7 +7,7 @@
 #include "src/buffer_chain.hpp"
 #include "src/protocol_driver.hpp"
 #include "src/reactor.hpp"
-#include "src/pipeline_base.hpp"
+#include "src/pipeline_sink.hpp"
 
 using namespace databento_async;
 

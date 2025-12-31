@@ -4,7 +4,7 @@
 
 #include "src/historical_protocol.hpp"
 #include "src/protocol_driver.hpp"
-#include "src/pipeline_base.hpp"
+#include "src/pipeline_sink.hpp"
 
 using namespace databento_async;
 
