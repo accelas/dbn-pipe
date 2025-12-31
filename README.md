@@ -151,6 +151,11 @@ The `IEventLoop` interface requires:
 
 See [docs/libuv-integration.md](docs/libuv-integration.md) for complete adapter implementation.
 
+## Documentation
+
+- **[Getting Started](docs/getting-started.md)** - Complete guide with all features
+- **[libuv Integration](docs/libuv-integration.md)** - Integrate with existing libuv event loop
+
 ## Architecture
 
 ```
