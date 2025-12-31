@@ -42,6 +42,19 @@ struct Segment {
 
     // Check if segment is full
     bool IsFull() const noexcept { return size >= kSize; }
+
+    // Append data to segment, returns bytes actually written (capped by Remaining())
+    size_t Append(const void* src, size_t len) noexcept {
+        size_t to_copy = std::min(len, Remaining());
+        std::memcpy(data.data() + size, src, to_copy);
+        size += to_copy;
+        return to_copy;
+    }
+
+    // Append data from span
+    size_t Append(std::span<const std::byte> src) noexcept {
+        return Append(src.data(), src.size());
+    }
 };
 
 // Chain of segments representing received data.
@@ -259,10 +272,7 @@ public:
         if (first.use_count() > 1) {
             // Create a new segment with the remaining data
             auto new_seg = std::make_shared<Segment>();
-            std::memcpy(new_seg->data.data(),
-                        first->data.data() + consumed_offset_,
-                        remaining);
-            new_seg->size = remaining;
+            new_seg->Append(first->data.data() + consumed_offset_, remaining);
             first = std::move(new_seg);
         } else {
             // Safe to modify in place - move remaining bytes to start
@@ -272,6 +282,21 @@ public:
             first->size = remaining;
         }
         consumed_offset_ = 0;
+    }
+
+    // Append raw bytes to chain, creating segments as needed.
+    // Uses SegmentPool for allocation if provided (defined after SegmentPool).
+    inline void AppendBytes(const void* data, size_t len, SegmentPool& pool);
+
+    // Append raw bytes using make_shared for allocation
+    void AppendBytes(const void* data, size_t len) {
+        auto bytes = static_cast<const std::byte*>(data);
+        size_t offset = 0;
+        while (offset < len) {
+            auto seg = std::make_shared<Segment>();
+            offset += seg->Append(bytes + offset, len - offset);
+            Append(std::move(seg));
+        }
     }
 
 private:
@@ -336,5 +361,16 @@ private:
     std::vector<std::shared_ptr<Segment>> free_list_;
     size_t max_pool_size_;
 };
+
+// BufferChain methods that depend on SegmentPool
+inline void BufferChain::AppendBytes(const void* data, size_t len, SegmentPool& pool) {
+    auto bytes = static_cast<const std::byte*>(data);
+    size_t offset = 0;
+    while (offset < len) {
+        auto seg = pool.Acquire();
+        offset += seg->Append(bytes + offset, len - offset);
+        Append(std::move(seg));
+    }
+}
 
 }  // namespace databento_async
