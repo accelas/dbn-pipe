@@ -62,6 +62,11 @@ public:
         upstream_write_ = std::move(cb);
     }
 
+    // Set callback for when handshake completes
+    void SetHandshakeCompleteCallback(std::function<void()> cb) {
+        handshake_complete_cb_ = std::move(cb);
+    }
+
     // Required by PipelineComponent
     void DisableWatchers() {
         // No direct epoll watchers; TLS operates on memory BIOs
@@ -118,6 +123,7 @@ private:
     // State
     bool handshake_complete_ = false;
     bool handshake_started_ = false;
+    std::function<void()> handshake_complete_cb_;
 
     // Pending write data (when SSL_write returns WANT_READ/WANT_WRITE)
     BufferChain write_pending_;
@@ -230,6 +236,10 @@ void TlsTransport<D>::ProcessHandshake() {
         // Only if not suspended - ProcessPendingReads checks but be explicit
         if (!this->IsSuspended()) {
             ProcessPendingReads();
+        }
+        // Notify that handshake is complete
+        if (handshake_complete_cb_) {
+            handshake_complete_cb_();
         }
         return;
     }
