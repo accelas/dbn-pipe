@@ -105,27 +105,12 @@ For applications with an existing event loop, implement the `IEventLoop` interfa
 ```cpp
 #include <uv.h>
 #include "src/client.hpp"
-
-// Adapter wrapping existing uv_loop_t* (see docs/libuv-integration.md)
-class LibuvEventLoop : public dbn_pipe::IEventLoop {
-public:
-    explicit LibuvEventLoop(uv_loop_t* loop);
-
-    std::unique_ptr<IEventHandle> Register(
-        int fd, bool want_read, bool want_write,
-        ReadCallback on_read, WriteCallback on_write,
-        ErrorCallback on_error) override;
-
-    void Defer(std::function<void()> fn) override;
-    bool IsInEventLoopThread() const override;
-
-private:
-    uv_loop_t* loop_;  // Non-owning
-};
+#include "libuv_event_loop.hpp"  // Your adapter implementation
 
 int main() {
     uv_loop_t* loop = uv_default_loop();
-    LibuvEventLoop adapter(loop);  // Wrap existing loop
+    LibuvEventLoop adapter(loop);  // Wrap existing loop (non-owning)
+    adapter.SetEventLoopThread();  // Record thread ID for assertions
 
     auto client = dbn_pipe::LiveClient::Create(adapter, "your-api-key");
 
@@ -135,8 +120,21 @@ int main() {
         .schema = "mbp-1"
     });
 
+    // Option 1: Per-record callback
     client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
-        // Process alongside other libuv handlers
+        // rec.As<databento::Mbp1Msg>() for typed access
+    });
+
+    // Option 2: Batch callback (efficient bulk delivery)
+    client->OnRecord([](dbn_pipe::RecordBatch&& batch) {
+        for (const auto& ref : batch) {
+            // ref.Header() for common header
+            // ref.As<databento::Mbp1Msg>() for typed access
+        }
+    });
+
+    client->OnError([](const dbn_pipe::Error& e) {
+        std::cerr << "Error: " << e.message << std::endl;
     });
 
     client->Connect();
@@ -146,7 +144,17 @@ int main() {
 }
 ```
 
-See [docs/libuv-integration.md](docs/libuv-integration.md) for complete implementation.
+The `IEventLoop` interface requires:
+- `Register()` - Register fd for read/write events using `uv_poll_t`
+- `Defer()` - Schedule callback on event loop thread using `uv_async_t`
+- `IsInEventLoopThread()` - Thread safety check
+
+See [docs/libuv-integration.md](docs/libuv-integration.md) for complete adapter implementation.
+
+## Documentation
+
+- **[Getting Started](docs/getting-started.md)** - Complete guide with all features
+- **[libuv Integration](docs/libuv-integration.md)** - Integrate with existing libuv event loop
 
 ## Architecture
 
