@@ -248,14 +248,13 @@ void LibuvEventLoop::ProcessDeferredCallbacks() {
 
 ## Usage Example
 
-Here is how to use the libuv adapter with a Pipeline:
+Here is how to use the libuv adapter with `LiveClient`:
 
 ```cpp
 #include <uv.h>
+#include <iostream>
 
-#include "event_loop.hpp"
-#include "pipeline.hpp"
-#include "live_protocol.hpp"
+#include "src/client.hpp"
 
 // Include the libuv adapter implementation
 #include "libuv_event_loop.hpp"
@@ -270,38 +269,45 @@ int main() {
     // Record event loop thread (call from main/event loop thread)
     event_loop.SetEventLoopThread();
 
-    // Create pipeline using the adapter
-    using LivePipeline = dbn_pipe::Pipeline<
-        dbn_pipe::LiveProtocol,
-        databento::Record>;
+    // Create client using the adapter
+    auto client = dbn_pipe::LiveClient::Create(event_loop, "your-api-key");
 
-    auto pipeline = LivePipeline::Create(event_loop, "your-api-key");
-
-    // Configure the pipeline
-    pipeline->SetRequest(dbn_pipe::LiveRequest{
+    // Configure the request (string-based schema)
+    client->SetRequest({
         .dataset = "GLBX.MDP3",
-        .symbols = "ES.FUT",
-        .schema = databento::Schema::Trades,
-        .stype_in = databento::SType::Parent
+        .symbols = "ESZ4",
+        .schema = "trades"
     });
 
-    pipeline->OnRecord([](const databento::Record& record) {
-        // Handle received records
-        std::cout << "Received record with rtype: "
-                  << static_cast<int>(record.header().rtype()) << "\n";
+    // Option 1: Per-record callback (simple API)
+    client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
+        // Access record via As<T>() for specific types
+        // rec.As<databento::TradeMsg>()
+        std::cout << "Received record\n";
     });
 
-    pipeline->OnError([](const dbn_pipe::Error& error) {
+    // Option 2: Batch callback (efficient bulk delivery)
+    // If set, per-record callback is bypassed
+    client->OnRecord([](dbn_pipe::RecordBatch&& batch) {
+        for (const auto& ref : batch) {
+            // ref.Header() for common header access
+            // ref.As<databento::TradeMsg>() for typed access
+            std::cout << "Record rtype: "
+                      << static_cast<int>(ref.Header().rtype) << "\n";
+        }
+    });
+
+    client->OnError([](const dbn_pipe::Error& error) {
         std::cerr << "Error: " << error.message << "\n";
     });
 
-    pipeline->OnComplete([]() {
+    client->OnComplete([]() {
         std::cout << "Stream completed\n";
     });
 
     // Connect and start
-    pipeline->Connect();
-    pipeline->Start();
+    client->Connect();
+    client->Start();
 
     // Your existing libuv loop drives everything
     uv_run(loop, UV_RUN_DEFAULT);
@@ -318,9 +324,8 @@ If your application already has a libuv event loop with other handlers:
 
 ```cpp
 #include <uv.h>
+#include "src/client.hpp"
 #include "libuv_event_loop.hpp"
-#include "pipeline.hpp"
-#include "live_protocol.hpp"
 
 class MyApplication {
 public:
@@ -337,29 +342,25 @@ public:
     }
 
     void AddDatabentoStream(const std::string& api_key) {
-        using LivePipeline = dbn_pipe::Pipeline<
-            dbn_pipe::LiveProtocol,
-            databento::Record>;
+        client_ = dbn_pipe::LiveClient::Create(event_loop_, api_key);
 
-        pipeline_ = LivePipeline::Create(event_loop_, api_key);
-
-        pipeline_->SetRequest(dbn_pipe::LiveRequest{
+        client_->SetRequest({
             .dataset = "GLBX.MDP3",
-            .symbols = "ES.FUT",
-            .schema = databento::Schema::Trades,
-            .stype_in = databento::SType::Parent
+            .symbols = "ESZ4",
+            .schema = "trades"
         });
 
-        pipeline_->OnRecord([this](const databento::Record& r) {
-            HandleMarketData(r);
+        // Use batch callback for efficient processing
+        client_->OnRecord([this](dbn_pipe::RecordBatch&& batch) {
+            HandleMarketData(std::move(batch));
         });
 
-        pipeline_->OnError([this](const dbn_pipe::Error& e) {
+        client_->OnError([this](const dbn_pipe::Error& e) {
             HandleError(e);
         });
 
-        pipeline_->Connect();
-        pipeline_->Start();
+        client_->Connect();
+        client_->Start();
     }
 
     void Run() {
@@ -371,8 +372,11 @@ private:
     void SetupSignals() { /* ... */ }
     void SetupOtherIO() { /* ... */ }
 
-    void HandleMarketData(const databento::Record& r) {
-        // Process market data alongside other application logic
+    void HandleMarketData(dbn_pipe::RecordBatch&& batch) {
+        for (const auto& ref : batch) {
+            // Process market data alongside other application logic
+            // ref.As<databento::TradeMsg>() for typed access
+        }
     }
 
     void HandleError(const dbn_pipe::Error& e) {
@@ -381,9 +385,7 @@ private:
 
     uv_loop_t* loop_;
     dbn_pipe::LibuvEventLoop event_loop_;
-    std::shared_ptr<dbn_pipe::Pipeline<
-        dbn_pipe::LiveProtocol,
-        databento::Record>> pipeline_;
+    std::shared_ptr<dbn_pipe::LiveClient> client_;
 };
 
 int main() {
