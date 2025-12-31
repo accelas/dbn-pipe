@@ -1,6 +1,12 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 cc_library(
+    name = "event_loop",
+    hdrs = ["event_loop.hpp"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
     name = "error",
     hdrs = ["error.hpp"],
     visibility = ["//visibility:public"],
