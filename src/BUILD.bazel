@@ -1,17 +1,28 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
+# Public event loop interface + type-erased wrapper
 cc_library(
     name = "event_loop",
+    srcs = ["event_loop.cpp"],
     hdrs = ["event_loop.hpp"],
     visibility = ["//visibility:public"],
+    deps = [":epoll_event_loop_internal"],
 )
 
+# Internal epoll implementation - not part of public API
+cc_library(
+    name = "epoll_event_loop_internal",
+    srcs = ["epoll_event_loop.cpp"],
+    hdrs = ["epoll_event_loop.hpp", "event_loop.hpp"],
+    visibility = ["//tests:__pkg__"],
+)
+
+# For tests that need direct access to EpollEventLoop
 cc_library(
     name = "epoll_event_loop",
-    srcs = ["epoll_event_loop.cpp"],
     hdrs = ["epoll_event_loop.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [":event_loop"],
+    visibility = ["//tests:__pkg__"],
+    deps = [":epoll_event_loop_internal"],
 )
 
 cc_library(
