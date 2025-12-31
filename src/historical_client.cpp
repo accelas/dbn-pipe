@@ -208,7 +208,7 @@ void HistoricalClient::Suspend() {
     // atomic exchange returns the previous value
     if (!suspended_.exchange(true, std::memory_order_acq_rel)) {
         if (tcp_) {
-            tcp_->PauseRead();
+            tcp_->Suspend();
         }
     }
 }
@@ -219,7 +219,7 @@ void HistoricalClient::Resume() {
     // atomic exchange returns the previous value
     if (suspended_.exchange(false, std::memory_order_acq_rel)) {
         if (tcp_) {
-            tcp_->ResumeRead();
+            tcp_->Resume();
         }
     }
 }
