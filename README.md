@@ -31,6 +31,8 @@ bazel test //tests/...
 
 ### Usage
 
+#### Live Streaming
+
 ```cpp
 #include "src/client.hpp"
 
@@ -38,24 +40,58 @@ using namespace databento_async;
 
 int main() {
     Reactor reactor;
-    auto pipeline = Pipeline<LiveProtocol, DbnRecord>::Create(reactor, "your-api-key");
+    auto client = LiveClient::Create(reactor, "your-api-key");
 
-    pipeline->SetRequest({
+    client->SetRequest({
         .dataset = "GLBX.MDP3",
         .symbols = "ESZ4",
         .schema = "mbp-1"
     });
 
-    pipeline->OnRecord([](const DbnRecord& rec) {
+    client->OnRecord([](const DbnRecord& rec) {
         // Process record
     });
 
-    pipeline->OnError([](const Error& e) {
+    client->OnError([](const Error& e) {
         std::cerr << "Error: " << e.message << std::endl;
     });
 
-    pipeline->Connect();  // Resolves glbx-mdp3.lsg.databento.com:13000
-    pipeline->Start();
+    client->Connect();  // Resolves glbx-mdp3.lsg.databento.com:13000
+    client->Start();
+
+    reactor.Run();
+}
+```
+
+#### Historical Download
+
+```cpp
+#include "src/client.hpp"
+
+using namespace databento_async;
+
+int main() {
+    Reactor reactor;
+    auto client = HistoricalClient::Create(reactor, "your-api-key");
+
+    client->SetRequest({
+        .dataset = "GLBX.MDP3",
+        .symbols = "ESZ4",
+        .schema = "mbp-1",
+        .start = 1704067200000000000,  // 2024-01-01 00:00:00 UTC (nanoseconds)
+        .end = 1704153600000000000     // 2024-01-02 00:00:00 UTC (nanoseconds)
+    });
+
+    client->OnRecord([](const DbnRecord& rec) {
+        // Process record
+    });
+
+    client->OnComplete([]() {
+        std::cout << "Download complete" << std::endl;
+    });
+
+    client->Connect();  // Connects to hist.databento.com:443
+    client->Start();
 
     reactor.Run();
 }
@@ -76,8 +112,8 @@ Historical Pipeline:
 | Component | Description |
 |-----------|-------------|
 | `Reactor` | Epoll-based event loop |
-| `TcpSocket<D>` | Templated TCP client, chain head |
-| `Pipeline<P, R>` | Unified pipeline template |
+| `LiveClient` | Alias for `Pipeline<LiveProtocol, DbnRecord>` |
+| `HistoricalClient` | Alias for `Pipeline<HistoricalProtocol, DbnRecord>` |
 | `BufferChain` | Zero-copy buffer management with segment pooling |
 | `DbnParserComponent` | Zero-copy DBN record parser |
 
