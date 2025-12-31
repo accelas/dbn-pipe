@@ -18,8 +18,8 @@
 
 #include "buffer_chain.hpp"
 #include "error.hpp"
+#include "event_loop.hpp"
 #include "pipeline_component.hpp"
-#include "reactor.hpp"
 #include "tls_transport.hpp"  // For Suspendable
 
 namespace databento_async {
@@ -126,11 +126,11 @@ public:
 
     // Factory method for shared_from_this safety
     static std::shared_ptr<CramAuth> Create(
-        Reactor& reactor,
+        IEventLoop& loop,
         std::shared_ptr<D> downstream,
         std::string api_key
     ) {
-        return std::make_shared<MakeSharedEnabler>(reactor, std::move(downstream),
+        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream),
                                                     std::move(api_key));
     }
 
@@ -198,7 +198,7 @@ public:
     static constexpr std::size_t kMaxLineLength = 8 * 1024;           // 8KB
 
 private:
-    CramAuth(Reactor& reactor, std::shared_ptr<D> downstream,
+    CramAuth(IEventLoop& loop, std::shared_ptr<D> downstream,
              std::string api_key);
 
     // Process accumulated line buffer for text mode
@@ -249,19 +249,19 @@ private:
 // MakeSharedEnabler - allows make_shared with private constructor
 template <Downstream D>
 struct CramAuth<D>::MakeSharedEnabler : public CramAuth<D> {
-    MakeSharedEnabler(Reactor& reactor, std::shared_ptr<D> downstream,
+    MakeSharedEnabler(IEventLoop& loop, std::shared_ptr<D> downstream,
                       std::string api_key)
-        : CramAuth<D>(reactor, std::move(downstream),
+        : CramAuth<D>(loop, std::move(downstream),
                       std::move(api_key)) {}
 };
 
 // Implementation
 
 template <Downstream D>
-CramAuth<D>::CramAuth(Reactor& reactor,
+CramAuth<D>::CramAuth(IEventLoop& loop,
                       std::shared_ptr<D> downstream,
                       std::string api_key)
-    : Base(reactor)
+    : Base(loop)
     , downstream_(std::move(downstream))
     , api_key_(std::move(api_key))
 {}

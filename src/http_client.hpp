@@ -12,8 +12,8 @@
 
 #include "buffer_chain.hpp"
 #include "error.hpp"
+#include "event_loop.hpp"
 #include "pipeline_component.hpp"
-#include "reactor.hpp"
 #include "tls_transport.hpp"
 
 namespace databento_async {
@@ -28,13 +28,13 @@ class HttpClient : public PipelineComponent<HttpClient<D>>,
                    public std::enable_shared_from_this<HttpClient<D>> {
 public:
     // Factory method for shared_from_this safety
-    static std::shared_ptr<HttpClient> Create(Reactor& reactor,
+    static std::shared_ptr<HttpClient> Create(IEventLoop& loop,
                                                std::shared_ptr<D> downstream) {
         struct MakeSharedEnabler : public HttpClient {
-            MakeSharedEnabler(Reactor& r, std::shared_ptr<D> ds)
-                : HttpClient(r, std::move(ds)) {}
+            MakeSharedEnabler(IEventLoop& l, std::shared_ptr<D> ds)
+                : HttpClient(l, std::move(ds)) {}
         };
-        return std::make_shared<MakeSharedEnabler>(reactor, std::move(downstream));
+        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream));
     }
 
     ~HttpClient() = default;
@@ -169,7 +169,7 @@ public:
 
 private:
     // Private constructor - use Create() factory method
-    HttpClient(Reactor& reactor, std::shared_ptr<D> downstream);
+    HttpClient(IEventLoop& loop, std::shared_ptr<D> downstream);
 
     // llhttp callbacks (static, use parser->data to get this pointer)
     static int OnMessageBegin(llhttp_t* parser);
@@ -249,8 +249,8 @@ private:
 // Implementation - must be in header due to template
 
 template <Downstream D>
-HttpClient<D>::HttpClient(Reactor& reactor, std::shared_ptr<D> downstream)
-    : PipelineComponent<HttpClient<D>>(reactor), downstream_(std::move(downstream)) {
+HttpClient<D>::HttpClient(IEventLoop& loop, std::shared_ptr<D> downstream)
+    : PipelineComponent<HttpClient<D>>(loop), downstream_(std::move(downstream)) {
     // Initialize llhttp settings
     llhttp_settings_init(&settings_);
     settings_.on_message_begin = OnMessageBegin;

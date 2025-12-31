@@ -46,7 +46,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":error",
-        ":reactor",
+        ":event_loop",
     ],
 )
 
@@ -57,8 +57,8 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
+        ":event_loop",
         ":pipeline_component",
-        ":reactor",
         "@openssl_sys//:ssl",
         "@openssl_sys//:crypto",
     ],
@@ -70,8 +70,8 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":error",
+        ":event_loop",
         ":pipeline_component",
-        ":reactor",
         ":tls_transport",
         "@llhttp",
     ],
@@ -84,8 +84,8 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
+        ":event_loop",
         ":pipeline_component",
-        ":reactor",
         "@zstd",
     ],
 )
@@ -112,8 +112,8 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
+        ":event_loop",
         ":pipeline_component",
-        ":reactor",
         ":tls_transport",
         "@openssl_sys//:crypto",
     ],

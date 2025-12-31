@@ -4,8 +4,8 @@
 #include <vector>
 
 #include "src/buffer_chain.hpp"
+#include "src/epoll_event_loop.hpp"
 #include "src/pipeline_component.hpp"
-#include "src/reactor.hpp"
 
 using namespace databento_async;
 
@@ -57,7 +57,7 @@ class TestComponent
     : public PipelineComponent<TestComponent>
     , public std::enable_shared_from_this<TestComponent> {
 public:
-    TestComponent(Reactor& r) : PipelineComponent(r) {}
+    TestComponent(IEventLoop& loop) : PipelineComponent(loop) {}
 
     int process_count = 0;
     bool do_close_called = false;
@@ -75,8 +75,8 @@ public:
 };
 
 TEST(PipelineComponentTest, TryGuardRejectsWhenClosed) {
-    Reactor reactor;
-    auto comp = std::make_shared<TestComponent>(reactor);
+    EpollEventLoop loop;
+    auto comp = std::make_shared<TestComponent>(loop);
 
     comp->Process();
     EXPECT_EQ(comp->process_count, 1);
@@ -87,8 +87,8 @@ TEST(PipelineComponentTest, TryGuardRejectsWhenClosed) {
 }
 
 TEST(PipelineComponentTest, ProcessingGuardDefersClose) {
-    Reactor reactor;
-    auto comp = std::make_shared<TestComponent>(reactor);
+    EpollEventLoop loop;
+    auto comp = std::make_shared<TestComponent>(loop);
 
     {
         auto guard = comp->TryGuard();
@@ -98,8 +98,8 @@ TEST(PipelineComponentTest, ProcessingGuardDefersClose) {
         EXPECT_TRUE(comp->IsClosed());
         EXPECT_FALSE(comp->do_close_called);  // Not yet
     }
-    // Guard destroyed, but DoClose is deferred to reactor
+    // Guard destroyed, but DoClose is deferred to event loop
 
-    reactor.Poll(0);  // Run deferred callbacks
+    loop.Poll(0);  // Run deferred callbacks
     EXPECT_TRUE(comp->do_close_called);
 }

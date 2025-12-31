@@ -8,8 +8,8 @@
 
 #include "src/buffer_chain.hpp"
 #include "src/cram_auth.hpp"
+#include "src/epoll_event_loop.hpp"
 #include "src/pipeline_component.hpp"
-#include "src/reactor.hpp"
 
 using namespace databento_async;
 
@@ -72,12 +72,12 @@ std::string ToString(const std::vector<std::byte>& data) {
 class CramAuthTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Initialize reactor thread ID for Suspend/Resume assertions
-        reactor_.Poll(0);
+        // Initialize event loop thread ID for Suspend/Resume assertions
+        loop_.Poll(0);
 
         downstream_ = std::make_shared<MockCramDownstream>();
         handler_ = CramAuth<MockCramDownstream>::Create(
-            reactor_, downstream_, "test_api_key");
+            loop_, downstream_, "test_api_key");
     }
 
     // Helper to send string data to handler
@@ -92,7 +92,7 @@ protected:
         handler_->OnData(chain);
     }
 
-    Reactor reactor_;
+    EpollEventLoop loop_;
     std::shared_ptr<MockCramDownstream> downstream_;
     std::shared_ptr<CramAuth<MockCramDownstream>> handler_;
     std::vector<std::byte> sent_data_;

@@ -5,8 +5,8 @@
 #include <vector>
 
 #include "src/buffer_chain.hpp"
+#include "src/epoll_event_loop.hpp"
 #include "src/pipeline_component.hpp"
-#include "src/reactor.hpp"
 #include "src/tls_transport.hpp"
 
 using namespace databento_async;
@@ -33,18 +33,18 @@ struct MockTlsDownstream {
 static_assert(Downstream<MockTlsDownstream>);
 
 TEST(TlsTransportTest, FactoryCreatesInstance) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
 
-    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
     ASSERT_NE(tls, nullptr);
 }
 
 TEST(TlsTransportTest, ImplementsUpstreamConcept) {
     // TlsTransport must satisfy Upstream concept for pipeline integration
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
 
     // Verify Upstream interface is available
     static_assert(Upstream<TlsTransport<MockTlsDownstream>>);
@@ -52,12 +52,12 @@ TEST(TlsTransportTest, ImplementsUpstreamConcept) {
 }
 
 TEST(TlsTransportTest, SuspendAndResumeWork) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
 
-    // Initialize reactor thread ID for Suspend/Resume assertions
-    reactor.Poll(0);
+    // Initialize event loop thread ID for Suspend/Resume assertions
+    loop.Poll(0);
 
     // Initially not suspended
     EXPECT_FALSE(tls->IsSuspended());
@@ -70,26 +70,26 @@ TEST(TlsTransportTest, SuspendAndResumeWork) {
 }
 
 TEST(TlsTransportTest, CloseCallsDoClose) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
 
     tls->Close();
     EXPECT_TRUE(tls->IsClosed());
 }
 
 TEST(TlsTransportTest, HandshakeNotCompleteInitially) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
 
     EXPECT_FALSE(tls->IsHandshakeComplete());
 }
 
 TEST(TlsTransportTest, CanSetHostnameForSNI) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
 
     // Setting hostname should not throw
     tls->SetHostname("example.com");
@@ -98,9 +98,9 @@ TEST(TlsTransportTest, CanSetHostnameForSNI) {
 
 // Integration test: verify the TLS objects are properly initialized
 TEST(TlsTransportTest, OpenSSLObjectsInitialized) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
 
     // The TLS socket should have valid SSL context and connection
     // We can't directly check internals, but construction should succeed
@@ -109,9 +109,9 @@ TEST(TlsTransportTest, OpenSSLObjectsInitialized) {
 
 // Test that StartHandshake initiates TLS negotiation
 TEST(TlsTransportTest, StartHandshakeProducesData) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
 
     tls->SetHostname("test.example.com");
 

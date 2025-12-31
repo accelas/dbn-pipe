@@ -7,9 +7,9 @@
 #include <vector>
 
 #include "src/buffer_chain.hpp"
+#include "src/epoll_event_loop.hpp"
 #include "src/http_client.hpp"
 #include "src/pipeline_component.hpp"
-#include "src/reactor.hpp"
 
 using namespace databento_async;
 
@@ -49,17 +49,17 @@ BufferChain ToChain(const std::string& str) {
 }
 
 TEST(HttpClientTest, FactoryCreatesInstance) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
 
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
     ASSERT_NE(http, nullptr);
 }
 
 TEST(HttpClientTest, ParsesSuccessResponse) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
 
     std::string response =
         "HTTP/1.1 200 OK\r\n"
@@ -75,9 +75,9 @@ TEST(HttpClientTest, ParsesSuccessResponse) {
 }
 
 TEST(HttpClientTest, ParsesChunkedResponse) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
 
     // Send response in chunks
     std::string part1 = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhello";
@@ -97,9 +97,9 @@ TEST(HttpClientTest, ParsesChunkedResponse) {
 }
 
 TEST(HttpClientTest, HandlesHttpError400) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
 
     std::string response =
         "HTTP/1.1 400 Bad Request\r\n"
@@ -119,9 +119,9 @@ TEST(HttpClientTest, HandlesHttpError400) {
 }
 
 TEST(HttpClientTest, HandlesHttpError500) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
 
     std::string response =
         "HTTP/1.1 500 Internal Server Error\r\n"
@@ -138,9 +138,9 @@ TEST(HttpClientTest, HandlesHttpError500) {
 }
 
 TEST(HttpClientTest, HandlesRedirect301AsError) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
 
     std::string response =
         "HTTP/1.1 301 Moved Permanently\r\n"
@@ -158,12 +158,12 @@ TEST(HttpClientTest, HandlesRedirect301AsError) {
 }
 
 TEST(HttpClientTest, SuspendAndResumeWork) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
 
-    // Initialize reactor thread ID for Suspend/Resume assertions
-    reactor.Poll(0);
+    // Initialize event loop thread ID for Suspend/Resume assertions
+    loop.Poll(0);
 
     // Initially not suspended
     EXPECT_FALSE(http->IsSuspended());
@@ -176,18 +176,18 @@ TEST(HttpClientTest, SuspendAndResumeWork) {
 }
 
 TEST(HttpClientTest, CloseCallsDoClose) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
 
     http->Close();
     EXPECT_TRUE(http->IsClosed());
 }
 
 TEST(HttpClientTest, EmptyBodyResponse) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
 
     std::string response =
         "HTTP/1.1 204 No Content\r\n"
@@ -202,9 +202,9 @@ TEST(HttpClientTest, EmptyBodyResponse) {
 }
 
 TEST(HttpClientTest, StatusCodeAccessor) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
 
     // Send just headers to check status code before message complete
     std::string headers =
@@ -228,9 +228,9 @@ TEST(HttpClientTest, StatusCodeAccessor) {
 
 TEST(HttpClientTest, ImplementsUpstreamConcept) {
     // HttpClient must satisfy Upstream concept for pipeline integration
-    Reactor reactor;
+    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(reactor, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
 
     // Verify Upstream interface is available
     static_assert(Upstream<HttpClient<MockHttpDownstream>>);
