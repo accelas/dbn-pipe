@@ -34,8 +34,8 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
+        ":event_loop",
         ":pipeline_component",
-        ":reactor",
     ],
 )
 

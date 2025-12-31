@@ -23,8 +23,8 @@ cc_test(
     srcs = ["tcp_socket_test.cpp"],
     deps = [
         "//src:buffer_chain",
+        "//src:epoll_event_loop",
         "//src:error",
-        "//src:reactor",
         "//src:tcp_socket",
         "@googletest//:gtest_main",
     ],
