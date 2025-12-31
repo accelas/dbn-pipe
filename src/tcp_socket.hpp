@@ -19,7 +19,7 @@
 #include "buffer_chain.hpp"
 #include "error.hpp"
 #include "pipeline_component.hpp"
-#include "reactor.hpp"
+#include "event_loop.hpp"
 
 namespace databento_async {
 
@@ -37,8 +37,8 @@ class TcpSocket : public Suspendable,
 public:
     using ConnectCallback = std::function<void()>;
 
-    TcpSocket(Reactor& reactor, std::shared_ptr<D> downstream)
-        : reactor_(reactor), downstream_(std::move(downstream)) {}
+    TcpSocket(IEventLoop& loop, std::shared_ptr<D> downstream)
+        : loop_(loop), downstream_(std::move(downstream)) {}
 
     ~TcpSocket() override { Close(); }
 
@@ -50,8 +50,8 @@ public:
 
     // Factory for shared_ptr (consistent with other components)
     // Wires up upstream write callback and backpressure after construction.
-    static std::shared_ptr<TcpSocket> Create(Reactor& reactor, std::shared_ptr<D> downstream) {
-        auto tcp = std::make_shared<TcpSocket>(reactor, std::move(downstream));
+    static std::shared_ptr<TcpSocket> Create(IEventLoop& loop, std::shared_ptr<D> downstream) {
+        auto tcp = std::make_shared<TcpSocket>(loop, std::move(downstream));
         tcp->WireDownstream();
         return tcp;
     }
@@ -100,14 +100,25 @@ public:
             return;
         }
 
-        // Start with EPOLLOUT to detect connect completion (EPOLLIN for early errors)
-        event_ = std::make_unique<Event>(reactor_, sock_fd, EPOLLOUT | EPOLLIN | EPOLLET);
-        event_->OnEvent([this](uint32_t events) { HandleEvents(events); });
+        // Start with read+write to detect connect completion and early errors
+        fd_ = sock_fd;
+        handle_ = loop_.Register(
+            sock_fd,
+            /*want_read=*/true,
+            /*want_write=*/true,  // For connect completion
+            [this]() { HandleReadable(); },
+            [this]() { HandleWritable(); },
+            [this](int err) {
+                downstream_->OnError(Error{ErrorCode::ConnectionFailed,
+                                           "socket error", err});
+                Close();
+            }
+        );
     }
 
     // Write data to socket (queued if not yet writable)
     void Write(BufferChain data) {
-        if (!event_) return;
+        if (!handle_) return;
 
         while (!data.Empty()) {
             size_t chunk_size = data.ContiguousSize();
@@ -123,12 +134,10 @@ public:
 
     // Close connection (implements Suspendable::Close)
     void Close() override {
-        if (event_) {
-            int sock_fd = event_->fd();
-            event_.reset();
-            if (sock_fd >= 0) {
-                ::close(sock_fd);
-            }
+        handle_.reset();
+        if (fd_ >= 0) {
+            ::close(fd_);
+            fd_ = -1;
         }
         connected_ = false;
         read_paused_ = false;
@@ -144,7 +153,7 @@ public:
 
     // State
     bool IsConnected() const { return connected_; }
-    int fd() const { return event_ ? event_->fd() : -1; }
+    int fd() const { return fd_; }
 
     // =========================================================================
     // Suspendable interface
@@ -166,26 +175,6 @@ public:
     bool IsSuspended() const override { return suspend_count_ > 0; }
 
 private:
-    void HandleEvents(uint32_t events) {
-        if (events & (EPOLLERR | EPOLLHUP)) {
-            int err = 0;
-            socklen_t len = sizeof(err);
-            getsockopt(fd(), SOL_SOCKET, SO_ERROR, &err, &len);
-            downstream_->OnError(Error{ErrorCode::ConnectionFailed,
-                                       "socket error", err ? err : ECONNRESET});
-            Close();
-            return;
-        }
-
-        if (events & EPOLLIN) {
-            HandleReadable();
-        }
-
-        if (events & EPOLLOUT) {
-            HandleWritable();
-        }
-    }
-
     void HandleReadable() {
         BufferChain chain;
         chain.SetRecycleCallback(segment_pool_.MakeRecycler());
@@ -258,34 +247,27 @@ private:
     }
 
     void PauseRead() {
-        if (read_paused_ || !event_) return;
+        if (read_paused_ || !handle_) return;
         read_paused_ = true;
         UpdateEpollFlags();
     }
 
     void ResumeRead() {
-        if (!read_paused_ || !event_) return;
+        if (!read_paused_ || !handle_) return;
         read_paused_ = false;
         UpdateEpollFlags();
     }
 
     // Compute and apply correct epoll flags based on current state
     void UpdateEpollFlags() {
-        if (!event_ || !connected_) return;
-
-        uint32_t flags = EPOLLET;
-        if (!read_paused_) {
-            flags |= EPOLLIN;
-        }
-        if (watching_write_) {
-            flags |= EPOLLOUT;
-        }
-        event_->Modify(flags);
+        if (!handle_ || !connected_) return;
+        handle_->Update(!read_paused_, watching_write_);
     }
 
-    Reactor& reactor_;
+    IEventLoop& loop_;
     std::shared_ptr<D> downstream_;
-    std::unique_ptr<Event> event_;
+    std::unique_ptr<IEventHandle> handle_;
+    int fd_ = -1;
     bool connected_ = false;
     bool read_paused_ = false;
     bool watching_write_ = false;
