@@ -2,21 +2,21 @@
 #include <gtest/gtest.h>
 
 #include "src/client.hpp"
-#include "src/reactor.hpp"
+#include "src/epoll_event_loop.hpp"
 
 using namespace databento_async;
 
 class PipelineIntegrationTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        reactor_.Poll(0);  // Initialize thread ID
+        loop_.Poll(0);  // Initialize thread ID
     }
 
-    Reactor reactor_;
+    EpollEventLoop loop_;
 };
 
 TEST_F(PipelineIntegrationTest, LiveClientLifecycle) {
-    auto client = LiveClient::Create(reactor_, "test_api_key");
+    auto client = LiveClient::Create(loop_, "test_api_key");
 
     bool error_received = false;
     bool complete_received = false;
@@ -42,7 +42,7 @@ TEST_F(PipelineIntegrationTest, LiveClientLifecycle) {
 }
 
 TEST_F(PipelineIntegrationTest, HistoricalClientLifecycle) {
-    auto client = HistoricalClient::Create(reactor_, "test_api_key");
+    auto client = HistoricalClient::Create(loop_, "test_api_key");
 
     HistoricalRequest req{
         "GLBX.MDP3",
@@ -57,7 +57,7 @@ TEST_F(PipelineIntegrationTest, HistoricalClientLifecycle) {
 }
 
 TEST_F(PipelineIntegrationTest, SuspendResumeBeforeConnect) {
-    auto client = LiveClient::Create(reactor_, "test_api_key");
+    auto client = LiveClient::Create(loop_, "test_api_key");
 
     EXPECT_FALSE(client->IsSuspended());
 
