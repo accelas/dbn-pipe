@@ -1,4 +1,4 @@
-// Copyright 2024 Databento, Inc.
+// Copyright 2024 Kai Wang
 // SPDX-License-Identifier: Apache-2.0
 
 #include "epoll_event_loop.hpp"
