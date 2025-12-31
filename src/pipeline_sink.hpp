@@ -23,7 +23,7 @@ public:
 };
 
 // Sink bridges protocol components to Pipeline callbacks.
-// Thread-safety: ALL methods must be called from reactor thread.
+// Thread-safety: ALL methods must be called from event loop thread.
 // No atomics needed since single-threaded access is guaranteed.
 template <typename Record>
 class Sink {
