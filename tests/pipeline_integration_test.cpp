@@ -3,6 +3,7 @@
 
 #include "src/client.hpp"
 #include "src/epoll_event_loop.hpp"
+#include "src/reactor.hpp"
 
 using namespace dbn_pipe;
 
@@ -72,4 +73,84 @@ TEST_F(PipelineIntegrationTest, SuspendResumeBeforeConnect) {
 
     client->Resume();
     EXPECT_FALSE(client->IsSuspended());
+}
+
+// Tests using Reactor (the legacy event loop) with Pipeline
+class ReactorPipelineTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        reactor_.Poll(0);  // Initialize thread ID
+    }
+
+    Reactor reactor_;
+};
+
+TEST_F(ReactorPipelineTest, LiveClientWithReactor) {
+    // Reactor implements IEventLoop, so it should work with Pipeline::Create
+    auto client = LiveClient::Create(reactor_, "test_api_key");
+
+    bool error_received = false;
+    bool complete_received = false;
+
+    client->OnError([&](const Error& /*e*/) {
+        error_received = true;
+    });
+
+    client->OnComplete([&]() {
+        complete_received = true;
+    });
+
+    LiveRequest req{"GLBX.MDP3", "ESZ4", "mbp-1"};
+    client->SetRequest(req);
+
+    EXPECT_EQ(client->GetState(), PipelineState::Disconnected);
+
+    client->Stop();
+    EXPECT_EQ(client->GetState(), PipelineState::Stopping);
+}
+
+TEST_F(ReactorPipelineTest, HistoricalClientWithReactor) {
+    auto client = HistoricalClient::Create(reactor_, "test_api_key");
+
+    HistoricalRequest req{
+        "GLBX.MDP3",
+        "ESZ4",
+        "mbp-1",
+        1704067200000000000ULL,
+        1704153600000000000ULL
+    };
+    client->SetRequest(req);
+
+    EXPECT_EQ(client->GetState(), PipelineState::Disconnected);
+}
+
+TEST_F(ReactorPipelineTest, DeferredCallbackWithReactor) {
+    auto client = LiveClient::Create(reactor_, "test_api_key");
+
+    bool deferred_executed = false;
+    reactor_.Defer([&]() {
+        deferred_executed = true;
+    });
+
+    EXPECT_FALSE(deferred_executed);
+    reactor_.Poll(0);
+    EXPECT_TRUE(deferred_executed);
+}
+
+TEST_F(ReactorPipelineTest, ReactorWithTimer) {
+    auto client = LiveClient::Create(reactor_, "test_api_key");
+
+    Timer timer(reactor_);
+    bool timer_fired = false;
+
+    timer.OnTimer([&]() {
+        timer_fired = true;
+        reactor_.Stop();
+    });
+
+    timer.Start(10);  // 10ms one-shot timer
+
+    reactor_.Run();  // Will exit when timer fires
+
+    EXPECT_TRUE(timer_fired);
 }

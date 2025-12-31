@@ -10,6 +10,8 @@
 #include <thread>
 #include <vector>
 
+#include "event_loop.hpp"
+
 namespace dbn_pipe {
 
 class Reactor;
@@ -91,16 +93,33 @@ private:
     bool armed_ = false;
 };
 
-class Reactor {
+class Reactor : public IEventLoop {
 public:
     Reactor();
-    ~Reactor();
+    ~Reactor() override;
 
     // Non-copyable, non-movable
     Reactor(const Reactor&) = delete;
     Reactor& operator=(const Reactor&) = delete;
     Reactor(Reactor&&) = delete;
     Reactor& operator=(Reactor&&) = delete;
+
+    // IEventLoop interface
+    std::unique_ptr<IEventHandle> Register(
+        int fd,
+        bool want_read,
+        bool want_write,
+        ReadCallback on_read,
+        WriteCallback on_write,
+        ErrorCallback on_error) override;
+
+    void Defer(std::function<void()> fn) override {
+        deferred_.push_back(std::move(fn));
+    }
+
+    bool IsInEventLoopThread() const override {
+        return reactor_thread_id_.load(std::memory_order_acquire) == std::this_thread::get_id();
+    }
 
     // Poll for events, returns number handled
     int Poll(int timeout_ms = -1);
@@ -111,19 +130,10 @@ public:
     // Signal Run() to stop
     void Stop();
 
-    // Defer callback to next Poll cycle
-    template<typename F>
-    void Defer(F&& fn) {
-        deferred_.push_back(std::forward<F>(fn));
-    }
-
     int epoll_fd() const { return epoll_fd_; }
 
-    // Thread identification for assertion in Suspend/Resume/Close
-    // Returns true if called from the thread that is currently running Poll()/Run()
-    bool IsInReactorThread() const {
-        return reactor_thread_id_.load(std::memory_order_acquire) == std::this_thread::get_id();
-    }
+    // Legacy alias
+    bool IsInReactorThread() const { return IsInEventLoopThread(); }
 
 private:
     int epoll_fd_;

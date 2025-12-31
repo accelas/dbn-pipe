@@ -213,6 +213,7 @@ cc_test(
     deps = [
         "//src:client",
         "//src:epoll_event_loop",
+        "//src:reactor",
         "@googletest//:gtest_main",
     ],
 )
