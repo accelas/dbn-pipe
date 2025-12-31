@@ -184,6 +184,10 @@ Backpressure <-- Suspend/Resume <-- Suspend/Resume <----------+
 | Live | `{dataset}.lsg.databento.com` | 13000 |
 | Historical | `hist.databento.com` | 443 |
 
+## Versioning
+
+This project follows [Semantic Versioning](https://semver.org/).
+
 ## License
 
 MIT
