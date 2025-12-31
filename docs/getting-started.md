@@ -143,16 +143,22 @@ client->OnError([](const dbn_pipe::Error& e) {
 
 ### Error Categories
 
-| Category | Codes |
-|----------|-------|
-| `connection` | `ConnectionFailed`, `ConnectionClosed`, `DnsResolutionFailed` |
-| `auth` | `AuthFailed`, `InvalidApiKey` |
-| `protocol` | `InvalidGreeting`, `InvalidChallenge`, `ParseError`, `BufferOverflow` |
-| `subscription` | `InvalidDataset`, `InvalidSymbol`, `InvalidSchema`, `InvalidTimeRange` |
-| `state` | `InvalidState` |
-| `tls` | `TlsHandshakeFailed`, `CertificateError` |
-| `http` | `HttpError` |
-| `decompression` | `DecompressionError` |
+| Category | Codes | Scope |
+|----------|-------|-------|
+| `connection` | `ConnectionFailed`, `ConnectionClosed`, `DnsResolutionFailed` | Both |
+| `auth` | `AuthFailed`, `InvalidApiKey` | Live |
+| `protocol` | `InvalidGreeting`, `InvalidChallenge`, `ParseError`, `BufferOverflow` | Mixed |
+| `subscription` | `InvalidDataset`, `InvalidSymbol`, `InvalidSchema`, `InvalidTimeRange` | Mixed |
+| `state` | `InvalidState` | Both |
+| `tls` | `TlsHandshakeFailed`, `CertificateError` | Historical |
+| `http` | `HttpError` | Historical |
+| `decompression` | `DecompressionError` | Historical |
+
+**Scope key:**
+- **Live** — CRAM authentication (live gateway only)
+- **Historical** — TLS, HTTP, zstd decompression
+- **Both** — TCP, DNS, DBN parsing, state machine
+- **Mixed** — `InvalidGreeting`/`InvalidChallenge` are Live; `ParseError`/`BufferOverflow` are Both; `InvalidTimeRange` is Historical
 
 ## Backpressure
 
