@@ -5,14 +5,14 @@
 #include "src/historical_protocol.hpp"
 #include "src/protocol_driver.hpp"
 #include "src/pipeline_sink.hpp"
+#include "src/record_batch.hpp"
 
 using namespace dbn_pipe;
 
-struct DbnRecord {};
-using HistoricalSink = Sink<DbnRecord>;
+using HistoricalSink = Sink<RecordRef>;
 
 TEST(HistoricalProtocolTest, SatisfiesProtocolDriverConcept) {
-    static_assert(ProtocolDriver<HistoricalProtocol, DbnRecord>);
+    static_assert(ProtocolDriver<HistoricalProtocol, RecordRef>);
     SUCCEED();
 }
 

@@ -5,15 +5,14 @@
 #include "src/live_protocol.hpp"
 #include "src/pipeline_sink.hpp"
 #include "src/protocol_driver.hpp"
+#include "src/record_batch.hpp"
 
 using namespace dbn_pipe;
 
-// Forward declare the record type used by live protocol
-struct DbnRecord {};
-using LiveSink = Sink<DbnRecord>;
+using LiveSink = Sink<RecordRef>;
 
 TEST(LiveProtocolTest, SatisfiesProtocolDriverConcept) {
-    static_assert(ProtocolDriver<LiveProtocol, DbnRecord>);
+    static_assert(ProtocolDriver<LiveProtocol, RecordRef>);
     SUCCEED();
 }
 

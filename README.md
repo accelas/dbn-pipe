@@ -49,8 +49,9 @@ int main() {
         .schema = "mbp-1"
     });
 
-    client->OnRecord([](const DbnRecord& rec) {
-        // Process record
+    client->OnRecord([](const RecordRef& ref) {
+        // ref.Header() for record header
+        // ref.As<databento::TradeMsg>() for typed access
     });
 
     client->OnError([](const Error& e) {
@@ -83,8 +84,9 @@ int main() {
         .end = 1704153600000000000     // 2024-01-02 00:00:00 UTC (nanoseconds)
     });
 
-    client->OnRecord([](const DbnRecord& rec) {
-        // Process record
+    client->OnRecord([](const RecordRef& ref) {
+        // ref.Header() for record header
+        // ref.As<databento::TradeMsg>() for typed access
     });
 
     client->OnComplete([]() {
@@ -121,14 +123,15 @@ int main() {
     });
 
     // Option 1: Per-record callback
-    client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
-        // rec.As<databento::Mbp1Msg>() for typed access
+    client->OnRecord([](const dbn_pipe::RecordRef& ref) {
+        // ref.Header() for record header
+        // ref.As<databento::Mbp1Msg>() for typed access
     });
 
     // Option 2: Batch callback (efficient bulk delivery)
     client->OnRecord([](dbn_pipe::RecordBatch&& batch) {
         for (const auto& ref : batch) {
-            // ref.Header() for common header
+            // ref.Header() for record header
             // ref.As<databento::Mbp1Msg>() for typed access
         }
     });
@@ -172,8 +175,9 @@ Historical Pipeline:
 |-----------|-------------|
 | `IEventLoop` | Event loop interface for custom integrations (libuv, asio) |
 | `EventLoop` | Built-in epoll-based event loop |
-| `LiveClient` | Alias for `Pipeline<LiveProtocol, DbnRecord>` |
-| `HistoricalClient` | Alias for `Pipeline<HistoricalProtocol, DbnRecord>` |
+| `LiveClient` | Alias for `Pipeline<LiveProtocol, RecordRef>` |
+| `HistoricalClient` | Alias for `Pipeline<HistoricalProtocol, RecordRef>` |
+| `RecordRef` | Zero-copy record reference with lifetime management |
 | `BufferChain` | Zero-copy buffer management with segment pooling |
 | `DbnParserComponent` | Zero-copy DBN record parser |
 
