@@ -32,7 +32,7 @@ Create `tests/pipeline_test.cpp`:
 
 #include "src/pipeline.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock downstream that satisfies Downstream concept
 struct MockDownstream {
@@ -78,7 +78,7 @@ Create `src/pipeline.hpp`:
 #include "error.hpp"
 #include "reactor.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Downstream interface - receives data flowing toward application
 template<typename D>
@@ -97,7 +97,7 @@ concept Upstream = requires(U& u, std::pmr::vector<std::byte> data) {
     { u.Close() } -> std::same_as<void>;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Add BUILD rules**
@@ -381,7 +381,7 @@ Create `tests/tls_socket_test.cpp`:
 #include "src/reactor.hpp"
 #include "src/tls_socket.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock downstream
 struct MockTlsDownstream {
@@ -430,7 +430,7 @@ Create `src/tls_socket.hpp`:
 #include "pipeline.hpp"
 #include "reactor.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Virtual base for upstream control
 class Suspendable {
@@ -510,7 +510,7 @@ private:
     static constexpr size_t kBufferSize = 16384;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Write TlsSocket implementation**
@@ -523,7 +523,7 @@ Create `src/tls_socket.cpp`:
 
 #include <cstring>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 template<Downstream D>
 std::shared_ptr<TlsSocket<D>> TlsSocket<D>::Create(
@@ -710,7 +710,7 @@ void TlsSocket<D>::OnSocketClose() {
 
 // Explicit instantiation for common types will be added as needed
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 5: Add BUILD rules**
@@ -787,7 +787,7 @@ Create `tests/http_client_test.cpp`:
 #include "src/pipeline.hpp"
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 struct MockHttpDownstream {
     std::vector<std::byte> body;
@@ -849,7 +849,7 @@ Create `src/http_client.hpp`:
 #include "reactor.hpp"
 #include "tls_socket.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 template<Downstream D>
 class HttpClient
@@ -917,7 +917,7 @@ private:
     static constexpr size_t kMaxErrorBodySize = 4096;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Write HttpClient implementation**
@@ -928,7 +928,7 @@ Create `src/http_client.cpp`:
 // src/http_client.cpp
 #include "http_client.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 template<Downstream D>
 std::shared_ptr<HttpClient<D>> HttpClient<D>::Create(
@@ -1113,7 +1113,7 @@ void HttpClient<D>::OnDone() {
     this->RequestClose();
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 5: Add BUILD rules with llhttp dependency**
@@ -1192,7 +1192,7 @@ Create `tests/zstd_decompressor_test.cpp`:
 #include "src/reactor.hpp"
 #include "src/zstd_decompressor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 struct MockZstdDownstream {
     std::vector<std::byte> decompressed;
@@ -1263,7 +1263,7 @@ Create `src/zstd_decompressor.hpp`:
 #include "reactor.hpp"
 #include "tls_socket.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 template<Downstream D>
 class ZstdDecompressor
@@ -1318,7 +1318,7 @@ private:
     static constexpr size_t kMaxPendingInput = 16 * 1024 * 1024;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Write ZstdDecompressor implementation**
@@ -1329,7 +1329,7 @@ Create `src/zstd_decompressor.cpp`:
 // src/zstd_decompressor.cpp
 #include "zstd_decompressor.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 template<Downstream D>
 std::shared_ptr<ZstdDecompressor<D>> ZstdDecompressor<D>::Create(
@@ -1490,7 +1490,7 @@ void ZstdDecompressor<D>::Resume() {
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 5: Add BUILD rules**
@@ -1565,7 +1565,7 @@ Create `tests/historical_client_test.cpp`:
 #include "src/historical_client.hpp"
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(HistoricalClientTest, ConstructsWithApiKey) {
     Reactor reactor;
@@ -1608,7 +1608,7 @@ Create `src/historical_client.hpp`:
 #include "tls_socket.hpp"
 #include "zstd_decompressor.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 class HistoricalClient : public DataSource {
 public:
@@ -1669,7 +1669,7 @@ private:
     // TcpSocket -> TlsSocket -> HttpClient -> ZstdDecompressor -> DbnParser (in DataSource)
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Write HistoricalClient implementation**
@@ -1680,7 +1680,7 @@ Create `src/historical_client.cpp`:
 // src/historical_client.cpp
 #include "historical_client.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 HistoricalClient::HistoricalClient(Reactor& reactor, std::string api_key)
     : reactor_(reactor)
@@ -1725,7 +1725,7 @@ void HistoricalClient::SendHttpRequest() {
     // TODO: Build and send HTTP GET request
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 5: Add BUILD rules**

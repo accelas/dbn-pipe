@@ -7,7 +7,7 @@
 #include <functional>
 #include <memory>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Handle for a registered file descriptor
 class IEventHandle {
@@ -76,4 +76,4 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

@@ -11,7 +11,7 @@
 #include "src/http_client.hpp"
 #include "src/pipeline_component.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock downstream that receives body data
 struct MockHttpDownstream {

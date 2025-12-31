@@ -21,7 +21,7 @@
 #include "pipeline_component.hpp"
 #include "event_loop.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // TcpSocket - Network socket as a chain component
 //
@@ -279,4 +279,4 @@ private:
     ConnectCallback on_connect_ = []() {};
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

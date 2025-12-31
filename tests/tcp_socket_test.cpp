@@ -17,7 +17,7 @@
 #include "src/error.hpp"
 #include "src/tcp_socket.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock downstream for testing TcpSocket
 struct MockDownstream {

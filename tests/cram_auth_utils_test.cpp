@@ -3,7 +3,7 @@
 
 #include "src/cram_auth.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(CramAuthUtilsTest, ParseGreeting) {
     std::string greeting = "lsg-test|20231015\n";

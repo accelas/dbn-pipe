@@ -13,7 +13,7 @@
 #include "event_loop.hpp"
 #include "pipeline_component.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // ZstdDecompressor - Zero-copy streaming zstd decompression.
 //
@@ -369,4 +369,4 @@ void ZstdDecompressor<D>::OnDone() {
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

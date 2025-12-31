@@ -12,7 +12,7 @@
 #include "pipeline_sink.hpp"
 #include "tcp_socket.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // LiveRequest - Parameters for live data subscription
 struct LiveRequest {
@@ -155,4 +155,4 @@ struct LiveProtocol {
     }
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

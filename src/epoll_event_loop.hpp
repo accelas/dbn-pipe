@@ -14,7 +14,7 @@
 
 #include "event_loop.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 class EpollEventLoop;
 
@@ -97,4 +97,4 @@ private:
     static constexpr int kMaxEvents = 64;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

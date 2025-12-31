@@ -20,7 +20,7 @@
 #include "tls_transport.hpp"
 #include "zstd_decompressor.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // HistoricalRequest - Parameters for historical data download
 struct HistoricalRequest {
@@ -267,4 +267,4 @@ struct HistoricalProtocol {
     }
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

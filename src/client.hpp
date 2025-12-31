@@ -8,7 +8,7 @@
 #include "historical_protocol.hpp"
 #include "event_loop.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Default record type for per-record callbacks.
 // Wraps a pointer to raw record data for zero-copy access.
@@ -33,4 +33,4 @@ using HistoricalClient = Pipeline<HistoricalProtocol, DbnRecord>;
 // Backward compatibility - Reactor is now EventLoop
 using Reactor = EventLoop;
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

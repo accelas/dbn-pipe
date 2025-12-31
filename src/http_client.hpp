@@ -16,7 +16,7 @@
 #include "pipeline_component.hpp"
 #include "tls_transport.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // HttpClient parses HTTP responses using llhttp.
 // Sits between TlsTransport (upstream) and ZstdDecompressor (downstream).
@@ -542,4 +542,4 @@ int HttpClient<D>::OnMessageComplete(llhttp_t* parser) {
     return 0;
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

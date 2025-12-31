@@ -12,7 +12,7 @@
 #include "src/pipeline_sink.hpp"
 #include "src/protocol_driver.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock sink for testing
 struct MockRecord {};

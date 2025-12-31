@@ -112,7 +112,7 @@ Create `tests/pipeline_base_test.cpp`:
 #include "src/error.hpp"
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock record for testing
 struct MockRecord {
@@ -200,7 +200,7 @@ Expected: FAIL - file not found or class not defined
 #include "error.hpp"
 #include "reactor.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Forward declaration for templated record type
 // Pipeline implementations define their own record type
@@ -257,7 +257,7 @@ private:
     bool valid_ = true;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Update test to use correct template**
@@ -316,7 +316,7 @@ Create `tests/protocol_driver_test.cpp`:
 #include "src/reactor.hpp"
 #include "src/pipeline_base.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock sink for testing
 struct MockRecord {};
@@ -396,7 +396,7 @@ Expected: FAIL - ProtocolDriver not defined
 #include "reactor.hpp"
 #include "tcp_socket.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // ProtocolDriver concept defines the interface for protocol implementations.
 // Each protocol (Live, Historical) provides static methods that the Pipeline
@@ -448,7 +448,7 @@ concept ProtocolDriver = requires {
     };
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Run test to verify it passes**
@@ -499,7 +499,7 @@ Create `tests/live_protocol_test.cpp`:
 #include "src/pipeline_base.hpp"
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Forward declare the record type used by live protocol
 struct DbnRecord {};
@@ -556,7 +556,7 @@ Expected: FAIL - LiveProtocol not defined
 #include "reactor.hpp"
 #include "tcp_socket.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Request type for live protocol
 struct LiveRequest {
@@ -628,7 +628,7 @@ struct LiveProtocol {
     }
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Run test to verify it passes**
@@ -674,7 +674,7 @@ Create `tests/historical_protocol_test.cpp`:
 #include "src/protocol_driver.hpp"
 #include "src/pipeline_base.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 struct DbnRecord {};
 using HistoricalSink = Sink<DbnRecord>;
@@ -741,7 +741,7 @@ Expected: FAIL - HistoricalProtocol not defined
 #include "tls_socket.hpp"
 #include "zstd_decompressor.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Request type for historical protocol
 struct HistoricalRequest {
@@ -882,7 +882,7 @@ private:
     }
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Run test to verify it passes**
@@ -930,7 +930,7 @@ Create `tests/unified_pipeline_test.cpp`:
 #include "src/live_protocol.hpp"
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 struct TestRecord {};
 
@@ -1062,7 +1062,7 @@ Create `tests/client_test.cpp`:
 #include "src/client.hpp"
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(ClientTest, LiveClientIsAlias) {
     Reactor reactor;
@@ -1092,7 +1092,7 @@ Expected: FAIL - LiveClient/HistoricalClient not defined
 #include "live_protocol.hpp"
 #include "historical_protocol.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Forward declare the record type (from databento headers)
 namespace databento {
@@ -1103,7 +1103,7 @@ struct Record;
 using LiveClient = Pipeline<LiveProtocol<databento::Record>, databento::Record>;
 using HistoricalClient = Pipeline<HistoricalProtocol<databento::Record>, databento::Record>;
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Run test to verify it passes**
@@ -1144,7 +1144,7 @@ Create integration tests that verify the full pipeline works end-to-end.
 #include "src/client.hpp"
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 class PipelineIntegrationTest : public ::testing::Test {
 protected:

@@ -6,7 +6,7 @@
 
 #include <system_error>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Event implementation
 Event::Event(Reactor& reactor, int fd, uint32_t events)
@@ -138,4 +138,4 @@ void Reactor::Stop() {
     running_ = false;
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

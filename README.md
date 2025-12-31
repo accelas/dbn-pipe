@@ -1,6 +1,6 @@
-# databento-async
+# dbn-pipe
 
-Async Databento client using epoll with zero-copy pipeline architecture.
+Async Databento client with zero-copy pipeline architecture and pluggable event loop.
 
 ## Features
 
@@ -37,7 +37,7 @@ bazel test //tests/...
 ```cpp
 #include "src/client.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 int main() {
     Reactor reactor;
@@ -69,7 +69,7 @@ int main() {
 ```cpp
 #include "src/client.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 int main() {
     Reactor reactor;
@@ -107,7 +107,7 @@ For applications with an existing event loop, implement the `IEventLoop` interfa
 #include "src/client.hpp"
 
 // Adapter wrapping existing uv_loop_t* (see docs/libuv-integration.md)
-class LibuvEventLoop : public databento_async::IEventLoop {
+class LibuvEventLoop : public dbn_pipe::IEventLoop {
 public:
     explicit LibuvEventLoop(uv_loop_t* loop);
 
@@ -127,7 +127,7 @@ int main() {
     uv_loop_t* loop = uv_default_loop();
     LibuvEventLoop adapter(loop);  // Wrap existing loop
 
-    auto client = databento_async::LiveClient::Create(adapter, "your-api-key");
+    auto client = dbn_pipe::LiveClient::Create(adapter, "your-api-key");
 
     client->SetRequest({
         .dataset = "GLBX.MDP3",
@@ -135,7 +135,7 @@ int main() {
         .schema = "mbp-1"
     });
 
-    client->OnRecord([](const databento_async::DbnRecord& rec) {
+    client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
         // Process alongside other libuv handlers
     });
 
