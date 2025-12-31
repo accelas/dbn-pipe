@@ -10,7 +10,6 @@
 #include "pipeline_component.hpp"
 #include "pipeline_sink.hpp"
 #include "reactor.hpp"
-#include "sink_adapter.hpp"
 #include "tcp_socket.hpp"
 
 namespace databento_async {
@@ -30,7 +29,7 @@ constexpr uint16_t kLivePort = 13000;
 // Satisfies the ProtocolDriver concept. Uses CramAuth for authentication
 // and subscription management.
 //
-// Chain: TcpSocket -> CramAuth -> DbnParserComponent -> SinkAdapter -> Sink
+// Chain: TcpSocket -> CramAuth -> DbnParserComponent -> Sink
 //
 // Live protocol is ready immediately on connect (OnConnect returns true).
 // SendRequest subscribes to the dataset/symbols/schema and starts streaming.
@@ -63,14 +62,13 @@ struct LiveProtocol {
     // Static dispatch within chain via template parameters
     template <typename Record>
     struct ChainImpl : ChainType {
-        using SinkAdapterType = SinkAdapter<Record>;
-        using ParserType = DbnParserComponent<SinkAdapterType>;
+        using SinkType = Sink<Record>;
+        using ParserType = DbnParserComponent<SinkType>;
         using CramType = CramAuth<ParserType>;
         using HeadType = TcpSocket<CramType>;
 
         ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
-            : sink_adapter_(std::make_unique<SinkAdapterType>(sink))
-            , parser_(std::make_shared<ParserType>(*sink_adapter_))
+            : parser_(std::make_shared<ParserType>(sink))
             , cram_(CramType::Create(reactor, parser_, api_key))
             , head_(HeadType::Create(reactor, cram_))
         {
@@ -109,7 +107,6 @@ struct LiveProtocol {
         }
 
     private:
-        std::unique_ptr<SinkAdapterType> sink_adapter_;
         std::shared_ptr<ParserType> parser_;
         std::shared_ptr<CramType> cram_;
         std::shared_ptr<HeadType> head_;

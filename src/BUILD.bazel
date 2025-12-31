@@ -142,12 +142,6 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
-cc_library(
-    name = "sink_adapter",
-    hdrs = ["sink_adapter.hpp"],
-    deps = [":error", ":pipeline_sink", ":record_batch"],
-    visibility = ["//visibility:public"],
-)
 
 cc_library(
     name = "protocol_driver",
@@ -167,7 +161,6 @@ cc_library(
         ":pipeline_sink",
         ":protocol_driver",
         ":reactor",
-        ":sink_adapter",
         ":tcp_socket",
     ],
     visibility = ["//visibility:public"],
@@ -184,7 +177,6 @@ cc_library(
         ":pipeline_sink",
         ":protocol_driver",
         ":reactor",
-        ":sink_adapter",
         ":tcp_socket",
         ":tls_transport",
         ":zstd_decompressor",

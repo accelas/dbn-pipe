@@ -47,7 +47,7 @@ public:
         pipeline_->HandleRecord(rec);
     }
 
-    void OnRecordBatch(RecordBatch&& batch) {
+    void OnData(RecordBatch&& batch) {
         assert(reactor_.IsInReactorThread());
         if (!valid_ || !pipeline_) return;
         pipeline_->HandleRecordBatch(std::move(batch));
