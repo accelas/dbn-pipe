@@ -22,58 +22,6 @@ struct LiveRequest {
     std::string schema;    // Schema for data (e.g., "mbp-1")
 };
 
-// LiveChain - The component chain entry point for live protocol
-//
-// This wraps CramAuth which is the first component in the live pipeline:
-//   TcpSocket -> CramAuth -> DbnParserComponent -> SinkAdapter -> Sink
-//
-// CramAuth handles:
-//   - CRAM authentication protocol
-//   - Subscription (Subscribe method)
-//   - Starting the stream (StartStreaming method)
-//
-// Template parameter Record is the record type for the Sink.
-template <typename Record>
-class LiveChain {
-public:
-    using ParserType = DbnParserComponent<SinkAdapter<Record>>;
-    using CramType = CramAuth<ParserType>;
-
-    LiveChain(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
-        : sink_adapter_(sink)
-        , parser_(sink_adapter_)
-        , cram_(CramType::Create(reactor,
-                                  std::make_shared<ParserType>(sink_adapter_),
-                                  api_key))
-    {}
-
-    // Access to CramAuth for setting write callback and calling methods
-    std::shared_ptr<CramType> GetCramAuth() { return cram_; }
-
-    // Downstream interface - forward to CramAuth
-    void Read(BufferChain data) {
-        cram_->OnData(data);
-    }
-
-    void OnError(const Error& e) {
-        cram_->OnError(e);
-    }
-
-    void OnDone() {
-        cram_->OnDone();
-    }
-
-    // Close the chain
-    void Close() {
-        cram_->RequestClose();
-    }
-
-private:
-    SinkAdapter<Record> sink_adapter_;
-    ParserType parser_;  // Note: we use shared_ptr version passed to CramAuth
-    std::shared_ptr<CramType> cram_;
-};
-
 // LiveProtocol - ProtocolDriver implementation for live streaming
 //
 // Satisfies the ProtocolDriver concept. Uses CramAuth for authentication
