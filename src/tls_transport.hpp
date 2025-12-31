@@ -20,6 +20,9 @@
 
 namespace databento_async {
 
+// TLS handshake state machine
+enum class TlsHandshakeState { NotStarted, InProgress, Complete };
+
 // TlsTransport handles TLS encryption/decryption using OpenSSL with memory BIOs.
 // Sits between TcpSocket (upstream) and HttpClient (downstream) in the pipeline.
 // PipelineComponent provides Suspendable interface with suspend count semantics.
@@ -52,7 +55,7 @@ public:
 
     // TLS-specific methods
     void StartHandshake();
-    bool IsHandshakeComplete() const { return handshake_complete_; }
+    bool IsHandshakeComplete() const { return handshake_state_ == TlsHandshakeState::Complete; }
 
     // Set hostname for SNI (Server Name Indication)
     void SetHostname(const std::string& hostname);
@@ -121,8 +124,7 @@ private:
     BIO* wbio_ = nullptr;  // Write BIO: SSL -> encrypted output
 
     // State
-    bool handshake_complete_ = false;
-    bool handshake_started_ = false;
+    TlsHandshakeState handshake_state_ = TlsHandshakeState::NotStarted;
     std::function<void()> handshake_complete_cb_;
 
     // Pending write data (when SSL_write returns WANT_READ/WANT_WRITE)
@@ -217,20 +219,20 @@ void TlsTransport<D>::SetHostname(const std::string& hostname) {
 
 template <Downstream D>
 void TlsTransport<D>::StartHandshake() {
-    if (handshake_started_) return;
-    handshake_started_ = true;
+    if (handshake_state_ != TlsHandshakeState::NotStarted) return;
+    handshake_state_ = TlsHandshakeState::InProgress;
 
     ProcessHandshake();
 }
 
 template <Downstream D>
 void TlsTransport<D>::ProcessHandshake() {
-    if (handshake_complete_) return;
+    if (handshake_state_ == TlsHandshakeState::Complete) return;
 
     int ret = SSL_do_handshake(ssl_);
     if (ret == 1) {
         // Handshake complete
-        handshake_complete_ = true;
+        handshake_state_ = TlsHandshakeState::Complete;
         FlushWbio();
         // Drain any application data that arrived with the final handshake bytes
         // Only if not suspended - ProcessPendingReads checks but be explicit
@@ -300,7 +302,7 @@ void TlsTransport<D>::Read(BufferChain data) {
     }
 
     // If handshake not complete, continue it
-    if (!handshake_complete_) {
+    if (handshake_state_ != TlsHandshakeState::Complete) {
         ProcessHandshake();
         return;
     }
@@ -317,7 +319,7 @@ void TlsTransport<D>::Read(BufferChain data) {
 
 template <Downstream D>
 void TlsTransport<D>::ProcessPendingReads() {
-    if (this->IsClosed() || !handshake_complete_) return;
+    if (this->IsClosed() || handshake_state_ != TlsHandshakeState::Complete) return;
 
     // Ensure recycling callback is set
     pending_read_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
@@ -394,7 +396,7 @@ void TlsTransport<D>::Write(BufferChain data) {
     auto guard = this->TryGuard();
     if (!guard) return;
 
-    if (!handshake_complete_) {
+    if (handshake_state_ != TlsHandshakeState::Complete) {
         this->EmitError(*downstream_,
             {ErrorCode::TlsHandshakeFailed, "Write called before handshake complete"});
         this->RequestClose();
@@ -558,7 +560,7 @@ void TlsTransport<D>::Cleanup() {
 
 template <Downstream D>
 void TlsTransport<D>::DoClose() {
-    if (ssl_ && handshake_complete_) {
+    if (ssl_ && handshake_state_ == TlsHandshakeState::Complete) {
         // Initiate TLS shutdown
         SSL_shutdown(ssl_);
         FlushWbio();
