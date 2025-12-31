@@ -1,0 +1,36 @@
+dbn-pipe
+Copyright 2024 Databento, Inc.
+
+This product includes software developed at Databento, Inc.
+(https://databento.com/).
+
+Third-Party Dependencies
+========================
+
+This project uses the following third-party libraries:
+
+databento-cpp
+  Copyright Databento, Inc.
+  Licensed under the Apache License 2.0
+  https://github.com/databento/databento-cpp
+
+zstd (Zstandard)
+  Copyright (c) Meta Platforms, Inc. and affiliates.
+  Licensed under BSD-3-Clause
+  https://github.com/facebook/zstd
+
+llhttp
+  Copyright (c) Fedor Indutny, 2018
+  Licensed under the MIT License
+  https://github.com/nodejs/llhttp
+
+OpenSSL
+  Copyright (c) 1998-2024 The OpenSSL Project Authors
+  Copyright (c) 1995-1998 Eric A. Young, Tim J. Hudson
+  Licensed under the Apache License 2.0
+  https://www.openssl.org/
+
+GoogleTest (dev dependency)
+  Copyright 2008, Google Inc.
+  Licensed under BSD-3-Clause
+  https://github.com/google/googletest
