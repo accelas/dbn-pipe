@@ -1,19 +1,19 @@
-# Getting Started with dbn-pipe
+# Getting Started
 
-This guide covers using dbn-pipe with the built-in `Reactor` event loop. For integration with existing event loops (libuv, asio), see [libuv-integration.md](libuv-integration.md).
+Use dbn-pipe with the built-in `Reactor`. For libuv or asio integration, see [libuv-integration.md](libuv-integration.md).
 
 ## Overview
 
-dbn-pipe provides async clients for Databento's Live and Historical APIs:
+dbn-pipe streams market data from Databento:
 
-- **LiveClient** - Real-time market data streaming
-- **HistoricalClient** - Historical data downloads
+- **LiveClient** — real-time streaming
+- **HistoricalClient** — historical downloads
 
-Both use a zero-copy pipeline architecture with backpressure support.
+Both use zero-copy pipelines with backpressure.
 
 ## Quick Start
 
-### Minimal Live Streaming Example
+### Live Streaming
 
 ```cpp
 #include <iostream>
@@ -21,7 +21,6 @@ Both use a zero-copy pipeline architecture with backpressure support.
 
 int main() {
     dbn_pipe::Reactor reactor;
-
     auto client = dbn_pipe::LiveClient::Create(reactor, "your-api-key");
 
     client->SetRequest({
@@ -40,12 +39,11 @@ int main() {
 
     client->Connect();
     client->Start();
-
     reactor.Run();
 }
 ```
 
-### Minimal Historical Download Example
+### Historical Download
 
 ```cpp
 #include <iostream>
@@ -53,15 +51,14 @@ int main() {
 
 int main() {
     dbn_pipe::Reactor reactor;
-
     auto client = dbn_pipe::HistoricalClient::Create(reactor, "your-api-key");
 
     client->SetRequest({
         .dataset = "GLBX.MDP3",
         .symbols = "ESZ4",
         .schema = "trades",
-        .start = 1704067200000000000,  // 2024-01-01 00:00:00 UTC (nanoseconds)
-        .end = 1704153600000000000     // 2024-01-02 00:00:00 UTC (nanoseconds)
+        .start = 1704067200000000000,  // 2024-01-01 00:00:00 UTC (ns)
+        .end = 1704153600000000000     // 2024-01-02 00:00:00 UTC (ns)
     });
 
     client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
@@ -78,47 +75,39 @@ int main() {
 
     client->Connect();
     client->Start();
-
     reactor.Run();
 }
 ```
 
 ## Record Callbacks
 
-### Per-Record Callback (Simple API)
-
-Process records one at a time:
+### Per-Record
 
 ```cpp
 client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
-    // Access as specific type
     const auto& trade = rec.As<databento::TradeMsg>();
     std::cout << "Price: " << trade.price << "\n";
 });
 ```
 
-### Batch Callback (Efficient Bulk Delivery)
+### Batch (Faster)
 
-Process records in batches for better performance:
+Batches deliver multiple records per callback:
 
 ```cpp
 client->OnRecord([](dbn_pipe::RecordBatch&& batch) {
     std::cout << "Received " << batch.size() << " records\n";
 
     for (const auto& ref : batch) {
-        // Common header access
         auto rtype = ref.Header().rtype;
 
-        // Typed access based on rtype
         switch (rtype) {
             case databento::RType::Mbp0: {
                 const auto& trade = ref.As<databento::TradeMsg>();
-                // Process trade
                 break;
             }
             case databento::RType::Mbp1: {
                 const auto& mbp = ref.As<databento::Mbp1Msg>();
-                // Process MBP-1
                 break;
             }
             default:
@@ -128,27 +117,24 @@ client->OnRecord([](dbn_pipe::RecordBatch&& batch) {
 });
 ```
 
-**Note:** If batch callback is set, per-record callback is bypassed.
+Setting a batch callback bypasses the per-record callback.
 
 ### RecordRef vs DbnRecord
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| `DbnRecord` | Simple wrapper with `header` pointer | Per-record callback |
-| `RecordRef` | Zero-copy reference with `data`, `size`, `keepalive` | Batch callback |
+| Type | Fields | Use |
+|------|--------|-----|
+| `DbnRecord` | `header` pointer | Per-record callback |
+| `RecordRef` | `data`, `size`, `keepalive` | Batch callback |
 
-Both provide `As<T>()` for typed access. `RecordRef` also provides `Header()` for direct header access.
+Both support `As<T>()`. `RecordRef` adds `Header()`.
 
 ## Error Handling
-
-### Error Callback
 
 ```cpp
 client->OnError([](const dbn_pipe::Error& e) {
     std::cerr << "Error [" << dbn_pipe::error_category(e.code) << "]: "
               << e.message << "\n";
 
-    // Optional: check OS errno for system errors
     if (e.os_errno != 0) {
         std::cerr << "OS error: " << strerror(e.os_errno) << "\n";
     }
@@ -157,147 +143,109 @@ client->OnError([](const dbn_pipe::Error& e) {
 
 ### Error Categories
 
-| Category | Error Codes | Description |
-|----------|-------------|-------------|
-| `connection` | `ConnectionFailed`, `ConnectionClosed`, `DnsResolutionFailed` | Network issues |
-| `auth` | `AuthFailed`, `InvalidApiKey` | Authentication failures |
-| `protocol` | `InvalidGreeting`, `InvalidChallenge`, `ParseError`, `BufferOverflow` | Protocol errors |
-| `subscription` | `InvalidDataset`, `InvalidSymbol`, `InvalidSchema`, `InvalidTimeRange` | Request validation |
-| `state` | `InvalidState` | Invalid operation for current state |
-| `tls` | `TlsHandshakeFailed`, `CertificateError` | TLS errors (historical) |
-| `http` | `HttpError` | HTTP errors (historical) |
-| `decompression` | `DecompressionError` | Zstd errors (historical) |
+| Category | Codes |
+|----------|-------|
+| `connection` | `ConnectionFailed`, `ConnectionClosed`, `DnsResolutionFailed` |
+| `auth` | `AuthFailed`, `InvalidApiKey` |
+| `protocol` | `InvalidGreeting`, `InvalidChallenge`, `ParseError`, `BufferOverflow` |
+| `subscription` | `InvalidDataset`, `InvalidSymbol`, `InvalidSchema`, `InvalidTimeRange` |
+| `state` | `InvalidState` |
+| `tls` | `TlsHandshakeFailed`, `CertificateError` |
+| `http` | `HttpError` |
+| `decompression` | `DecompressionError` |
 
 ## Backpressure
 
-Suspend and resume data flow to handle slow consumers:
+Suspend reading when falling behind; resume when ready:
 
 ```cpp
-auto client = dbn_pipe::LiveClient::Create(reactor, api_key);
-
-// ... setup ...
-
 client->OnRecord([&client](dbn_pipe::RecordBatch&& batch) {
-    // Check if we're falling behind
     if (queue_depth > high_water_mark) {
-        client->Suspend();  // Stop reading from network
+        client->Suspend();
     }
-
-    // Process batch...
     process(std::move(batch));
 });
 
-// Later, when queue drains:
 void on_queue_drained() {
     if (client->IsSuspended()) {
-        client->Resume();  // Resume reading
+        client->Resume();
     }
 }
 ```
 
-**Key points:**
-- `Suspend()` / `Resume()` - Must be called from event loop thread
-- `IsSuspended()` - Thread-safe, can be called from any thread
-- Backpressure propagates through the pipeline to TCP socket
+- `Suspend()` / `Resume()` — call from event loop thread only
+- `IsSuspended()` — thread-safe
+- Backpressure propagates to the TCP socket
 
 ## Pipeline State
-
-Check the current state of the client:
 
 ```cpp
 auto state = client->GetState();
 
 switch (state) {
-    case dbn_pipe::PipelineState::Disconnected:
-        // Initial state or after Stop()
-        break;
-    case dbn_pipe::PipelineState::Connecting:
-        // TCP connect in progress
-        break;
-    case dbn_pipe::PipelineState::Connected:
-        // Connected, ready for Start()
-        break;
-    case dbn_pipe::PipelineState::Streaming:
-        // Actively streaming data
-        break;
-    case dbn_pipe::PipelineState::Stopping:
-        // Stop() called, tearing down
-        break;
-    case dbn_pipe::PipelineState::Done:
-        // Stream completed normally
-        break;
-    case dbn_pipe::PipelineState::Error:
-        // Terminal error occurred
+    case dbn_pipe::PipelineState::Disconnected:  // Initial or stopped
+    case dbn_pipe::PipelineState::Connecting:    // TCP connecting
+    case dbn_pipe::PipelineState::Connected:     // Ready for Start()
+    case dbn_pipe::PipelineState::Streaming:     // Active
+    case dbn_pipe::PipelineState::Stopping:      // Tearing down
+    case dbn_pipe::PipelineState::Done:          // Completed
+    case dbn_pipe::PipelineState::Error:         // Terminal error
         break;
 }
 ```
 
 ## Timers
 
-Use `Timer` for periodic tasks or timeouts:
-
 ```cpp
 dbn_pipe::Reactor reactor;
 dbn_pipe::Timer stats_timer(reactor);
 
-// Print stats every 5 seconds
+// Periodic: print stats every 5 seconds
 stats_timer.OnTimer([&]() {
-    std::cout << "Records received: " << count << "\n";
+    std::cout << "Records: " << count << "\n";
 });
 stats_timer.Start(5000, 5000);  // delay_ms, interval_ms
 
-// One-shot timeout
+// One-shot: 30-second timeout
 dbn_pipe::Timer timeout(reactor);
 timeout.OnTimer([&]() {
-    std::cerr << "Connection timeout\n";
+    std::cerr << "Timeout\n";
     client->Stop();
 });
-timeout.Start(30000);  // 30 second timeout (no repeat)
+timeout.Start(30000);
 
 reactor.Run();
 ```
 
 ## Events (Low-Level)
 
-For custom fd monitoring (advanced usage):
+Monitor custom file descriptors:
 
 ```cpp
 dbn_pipe::Reactor reactor;
-
 int my_fd = /* ... */;
 dbn_pipe::Event event(reactor, my_fd, EPOLLIN);
 
 event.OnEvent([](uint32_t events) {
-    if (events & EPOLLIN) {
-        // fd is readable
-    }
-    if (events & EPOLLOUT) {
-        // fd is writable
-    }
-    if (events & (EPOLLERR | EPOLLHUP)) {
-        // Error or hangup
-    }
+    if (events & EPOLLIN)  { /* readable */ }
+    if (events & EPOLLOUT) { /* writable */ }
+    if (events & (EPOLLERR | EPOLLHUP)) { /* error */ }
 });
 
-// Modify watched events
-event.Modify(EPOLLIN | EPOLLOUT);
-
-// Remove from reactor
-event.Remove();
+event.Modify(EPOLLIN | EPOLLOUT);  // Change watched events
+event.Remove();                    // Unregister
 ```
 
 ## DNS Resolution
 
-Resolve hostnames manually (blocking):
-
 ```cpp
-// Automatic resolution (recommended)
-client->Connect();  // Resolves hostname from dataset
+// Automatic (recommended)
+client->Connect();  // Resolves from dataset
 
-// Manual resolution
+// Manual
 auto addr = dbn_pipe::ResolveHostname("glbx-mdp3.lsg.databento.com", 13000);
 if (!addr) {
-    std::cerr << "DNS resolution failed\n";
+    std::cerr << "DNS failed\n";
     return 1;
 }
 client->Connect(*addr);
@@ -305,97 +253,72 @@ client->Connect(*addr);
 
 ## Multiple Clients
 
-Run multiple clients on the same reactor:
+One reactor drives many clients:
 
 ```cpp
 dbn_pipe::Reactor reactor;
 
-// Live streaming for ES futures
-auto es_client = dbn_pipe::LiveClient::Create(reactor, api_key);
-es_client->SetRequest({.dataset = "GLBX.MDP3", .symbols = "ESZ4", .schema = "mbp-1"});
-es_client->OnRecord([](dbn_pipe::RecordBatch&& batch) {
-    // Handle ES data
-});
-es_client->Connect();
-es_client->Start();
+auto es = dbn_pipe::LiveClient::Create(reactor, api_key);
+es->SetRequest({.dataset = "GLBX.MDP3", .symbols = "ESZ4", .schema = "mbp-1"});
+es->OnRecord([](dbn_pipe::RecordBatch&& b) { /* ES data */ });
+es->Connect();
+es->Start();
 
-// Live streaming for NQ futures
-auto nq_client = dbn_pipe::LiveClient::Create(reactor, api_key);
-nq_client->SetRequest({.dataset = "GLBX.MDP3", .symbols = "NQZ4", .schema = "mbp-1"});
-nq_client->OnRecord([](dbn_pipe::RecordBatch&& batch) {
-    // Handle NQ data
-});
-nq_client->Connect();
-nq_client->Start();
+auto nq = dbn_pipe::LiveClient::Create(reactor, api_key);
+nq->SetRequest({.dataset = "GLBX.MDP3", .symbols = "NQZ4", .schema = "mbp-1"});
+nq->OnRecord([](dbn_pipe::RecordBatch&& b) { /* NQ data */ });
+nq->Connect();
+nq->Start();
 
-// Historical backfill
-auto hist_client = dbn_pipe::HistoricalClient::Create(reactor, api_key);
-hist_client->SetRequest({
-    .dataset = "GLBX.MDP3",
-    .symbols = "ESZ4",
-    .schema = "trades",
-    .start = start_ns,
-    .end = end_ns
-});
-hist_client->OnRecord([](dbn_pipe::RecordBatch&& batch) {
-    // Handle historical data
-});
-hist_client->OnComplete([]() {
-    std::cout << "Backfill complete\n";
-});
-hist_client->Connect();
-hist_client->Start();
+auto hist = dbn_pipe::HistoricalClient::Create(reactor, api_key);
+hist->SetRequest({.dataset = "GLBX.MDP3", .symbols = "ESZ4", .schema = "trades",
+                  .start = start_ns, .end = end_ns});
+hist->OnRecord([](dbn_pipe::RecordBatch&& b) { /* historical */ });
+hist->OnComplete([]() { std::cout << "Backfill done\n"; });
+hist->Connect();
+hist->Start();
 
-// Single reactor drives all clients
 reactor.Run();
 ```
 
 ## Deferred Execution
 
-`Defer()` schedules a callback to run on the event loop thread. This is the **only** thread-safe method for cross-thread communication.
+`Defer()` schedules a callback on the event loop thread—the only thread-safe reactor method.
 
-### Use Case 1: Shutdown from Signal Handler
+### Signal Handler
 
-Signal handlers run in interrupt context - can't call client methods directly:
+Signal handlers run in interrupt context; call `Defer()` to reach the reactor thread:
 
 ```cpp
 dbn_pipe::Reactor* g_reactor = nullptr;
 
 void signal_handler(int) {
-    // Can't call client->Stop() here - not on reactor thread!
-    // Use Defer() to schedule it safely:
     if (g_reactor) {
-        g_reactor->Defer([]() {
-            g_reactor->Stop();
-        });
+        g_reactor->Defer([]() { g_reactor->Stop(); });
     }
 }
 ```
 
-### Use Case 2: Resume from Worker Thread
+### Worker Thread
 
-When a background thread (e.g., database writer) needs to signal the client:
+Background threads (e.g., database writers) use `Defer()` to signal the client:
 
 ```cpp
-// Called from DB writer thread when queue drains below low water mark
 void DbWriter::OnQueueDrained() {
-    // Can't call client->Resume() directly - wrong thread!
     reactor_.Defer([this]() {
         if (client_->IsSuspended()) {
-            client_->Resume();  // Safe - now on reactor thread
+            client_->Resume();
         }
     });
 }
 ```
 
-### Use Case 3: Avoid Reentrancy in Callbacks
+### Avoiding Reentrancy
 
-When a callback needs to trigger teardown:
+Defer teardown to run after the current callback completes:
 
 ```cpp
 client->OnError([&](const dbn_pipe::Error& e) {
-    // We're already in a callback - Stop() might cause issues
-    // Defer to run after current callback chain completes:
     reactor.Defer([&]() {
         client->Stop();
         reconnect();
@@ -403,20 +326,13 @@ client->OnError([&](const dbn_pipe::Error& e) {
 });
 ```
 
-**Key points:**
-- `Defer()` is the **only** thread-safe reactor method
-- Callbacks run on reactor thread, so client methods are safe inside
-- Common uses: signal handlers, worker threads, async completion callbacks
-
 ## Complete Example
 
 ```cpp
 #include <atomic>
 #include <iostream>
 #include <csignal>
-
 #include <databento/record.hpp>
-
 #include "src/client.hpp"
 #include "src/reactor.hpp"
 
@@ -434,32 +350,21 @@ int main() {
     dbn_pipe::Reactor reactor;
     g_reactor = &reactor;
 
-    // Setup signal handlers
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    // Create client
     auto client = dbn_pipe::LiveClient::Create(reactor, "your-api-key");
+    client->SetRequest({.dataset = "GLBX.MDP3", .symbols = "ES.FUT", .schema = "trades"});
 
-    client->SetRequest({
-        .dataset = "GLBX.MDP3",
-        .symbols = "ES.FUT",
-        .schema = "trades"
-    });
+    std::atomic<uint64_t> records{0}, batches{0};
 
-    // Statistics
-    std::atomic<uint64_t> record_count{0};
-    std::atomic<uint64_t> batch_count{0};
-
-    // Use batch callback for efficiency
     client->OnRecord([&](dbn_pipe::RecordBatch&& batch) {
-        batch_count++;
-        record_count += batch.size();
-
+        batches++;
+        records += batch.size();
         for (const auto& ref : batch) {
             if (ref.Header().rtype == databento::RType::Mbp0) {
                 const auto& trade = ref.As<databento::TradeMsg>();
-                // Process trade...
+                // process trade
             }
         }
     });
@@ -469,40 +374,33 @@ int main() {
     });
 
     client->OnComplete([&]() {
-        std::cout << "Stream completed\n";
+        std::cout << "Done\n";
         reactor.Stop();
     });
 
-    // Stats timer
-    dbn_pipe::Timer stats_timer(reactor);
-    stats_timer.OnTimer([&]() {
-        std::cout << "Batches: " << batch_count
-                  << ", Records: " << record_count << "\n";
+    dbn_pipe::Timer stats(reactor);
+    stats.OnTimer([&]() {
+        std::cout << batches << " batches, " << records << " records\n";
     });
-    stats_timer.Start(1000, 1000);  // Every second
+    stats.Start(1000, 1000);
 
-    // Connect and start
     client->Connect();
     client->Start();
 
-    std::cout << "Streaming... (Ctrl+C to stop)\n";
+    std::cout << "Streaming (Ctrl+C to stop)...\n";
     reactor.Run();
 
-    std::cout << "Final: " << record_count << " records in "
-              << batch_count << " batches\n";
-    return 0;
+    std::cout << "Final: " << records << " records in " << batches << " batches\n";
 }
 ```
 
 ## Thread Safety
 
-| Method | Thread Safety |
-|--------|--------------|
-| `Reactor::Defer()` | Thread-safe |
-| `Pipeline::IsSuspended()` | Thread-safe |
-| All other methods | Event loop thread only |
-
-**Rule:** All client operations except `Defer()` and `IsSuspended()` must be called from the event loop thread.
+| Method | Thread-safe |
+|--------|-------------|
+| `Reactor::Defer()` | Yes |
+| `Pipeline::IsSuspended()` | Yes |
+| All others | No—event loop thread only |
 
 ## API Endpoints
 
@@ -511,9 +409,9 @@ int main() {
 | Live | `{dataset}.lsg.databento.com` | 13000 |
 | Historical | `hist.databento.com` | 443 |
 
-Dataset to hostname conversion: `GLBX.MDP3` → `glbx-mdp3.lsg.databento.com`
+`GLBX.MDP3` → `glbx-mdp3.lsg.databento.com`
 
 ## Next Steps
 
-- [libuv-integration.md](libuv-integration.md) - Integrate with existing libuv event loop
-- [Databento API Documentation](https://docs.databento.com/) - API reference and schemas
+- [libuv-integration.md](libuv-integration.md) — libuv adapter
+- [Databento Docs](https://docs.databento.com/) — API reference
