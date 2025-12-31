@@ -352,19 +352,61 @@ reactor.Run();
 
 ## Deferred Execution
 
-Schedule callbacks on the event loop thread:
+`Defer()` schedules a callback to run on the event loop thread. This is the **only** thread-safe method for cross-thread communication.
+
+### Use Case 1: Shutdown from Signal Handler
+
+Signal handlers run in interrupt context - can't call client methods directly:
 
 ```cpp
-dbn_pipe::Reactor reactor;
+dbn_pipe::Reactor* g_reactor = nullptr;
 
-// From any thread:
-reactor.Defer([&]() {
-    // This runs on the reactor thread
-    client->Stop();
+void signal_handler(int) {
+    // Can't call client->Stop() here - not on reactor thread!
+    // Use Defer() to schedule it safely:
+    if (g_reactor) {
+        g_reactor->Defer([]() {
+            g_reactor->Stop();
+        });
+    }
+}
+```
+
+### Use Case 2: Resume from Worker Thread
+
+When a background thread (e.g., database writer) needs to signal the client:
+
+```cpp
+// Called from DB writer thread when queue drains below low water mark
+void DbWriter::OnQueueDrained() {
+    // Can't call client->Resume() directly - wrong thread!
+    reactor_.Defer([this]() {
+        if (client_->IsSuspended()) {
+            client_->Resume();  // Safe - now on reactor thread
+        }
+    });
+}
+```
+
+### Use Case 3: Avoid Reentrancy in Callbacks
+
+When a callback needs to trigger teardown:
+
+```cpp
+client->OnError([&](const dbn_pipe::Error& e) {
+    // We're already in a callback - Stop() might cause issues
+    // Defer to run after current callback chain completes:
+    reactor.Defer([&]() {
+        client->Stop();
+        reconnect();
+    });
 });
 ```
 
-**Note:** `Defer()` is thread-safe. All other client methods must be called from the event loop thread.
+**Key points:**
+- `Defer()` is the **only** thread-safe reactor method
+- Callbacks run on reactor thread, so client methods are safe inside
+- Common uses: signal handlers, worker threads, async completion callbacks
 
 ## Complete Example
 
