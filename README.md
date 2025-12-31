@@ -104,28 +104,109 @@ For applications with an existing event loop, implement the `IEventLoop` interfa
 
 ```cpp
 #include <uv.h>
+#include <thread>
+#include <memory>
+#include "src/i_event_loop.hpp"
 #include "src/client.hpp"
 
-// Adapter wrapping existing uv_loop_t* (see docs/libuv-integration.md)
+// Handle wrapper for automatic cleanup when unregistering
+class LibuvEventHandle : public dbn_pipe::IEventHandle {
+public:
+    LibuvEventHandle(uv_poll_t* poll, uv_loop_t* loop)
+        : poll_(poll), loop_(loop) {}
+
+    ~LibuvEventHandle() {
+        if (poll_) {
+            uv_poll_stop(poll_);
+            uv_close(reinterpret_cast<uv_handle_t*>(poll_),
+                [](uv_handle_t* h) { delete reinterpret_cast<uv_poll_t*>(h); });
+        }
+    }
+
+    void Update(bool want_read, bool want_write) override {
+        int events = 0;
+        if (want_read) events |= UV_READABLE;
+        if (want_write) events |= UV_WRITABLE;
+        uv_poll_start(poll_, events, poll_callback);
+    }
+
+private:
+    static void poll_callback(uv_poll_t* handle, int status, int events) {
+        auto* ctx = static_cast<PollContext*>(handle->data);
+        if (status < 0) {
+            ctx->on_error(status);
+            return;
+        }
+        if (events & UV_READABLE) ctx->on_read();
+        if (events & UV_WRITABLE) ctx->on_write();
+    }
+
+    struct PollContext {
+        std::function<void()> on_read;
+        std::function<void()> on_write;
+        std::function<void(int)> on_error;
+    };
+
+    uv_poll_t* poll_;
+    uv_loop_t* loop_;
+};
+
+// Adapter wrapping existing uv_loop_t*
 class LibuvEventLoop : public dbn_pipe::IEventLoop {
 public:
-    explicit LibuvEventLoop(uv_loop_t* loop);
+    explicit LibuvEventLoop(uv_loop_t* loop)
+        : loop_(loop), thread_id_(std::this_thread::get_id()) {}
 
-    std::unique_ptr<IEventHandle> Register(
-        int fd, bool want_read, bool want_write,
-        ReadCallback on_read, WriteCallback on_write,
-        ErrorCallback on_error) override;
+    std::unique_ptr<dbn_pipe::IEventHandle> Register(
+            int fd, bool want_read, bool want_write,
+            ReadCallback on_read, WriteCallback on_write,
+            ErrorCallback on_error) override {
+        auto* poll = new uv_poll_t;
+        uv_poll_init(loop_, poll, fd);
 
-    void Defer(std::function<void()> fn) override;
-    bool IsInEventLoopThread() const override;
+        // Store callbacks in handle data
+        auto* ctx = new LibuvEventHandle::PollContext{
+            std::move(on_read), std::move(on_write), std::move(on_error)};
+        poll->data = ctx;
+
+        int events = 0;
+        if (want_read) events |= UV_READABLE;
+        if (want_write) events |= UV_WRITABLE;
+        uv_poll_start(poll, events, [](uv_poll_t* h, int status, int events) {
+            auto* ctx = static_cast<LibuvEventHandle::PollContext*>(h->data);
+            if (status < 0) { ctx->on_error(status); return; }
+            if (events & UV_READABLE) ctx->on_read();
+            if (events & UV_WRITABLE) ctx->on_write();
+        });
+
+        return std::make_unique<LibuvEventHandle>(poll, loop_);
+    }
+
+    void Defer(std::function<void()> fn) override {
+        auto* async = new uv_async_t;
+        async->data = new std::function<void()>(std::move(fn));
+        uv_async_init(loop_, async, [](uv_async_t* h) {
+            auto* fn = static_cast<std::function<void()>*>(h->data);
+            (*fn)();
+            delete fn;
+            uv_close(reinterpret_cast<uv_handle_t*>(h),
+                [](uv_handle_t* h) { delete reinterpret_cast<uv_async_t*>(h); });
+        });
+        uv_async_send(async);
+    }
+
+    bool IsInEventLoopThread() const override {
+        return std::this_thread::get_id() == thread_id_;
+    }
 
 private:
     uv_loop_t* loop_;  // Non-owning
+    std::thread::id thread_id_;
 };
 
 int main() {
     uv_loop_t* loop = uv_default_loop();
-    LibuvEventLoop adapter(loop);  // Wrap existing loop
+    LibuvEventLoop adapter(loop);
 
     auto client = dbn_pipe::LiveClient::Create(adapter, "your-api-key");
 
@@ -135,18 +216,23 @@ int main() {
         .schema = "mbp-1"
     });
 
-    client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
-        // Process alongside other libuv handlers
+    client->OnRecord([](dbn_pipe::RecordBatch&& batch) {
+        for (const auto& ref : batch) {
+            // Access record: ref.Header(), ref.As<databento::TradeMsg>(), etc.
+        }
     });
 
-    client->Connect();
+    client->OnError([](const dbn_pipe::Error& e) {
+        std::cerr << "Error: " << e.message << std::endl;
+    });
+
+    auto addr = dbn_pipe::ResolveHostname("glbx-mdp3.lsg.databento.com", 13000);
+    client->Connect(*addr);
     client->Start();
 
     uv_run(loop, UV_RUN_DEFAULT);  // Your loop drives everything
 }
 ```
-
-See [docs/libuv-integration.md](docs/libuv-integration.md) for complete implementation.
 
 ## Architecture
 
