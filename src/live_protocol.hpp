@@ -86,67 +86,83 @@ private:
 struct LiveProtocol {
     using Request = LiveRequest;
 
-    // ChainType wraps CramAuth for the specific Record type
-    // We use a type-erased wrapper to avoid exposing the Record template
+    // ChainType wraps the full pipeline including TcpSocket
+    // Type-erased wrapper to avoid exposing template parameters
     struct ChainType {
         virtual ~ChainType() = default;
-        virtual void Read(BufferChain data) = 0;
-        virtual void OnError(const Error& e) = 0;
-        virtual void OnDone() = 0;
-        virtual void Close() = 0;
-        virtual void SetWriteCallback(std::function<void(BufferChain)> cb) = 0;
-        virtual void Subscribe(std::string dataset, std::string symbols, std::string schema) = 0;
-        virtual void StartStreaming() = 0;
 
-        // Backpressure - propagates through chain to upstream
+        // Network lifecycle
+        virtual void Connect(const sockaddr_storage& addr) = 0;
+        virtual void Close() = 0;
+
+        // Ready callback - fires when chain is ready to send request
+        virtual void SetReadyCallback(std::function<void()> cb) = 0;
+
+        // Backpressure
         virtual void Suspend() = 0;
         virtual void Resume() = 0;
-        virtual void SetUpstream(Suspendable* up) = 0;
+
+        // Protocol-specific
+        virtual void Subscribe(std::string dataset, std::string symbols, std::string schema) = 0;
+        virtual void StartStreaming() = 0;
     };
 
     // Concrete implementation of ChainType for a specific Record type
-    // Head is the entry point component (receives data from TCP)
+    // TcpSocket is the head, wrapping the rest of the chain
     // Static dispatch within chain via template parameters
     template <typename Record>
     struct ChainImpl : ChainType {
         using SinkAdapterType = SinkAdapter<Record>;
         using ParserType = DbnParserComponent<SinkAdapterType>;
-        using HeadType = CramAuth<ParserType>;
+        using InnerHeadType = CramAuth<ParserType>;
+        using HeadType = TcpSocket<InnerHeadType>;
 
         ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
             : sink_adapter_(std::make_unique<SinkAdapterType>(sink))
             , parser_(std::make_shared<ParserType>(*sink_adapter_))
-            , head_(HeadType::Create(reactor, parser_, api_key))
-        {}
-
-        // Data flow interface - forward to head
-        void Read(BufferChain data) override { head_->OnData(data); }
-        void OnError(const Error& e) override { head_->OnError(e); }
-        void OnDone() override { head_->OnDone(); }
-        void Close() override { head_->RequestClose(); }
-
-        // Backpressure interface - forward to head
-        void Suspend() override { head_->Suspend(); }
-        void Resume() override { head_->Resume(); }
-        void SetUpstream(Suspendable* up) override { head_->SetUpstream(up); }
-
-        // Protocol-specific (could be abstracted further with concepts)
-        void SetWriteCallback(std::function<void(BufferChain)> cb) override {
-            head_->SetWriteCallback(std::move(cb));
+            , inner_head_(InnerHeadType::Create(reactor, parser_, api_key))
+            , head_(HeadType::Create(reactor, inner_head_))
+        {
+            // Wire connect callback for ready signal
+            head_->OnConnect([this]() {
+                // Live protocol is ready immediately on connect
+                if (ready_cb_) ready_cb_();
+            });
         }
 
+        // Network lifecycle
+        void Connect(const sockaddr_storage& addr) override {
+            head_->Connect(addr);
+        }
+
+        void Close() override {
+            head_->Close();
+        }
+
+        // Ready callback
+        void SetReadyCallback(std::function<void()> cb) override {
+            ready_cb_ = std::move(cb);
+        }
+
+        // Backpressure - forward to head (TcpSocket)
+        void Suspend() override { head_->Suspend(); }
+        void Resume() override { head_->Resume(); }
+
+        // Protocol-specific - forward to inner head (CramAuth)
         void Subscribe(std::string dataset, std::string symbols, std::string schema) override {
-            head_->Subscribe(std::move(dataset), std::move(symbols), std::move(schema));
+            inner_head_->Subscribe(std::move(dataset), std::move(symbols), std::move(schema));
         }
 
         void StartStreaming() override {
-            head_->StartStreaming();
+            inner_head_->StartStreaming();
         }
 
     private:
         std::unique_ptr<SinkAdapterType> sink_adapter_;
         std::shared_ptr<ParserType> parser_;
+        std::shared_ptr<InnerHeadType> inner_head_;
         std::shared_ptr<HeadType> head_;
+        std::function<void()> ready_cb_;
     };
 
     // Build the component chain for live protocol
@@ -157,26 +173,6 @@ struct LiveProtocol {
         const std::string& api_key
     ) {
         return std::make_shared<ChainImpl<Record>>(reactor, sink, api_key);
-    }
-
-    // Wire TCP socket write to chain
-    static void WireTcp(TcpSocket& tcp, std::shared_ptr<ChainType>& chain) {
-        chain->SetWriteCallback([&tcp](BufferChain data) {
-            tcp.Write(std::move(data));
-        });
-    }
-
-    // Handle TCP connect - live is ready immediately
-    static bool OnConnect(std::shared_ptr<ChainType>& /*chain*/) {
-        return true;  // Ready to send request on connect
-    }
-
-    // Handle TCP read - forward data to chain
-    static bool OnRead(std::shared_ptr<ChainType>& chain, BufferChain data) {
-        if (chain && !data.Empty()) {
-            chain->Read(std::move(data));
-        }
-        return true;  // Always ready after connect
     }
 
     // Send request - subscribe and start streaming

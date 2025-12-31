@@ -16,7 +16,6 @@
 #include "pipeline_sink.hpp"
 #include "protocol_driver.hpp"
 #include "reactor.hpp"
-#include "tcp_socket.hpp"
 
 namespace databento_async {
 
@@ -144,7 +143,7 @@ public:
         }
         BuildPipeline();
         state_ = PipelineState::Connecting;
-        tcp_->Connect(addr);
+        chain_->Connect(addr);
     }
 
     // Start streaming. Must be called after Connect() and SetRequest().
@@ -252,27 +251,17 @@ private:
         // Create sink (bridges to callbacks)
         sink_ = std::make_shared<Sink<Record>>(reactor_, this);
 
-        // Build protocol-specific chain
+        // Build protocol-specific chain (includes TcpSocket as head)
         chain_ = P::BuildChain(reactor_, *sink_, api_key_);
 
-        // Create TCP socket (implements Suspendable for backpressure)
-        tcp_ = std::make_unique<TcpSocket>(reactor_);
-
-        // Wire TCP as chain's upstream for backpressure propagation
-        chain_->SetUpstream(tcp_.get());
-
-        // Wire TCP callbacks
-        tcp_->OnConnect([this] { HandleConnect(); });
-        tcp_->OnRead([this](auto data) { HandleRead(data); });
-        tcp_->OnError([this](auto ec) { HandleTcpError(ec); });
+        // Set up ready callback for when protocol is ready to send request
+        // (Live: on connect, Historical: after TLS handshake)
+        chain_->SetReadyCallback([this] { HandleReady(); });
 
         // Respect pre-connect Suspend() calls by propagating through chain
         if (suspend_count_.load(std::memory_order_acquire) > 0) {
             chain_->Suspend();
         }
-
-        // Wire chain write callback to TCP
-        P::WireTcp(*tcp_, chain_);
     }
 
     void TeardownPipeline() {
@@ -294,60 +283,25 @@ private:
     }
 
     void DoTeardown() {
-        // Teardown chain before TCP to ensure no pending writes
+        // Teardown chain (includes TcpSocket)
         P::Teardown(chain_);
         chain_.reset();
-
-        // Close TCP socket
-        if (tcp_) {
-            tcp_->Close();
-        }
-        tcp_.reset();
         sink_.reset();
     }
 
-    void HandleConnect() {
+    void HandleReady() {
         // Terminal state guard
         if (teardown_pending_) return;
 
         state_ = PipelineState::Connected;
-        ready_to_send_ = P::OnConnect(chain_);
+        ready_to_send_ = true;
 
-        // If ready immediately (Live) and Start() was called, send request now
-        if (ready_to_send_ && start_requested_ && !request_sent_) {
+        // If Start() was already called, send request now
+        if (start_requested_ && !request_sent_) {
             P::SendRequest(chain_, request_);
             request_sent_ = true;
             state_ = PipelineState::Streaming;
         }
-    }
-
-    void HandleRead(BufferChain data) {
-        // Terminal state guard
-        if (teardown_pending_) return;
-
-        bool now_ready = P::OnRead(chain_, std::move(data));
-
-        // If just became ready and Start() was already called, send request
-        if (now_ready && !ready_to_send_) {
-            ready_to_send_ = true;
-            if (start_requested_ && !request_sent_) {
-                P::SendRequest(chain_, request_);
-                request_sent_ = true;
-                state_ = PipelineState::Streaming;
-            }
-        }
-    }
-
-    void HandleTcpError(std::error_code ec) {
-        // Terminal guard - suppress late errors during teardown
-        if (teardown_pending_) return;
-
-        state_ = PipelineState::Error;
-        if (error_handler_) {
-            error_handler_(Error{ErrorCode::ConnectionFailed, ec.message(), ec.value()});
-        }
-        // Error is terminal for single-use pipeline
-        TeardownPipeline();
     }
 
     // =========================================================================
@@ -407,7 +361,6 @@ private:
 
     std::atomic<int> suspend_count_{0};
 
-    std::unique_ptr<TcpSocket> tcp_;
     std::shared_ptr<Sink<Record>> sink_;
     std::shared_ptr<typename P::ChainType> chain_;
 

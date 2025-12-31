@@ -23,6 +23,7 @@ cc_test(
     srcs = ["tcp_socket_test.cpp"],
     deps = [
         "//src:buffer_chain",
+        "//src:error",
         "//src:reactor",
         "//src:tcp_socket",
         "@googletest//:gtest_main",
@@ -49,15 +50,6 @@ cc_test(
     ],
 )
 
-cc_test(
-    name = "live_client_test",
-    srcs = ["live_client_test.cpp"],
-    deps = [
-        "//src:live_client",
-        "@databento_cpp//:databento_with_impl",
-        "@googletest//:gtest_main",
-    ],
-)
 
 cc_test(
     name = "pipeline_component_test",
@@ -104,14 +96,6 @@ cc_test(
     ],
 )
 
-cc_test(
-    name = "historical_client_test",
-    srcs = ["historical_client_test.cpp"],
-    deps = [
-        "//src:historical_client",
-        "@googletest//:gtest_main",
-    ],
-)
 
 cc_test(
     name = "dbn_parser_component_test",

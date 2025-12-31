@@ -18,19 +18,6 @@ TEST(LiveProtocolTest, SatisfiesProtocolDriverConcept) {
     SUCCEED();
 }
 
-TEST(LiveProtocolTest, OnConnectReturnsTrue) {
-    // Live protocol is ready immediately on connect
-    std::shared_ptr<LiveProtocol::ChainType> chain;
-    EXPECT_TRUE(LiveProtocol::OnConnect(chain));
-}
-
-TEST(LiveProtocolTest, OnReadReturnsTrue) {
-    // Live protocol is always ready after connect
-    std::shared_ptr<LiveProtocol::ChainType> chain;
-    BufferChain data;
-    EXPECT_TRUE(LiveProtocol::OnRead(chain, std::move(data)));
-}
-
 TEST(LiveProtocolTest, RequestHasRequiredFields) {
     LiveProtocol::Request req;
     req.dataset = "GLBX.MDP3";

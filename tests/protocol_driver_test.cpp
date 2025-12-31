@@ -1,10 +1,13 @@
 // tests/protocol_driver_test.cpp
 #include <gtest/gtest.h>
 
+#include <netinet/in.h>
+#include <sys/socket.h>
+
+#include <functional>
 #include <memory>
 #include <string>
 
-#include "src/buffer_chain.hpp"
 #include "src/protocol_driver.hpp"
 #include "src/reactor.hpp"
 #include "src/pipeline_sink.hpp"
@@ -15,8 +18,12 @@ using namespace databento_async;
 struct MockRecord {};
 using TestSink = Sink<MockRecord>;
 
-// Mock chain type
+// Mock chain type - satisfies ChainType interface requirements
 struct MockChain {
+    void Connect(const sockaddr_storage&) {}
+    void SetReadyCallback(std::function<void()>) {}
+    void Suspend() {}
+    void Resume() {}
     void Close() {}
 };
 
@@ -32,16 +39,6 @@ struct ValidProtocol {
         Reactor&, TestSink&, const std::string&
     ) {
         return std::make_shared<ChainType>();
-    }
-
-    static void WireTcp(TcpSocket&, std::shared_ptr<ChainType>&) {}
-
-    static bool OnConnect(std::shared_ptr<ChainType>&) {
-        return true;
-    }
-
-    static bool OnRead(std::shared_ptr<ChainType>&, BufferChain) {
-        return true;
     }
 
     static void SendRequest(std::shared_ptr<ChainType>&, const Request&) {}
