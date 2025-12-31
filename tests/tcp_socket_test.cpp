@@ -179,21 +179,21 @@ TEST(TcpSocketTest, ReadWrite) {
     close(listener);
 }
 
-TEST(TcpSocketTest, PauseResumeReadIdempotent) {
+TEST(TcpSocketTest, SuspendResumeBeforeConnect) {
     Reactor reactor;
     TcpSocket sock(reactor);
 
-    // Initially not paused
-    EXPECT_FALSE(sock.IsReadPaused());
+    // Initially not suspended
+    EXPECT_FALSE(sock.IsSuspended());
 
-    // Pause/Resume before connect should be safe (no event_)
-    sock.PauseRead();
-    EXPECT_FALSE(sock.IsReadPaused());  // No effect without event_
-    sock.ResumeRead();
-    EXPECT_FALSE(sock.IsReadPaused());
+    // Suspend/Resume before connect should be safe (no event_)
+    sock.Suspend();
+    EXPECT_TRUE(sock.IsSuspended());  // Count incremented
+    sock.Resume();
+    EXPECT_FALSE(sock.IsSuspended());
 }
 
-TEST(TcpSocketTest, PauseReadStopsCallbacks) {
+TEST(TcpSocketTest, SuspendStopsCallbacks) {
     Reactor reactor;
     int port;
     int listener = create_listener(port);
@@ -230,17 +230,13 @@ TEST(TcpSocketTest, PauseReadStopsCallbacks) {
         reactor.Poll(10);
     }
 
-    EXPECT_FALSE(sock.IsReadPaused());
+    EXPECT_FALSE(sock.IsSuspended());
 
-    // Pause reads
-    sock.PauseRead();
-    EXPECT_TRUE(sock.IsReadPaused());
+    // Suspend reads
+    sock.Suspend();
+    EXPECT_TRUE(sock.IsSuspended());
 
-    // Calling PauseRead again should be idempotent
-    sock.PauseRead();
-    EXPECT_TRUE(sock.IsReadPaused());
-
-    // Server sends data while paused
+    // Server sends data while suspended
     write(server_fd, "data1", 5);
 
     // Poll a few times - should not receive data
@@ -250,12 +246,8 @@ TEST(TcpSocketTest, PauseReadStopsCallbacks) {
     EXPECT_EQ(read_count, 0);
 
     // Resume reads
-    sock.ResumeRead();
-    EXPECT_FALSE(sock.IsReadPaused());
-
-    // Calling ResumeRead again should be idempotent
-    sock.ResumeRead();
-    EXPECT_FALSE(sock.IsReadPaused());
+    sock.Resume();
+    EXPECT_FALSE(sock.IsSuspended());
 
     // Send more data after resume
     write(server_fd, "data2", 5);
@@ -272,7 +264,7 @@ TEST(TcpSocketTest, PauseReadStopsCallbacks) {
     close(listener);
 }
 
-TEST(TcpSocketTest, CloseResetsPausedState) {
+TEST(TcpSocketTest, CloseResetsSuspendedState) {
     Reactor reactor;
     int port;
     int listener = create_listener(port);
@@ -291,11 +283,11 @@ TEST(TcpSocketTest, CloseResetsPausedState) {
         reactor.Poll(10);
     }
 
-    sock.PauseRead();
-    EXPECT_TRUE(sock.IsReadPaused());
+    sock.Suspend();
+    EXPECT_TRUE(sock.IsSuspended());
 
     sock.Close();
-    EXPECT_FALSE(sock.IsReadPaused());
+    EXPECT_FALSE(sock.IsSuspended());
 
     close(server_fd);
     close(listener);

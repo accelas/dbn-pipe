@@ -193,23 +193,23 @@ public:
     }
 
     // =========================================================================
-    // Suspendable interface - uses count-based semantics
+    // Suspendable interface - propagates through chain to TCP
     // =========================================================================
 
-    // Increment suspend count. When count goes 0->1, pause reading.
+    // Increment suspend count. When count goes 0->1, propagate to chain.
     void Suspend() override {
         assert(reactor_.IsInReactorThread());
-        if (++suspend_count_ == 1 && tcp_) {
-            tcp_->PauseRead();
+        if (++suspend_count_ == 1 && chain_) {
+            chain_->Suspend();
         }
     }
 
-    // Decrement suspend count. When count goes 1->0, resume reading.
+    // Decrement suspend count. When count goes 1->0, propagate to chain.
     void Resume() override {
         assert(reactor_.IsInReactorThread());
         assert(suspend_count_ > 0);
-        if (--suspend_count_ == 0 && tcp_) {
-            tcp_->ResumeRead();
+        if (--suspend_count_ == 0 && chain_) {
+            chain_->Resume();
         }
     }
 
@@ -255,17 +255,20 @@ private:
         // Build protocol-specific chain
         chain_ = P::BuildChain(reactor_, *sink_, api_key_);
 
-        // Create TCP socket
+        // Create TCP socket (implements Suspendable for backpressure)
         tcp_ = std::make_unique<TcpSocket>(reactor_);
+
+        // Wire TCP as chain's upstream for backpressure propagation
+        chain_->SetUpstream(tcp_.get());
 
         // Wire TCP callbacks
         tcp_->OnConnect([this] { HandleConnect(); });
         tcp_->OnRead([this](auto data) { HandleRead(data); });
         tcp_->OnError([this](auto ec) { HandleTcpError(ec); });
 
-        // Respect pre-connect Suspend() calls
+        // Respect pre-connect Suspend() calls by propagating through chain
         if (suspend_count_.load(std::memory_order_acquire) > 0) {
-            tcp_->PauseRead();
+            chain_->Suspend();
         }
 
         // Wire chain write callback to TCP

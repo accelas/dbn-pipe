@@ -112,16 +112,23 @@ struct HistoricalProtocol {
         virtual std::shared_ptr<Segment> GetRequestSegment() = 0;
         virtual void SendRequestSegment(std::shared_ptr<Segment> seg) = 0;
         virtual const std::string& GetApiKey() const = 0;
+
+        // Backpressure - propagates through chain to upstream
+        virtual void Suspend() = 0;
+        virtual void Resume() = 0;
+        virtual void SetUpstream(Suspendable* up) = 0;
     };
 
     // Concrete implementation of ChainType for a specific Record type
+    // Head is the entry point component (receives data from TCP)
+    // Static dispatch within chain via template parameters
     template <typename Record>
     struct ChainImpl : ChainType {
         using SinkAdapterType = SinkAdapter<Record>;
         using ParserType = DbnParserComponent<SinkAdapterType>;
         using ZstdType = ZstdDecompressor<ParserType>;
         using HttpType = HttpClient<ZstdType>;
-        using TlsType = TlsTransport<HttpType>;
+        using HeadType = TlsTransport<HttpType>;
 
         ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
             : api_key_(api_key)
@@ -129,42 +136,31 @@ struct HistoricalProtocol {
             , parser_(std::make_shared<ParserType>(*sink_adapter_))
             , zstd_(ZstdType::Create(reactor, parser_))
             , http_(HttpType::Create(reactor, zstd_))
-            , tls_(TlsType::Create(reactor, http_))
+            , head_(HeadType::Create(reactor, http_))
         {
-            // Wire up upstream pointers for backpressure
-            http_->SetUpstream(tls_.get());
+            // Wire up upstream pointers for backpressure propagation
+            http_->SetUpstream(head_.get());
             zstd_->SetUpstream(http_.get());
         }
 
-        void Read(BufferChain data) override {
-            tls_->Read(std::move(data));
-        }
+        // Data flow interface - forward to head
+        void Read(BufferChain data) override { head_->Read(std::move(data)); }
+        void OnError(const Error& e) override { http_->OnError(e); }
+        void OnDone() override { http_->OnDone(); }
+        void Close() override { head_->RequestClose(); }
 
-        void OnError(const Error& e) override {
-            // Forward error through chain
-            http_->OnError(e);
-        }
+        // Backpressure interface - forward to head
+        void Suspend() override { head_->Suspend(); }
+        void Resume() override { head_->Resume(); }
+        void SetUpstream(Suspendable* up) override { head_->SetUpstream(up); }
 
-        void OnDone() override {
-            // Forward done through chain
-            http_->OnDone();
-        }
-
-        void Close() override {
-            tls_->RequestClose();
-        }
-
+        // Protocol-specific (TLS handshake)
         void SetWriteCallback(std::function<void(BufferChain)> cb) override {
-            tls_->SetUpstreamWriteCallback(std::move(cb));
+            head_->SetUpstreamWriteCallback(std::move(cb));
         }
 
-        void StartHandshake() override {
-            tls_->StartHandshake();
-        }
-
-        bool IsHandshakeComplete() const override {
-            return tls_->IsHandshakeComplete();
-        }
+        void StartHandshake() override { head_->StartHandshake(); }
+        bool IsHandshakeComplete() const override { return head_->IsHandshakeComplete(); }
 
         std::shared_ptr<Segment> GetRequestSegment() override {
             return std::make_shared<Segment>();
@@ -173,12 +169,10 @@ struct HistoricalProtocol {
         void SendRequestSegment(std::shared_ptr<Segment> seg) override {
             BufferChain chain;
             chain.Append(std::move(seg));
-            tls_->Write(std::move(chain));
+            head_->Write(std::move(chain));
         }
 
-        const std::string& GetApiKey() const override {
-            return api_key_;
-        }
+        const std::string& GetApiKey() const override { return api_key_; }
 
     private:
         std::string api_key_;
@@ -186,7 +180,7 @@ struct HistoricalProtocol {
         std::shared_ptr<ParserType> parser_;
         std::shared_ptr<ZstdType> zstd_;
         std::shared_ptr<HttpType> http_;
-        std::shared_ptr<TlsType> tls_;
+        std::shared_ptr<HeadType> head_;
     };
 
     // Build the component chain for historical protocol

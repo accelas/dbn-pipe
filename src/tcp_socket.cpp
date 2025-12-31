@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <cassert>
 #include <cerrno>
 
 namespace databento_async {
@@ -67,7 +68,21 @@ void TcpSocket::Close() {
     }
     connected_ = false;
     read_paused_ = false;
+    suspend_count_ = 0;
     write_buffer_.clear();
+}
+
+void TcpSocket::Suspend() {
+    if (++suspend_count_ == 1) {
+        PauseRead();
+    }
+}
+
+void TcpSocket::Resume() {
+    assert(suspend_count_ > 0);
+    if (--suspend_count_ == 0) {
+        ResumeRead();
+    }
 }
 
 void TcpSocket::PauseRead() {

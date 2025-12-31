@@ -97,52 +97,56 @@ struct LiveProtocol {
         virtual void SetWriteCallback(std::function<void(BufferChain)> cb) = 0;
         virtual void Subscribe(std::string dataset, std::string symbols, std::string schema) = 0;
         virtual void StartStreaming() = 0;
+
+        // Backpressure - propagates through chain to upstream
+        virtual void Suspend() = 0;
+        virtual void Resume() = 0;
+        virtual void SetUpstream(Suspendable* up) = 0;
     };
 
     // Concrete implementation of ChainType for a specific Record type
+    // Head is the entry point component (receives data from TCP)
+    // Static dispatch within chain via template parameters
     template <typename Record>
     struct ChainImpl : ChainType {
-        using ParserType = DbnParserComponent<SinkAdapter<Record>>;
-        using CramType = CramAuth<ParserType>;
+        using SinkAdapterType = SinkAdapter<Record>;
+        using ParserType = DbnParserComponent<SinkAdapterType>;
+        using HeadType = CramAuth<ParserType>;
 
         ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
-            : sink_adapter_(std::make_unique<SinkAdapter<Record>>(sink))
+            : sink_adapter_(std::make_unique<SinkAdapterType>(sink))
             , parser_(std::make_shared<ParserType>(*sink_adapter_))
-            , cram_(CramType::Create(reactor, parser_, api_key))
+            , head_(HeadType::Create(reactor, parser_, api_key))
         {}
 
-        void Read(BufferChain data) override {
-            cram_->OnData(data);
-        }
+        // Data flow interface - forward to head
+        void Read(BufferChain data) override { head_->OnData(data); }
+        void OnError(const Error& e) override { head_->OnError(e); }
+        void OnDone() override { head_->OnDone(); }
+        void Close() override { head_->RequestClose(); }
 
-        void OnError(const Error& e) override {
-            cram_->OnError(e);
-        }
+        // Backpressure interface - forward to head
+        void Suspend() override { head_->Suspend(); }
+        void Resume() override { head_->Resume(); }
+        void SetUpstream(Suspendable* up) override { head_->SetUpstream(up); }
 
-        void OnDone() override {
-            cram_->OnDone();
-        }
-
-        void Close() override {
-            cram_->RequestClose();
-        }
-
+        // Protocol-specific (could be abstracted further with concepts)
         void SetWriteCallback(std::function<void(BufferChain)> cb) override {
-            cram_->SetWriteCallback(std::move(cb));
+            head_->SetWriteCallback(std::move(cb));
         }
 
         void Subscribe(std::string dataset, std::string symbols, std::string schema) override {
-            cram_->Subscribe(std::move(dataset), std::move(symbols), std::move(schema));
+            head_->Subscribe(std::move(dataset), std::move(symbols), std::move(schema));
         }
 
         void StartStreaming() override {
-            cram_->StartStreaming();
+            head_->StartStreaming();
         }
 
     private:
-        std::unique_ptr<SinkAdapter<Record>> sink_adapter_;
+        std::unique_ptr<SinkAdapterType> sink_adapter_;
         std::shared_ptr<ParserType> parser_;
-        std::shared_ptr<CramType> cram_;
+        std::shared_ptr<HeadType> head_;
     };
 
     // Build the component chain for live protocol
