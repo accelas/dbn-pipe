@@ -18,7 +18,7 @@
 #include "reactor.hpp"
 #include "sink_adapter.hpp"
 #include "tcp_socket.hpp"
-#include "tls_socket.hpp"
+#include "tls_transport.hpp"
 #include "zstd_decompressor.hpp"
 
 namespace databento_async {
@@ -36,7 +36,7 @@ struct HistoricalRequest {
 //
 // Satisfies the ProtocolDriver concept. Uses TLS -> HTTP -> Zstd -> DBN parser chain.
 //
-// Chain: TcpSocket -> TlsSocket -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> SinkAdapter -> Sink
+// Chain: TcpSocket -> TlsTransport -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> SinkAdapter -> Sink
 //
 // Historical protocol requires TLS handshake before sending HTTP request.
 // OnConnect starts the handshake and returns false (not ready yet).
@@ -121,7 +121,7 @@ struct HistoricalProtocol {
         using ParserType = DbnParserComponent<SinkAdapterType>;
         using ZstdType = ZstdDecompressor<ParserType>;
         using HttpType = HttpClient<ZstdType>;
-        using TlsType = TlsSocket<HttpType>;
+        using TlsType = TlsTransport<HttpType>;
 
         ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
             : api_key_(api_key)

@@ -28,11 +28,7 @@ void TcpSocket::Connect(const sockaddr_storage& addr) {
     int opt = 1;
     setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt));
 
-    // Determine sockaddr size based on family
-    socklen_t addr_len = (family == AF_INET6) ? sizeof(sockaddr_in6)
-                                              : sizeof(sockaddr_in);
-
-    int ret = connect(sock_fd, reinterpret_cast<const sockaddr*>(&addr), addr_len);
+    int ret = connect(sock_fd, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
     if (ret < 0 && errno != EINPROGRESS) {
         auto ec = std::error_code(errno, std::system_category());
         close(sock_fd);

@@ -70,13 +70,13 @@ cc_test(
 )
 
 cc_test(
-    name = "tls_socket_test",
-    srcs = ["tls_socket_test.cpp"],
+    name = "tls_transport_test",
+    srcs = ["tls_transport_test.cpp"],
     deps = [
         "//src:buffer_chain",
         "//src:pipeline_component",
         "//src:reactor",
-        "//src:tls_socket",
+        "//src:tls_transport",
         "@googletest//:gtest_main",
     ],
 )
