@@ -33,7 +33,7 @@ cc_test(
     name = "cram_auth_utils_test",
     srcs = ["cram_auth_utils_test.cpp"],
     deps = [
-        "//src:cram_auth_utils",
+        "//src:cram_auth",
         "@googletest//:gtest_main",
     ],
 )

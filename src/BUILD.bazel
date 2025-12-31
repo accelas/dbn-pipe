@@ -25,14 +25,6 @@ cc_library(
 )
 
 cc_library(
-    name = "cram_auth_utils",
-    srcs = ["cram_auth_utils.cpp"],
-    hdrs = ["cram_auth_utils.hpp"],
-    visibility = ["//visibility:public"],
-    deps = ["@openssl_sys//:crypto"],
-)
-
-cc_library(
     name = "live_client",
     srcs = ["live_client.cpp"],
     hdrs = ["live_client.hpp"],
@@ -134,11 +126,11 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":buffer_chain",
-        ":cram_auth_utils",
         ":error",
         ":pipeline_component",
         ":reactor",
         ":tls_transport",
+        "@openssl_sys//:crypto",
     ],
 )
 
