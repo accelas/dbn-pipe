@@ -28,7 +28,7 @@ Implements `IEventHandle` using `uv_poll_t` for fd monitoring:
 
 #include "event_loop.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 class LibuvEventLoop;
 
@@ -128,7 +128,7 @@ void LibuvEventHandle::OnPoll(uv_poll_t* handle, int status, int events) {
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 ### LibuvEventLoop
@@ -136,7 +136,7 @@ void LibuvEventHandle::OnPoll(uv_poll_t* handle, int status, int events) {
 Implements `IEventLoop` wrapping an existing `uv_loop_t*`:
 
 ```cpp
-namespace databento_async {
+namespace dbn_pipe {
 
 class LibuvEventLoop : public IEventLoop {
 public:
@@ -243,7 +243,7 @@ void LibuvEventLoop::ProcessDeferredCallbacks() {
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 ## Usage Example
@@ -265,20 +265,20 @@ int main() {
     uv_loop_t* loop = uv_default_loop();
 
     // Create adapter wrapping your loop (non-owning)
-    databento_async::LibuvEventLoop event_loop(loop);
+    dbn_pipe::LibuvEventLoop event_loop(loop);
 
     // Record event loop thread (call from main/event loop thread)
     event_loop.SetEventLoopThread();
 
     // Create pipeline using the adapter
-    using LivePipeline = databento_async::Pipeline<
-        databento_async::LiveProtocol,
+    using LivePipeline = dbn_pipe::Pipeline<
+        dbn_pipe::LiveProtocol,
         databento::Record>;
 
     auto pipeline = LivePipeline::Create(event_loop, "your-api-key");
 
     // Configure the pipeline
-    pipeline->SetRequest(databento_async::LiveRequest{
+    pipeline->SetRequest(dbn_pipe::LiveRequest{
         .dataset = "GLBX.MDP3",
         .symbols = "ES.FUT",
         .schema = databento::Schema::Trades,
@@ -291,7 +291,7 @@ int main() {
                   << static_cast<int>(record.header().rtype()) << "\n";
     });
 
-    pipeline->OnError([](const databento_async::Error& error) {
+    pipeline->OnError([](const dbn_pipe::Error& error) {
         std::cerr << "Error: " << error.message << "\n";
     });
 
@@ -337,13 +337,13 @@ public:
     }
 
     void AddDatabentoStream(const std::string& api_key) {
-        using LivePipeline = databento_async::Pipeline<
-            databento_async::LiveProtocol,
+        using LivePipeline = dbn_pipe::Pipeline<
+            dbn_pipe::LiveProtocol,
             databento::Record>;
 
         pipeline_ = LivePipeline::Create(event_loop_, api_key);
 
-        pipeline_->SetRequest(databento_async::LiveRequest{
+        pipeline_->SetRequest(dbn_pipe::LiveRequest{
             .dataset = "GLBX.MDP3",
             .symbols = "ES.FUT",
             .schema = databento::Schema::Trades,
@@ -354,7 +354,7 @@ public:
             HandleMarketData(r);
         });
 
-        pipeline_->OnError([this](const databento_async::Error& e) {
+        pipeline_->OnError([this](const dbn_pipe::Error& e) {
             HandleError(e);
         });
 
@@ -375,14 +375,14 @@ private:
         // Process market data alongside other application logic
     }
 
-    void HandleError(const databento_async::Error& e) {
+    void HandleError(const dbn_pipe::Error& e) {
         // Handle errors
     }
 
     uv_loop_t* loop_;
-    databento_async::LibuvEventLoop event_loop_;
-    std::shared_ptr<databento_async::Pipeline<
-        databento_async::LiveProtocol,
+    dbn_pipe::LibuvEventLoop event_loop_;
+    std::shared_ptr<dbn_pipe::Pipeline<
+        dbn_pipe::LiveProtocol,
         databento::Record>> pipeline_;
 };
 

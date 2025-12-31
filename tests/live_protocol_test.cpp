@@ -6,7 +6,7 @@
 #include "src/pipeline_sink.hpp"
 #include "src/protocol_driver.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Forward declare the record type used by live protocol
 struct DbnRecord {};

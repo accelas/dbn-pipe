@@ -199,7 +199,7 @@ Create `tests/dbn_parser_component_test.cpp`:
 #include "src/pipeline.hpp"
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 struct MockSink {
     std::vector<databento::RecordHeader> headers;
@@ -290,7 +290,7 @@ Create `src/dbn_parser_component.hpp`:
 #include "reactor.hpp"
 #include "tls_socket.hpp"  // For Suspendable
 
-namespace databento_async {
+namespace dbn_pipe {
 
 template <RecordDownstream D>
 class DbnParserComponent
@@ -498,7 +498,7 @@ void DbnParserComponent<D>::Resume() {
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Add BUILD rules**
@@ -584,7 +584,7 @@ Create `tests/live_protocol_handler_test.cpp`:
 #include "src/pipeline.hpp"
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 struct MockLiveDownstream {
     std::vector<std::byte> received;
@@ -682,7 +682,7 @@ Create `src/live_protocol_handler.hpp`:
 #include "reactor.hpp"
 #include "tls_socket.hpp"  // For Suspendable
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Handles the Databento Live API protocol:
 // - Text-based authentication phase (greeting, challenge, auth response)
@@ -1075,7 +1075,7 @@ void LiveProtocolHandler<D>::Resume() {
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 4: Add BUILD rules**
@@ -1155,7 +1155,7 @@ Replace `src/live_client.hpp` with:
 #include "reactor.hpp"
 #include "tcp_socket.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 class LiveClient;
 
@@ -1255,7 +1255,7 @@ private:
     std::function<void()> complete_handler_;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 2: Update LiveClient implementation**
@@ -1266,7 +1266,7 @@ Replace `src/live_client.cpp` with:
 // src/live_client.cpp
 #include "live_client.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Sink implementation
 
@@ -1437,7 +1437,7 @@ void LiveClient::HandlePipelineComplete() {
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 3: Update BUILD rules**
@@ -1474,7 +1474,7 @@ Update `tests/live_client_test.cpp` to work with new interface:
 #include "src/live_client.hpp"
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(LiveClientTest, ConstructsWithApiKey) {
     Reactor reactor;

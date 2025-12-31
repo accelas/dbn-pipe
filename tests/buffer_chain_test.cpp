@@ -5,7 +5,7 @@
 
 #include "src/buffer_chain.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(SegmentTest, BasicProperties) {
     Segment seg;

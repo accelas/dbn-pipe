@@ -5,7 +5,7 @@
 #include "src/live_protocol.hpp"
 #include "src/pipeline.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 struct TestRecord {};
 

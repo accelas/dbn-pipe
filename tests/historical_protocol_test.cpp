@@ -6,7 +6,7 @@
 #include "src/protocol_driver.hpp"
 #include "src/pipeline_sink.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 struct DbnRecord {};
 using HistoricalSink = Sink<DbnRecord>;

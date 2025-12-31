@@ -5,7 +5,7 @@
 #include "src/error.hpp"
 #include "src/pipeline_sink.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock record for testing
 struct MockRecord {
