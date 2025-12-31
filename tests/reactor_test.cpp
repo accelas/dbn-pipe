@@ -147,3 +147,139 @@ TEST(ReactorTest, TimerOneShot) {
 
     EXPECT_TRUE(fired);
 }
+
+// Tests for IEventLoop interface implementation
+TEST(ReactorTest, ImplementsIEventLoop) {
+    Reactor reactor;
+    // Reactor should be usable as IEventLoop&
+    IEventLoop& loop = reactor;
+    (void)loop;  // Suppress unused warning
+}
+
+TEST(ReactorTest, RegisterReadEvent) {
+    Reactor reactor;
+
+    int efd = eventfd(0, EFD_NONBLOCK);
+    ASSERT_GE(efd, 0);
+
+    bool read_called = false;
+    auto handle = reactor.Register(
+        efd, true, false,
+        [&]() { read_called = true; },
+        []() {},
+        [](int) {});
+
+    // Write to make readable
+    uint64_t val = 1;
+    write(efd, &val, sizeof(val));
+
+    reactor.Poll(0);
+    EXPECT_TRUE(read_called);
+
+    close(efd);
+}
+
+TEST(ReactorTest, RegisterWriteEvent) {
+    Reactor reactor;
+
+    int efd = eventfd(0, EFD_NONBLOCK);
+    ASSERT_GE(efd, 0);
+
+    bool write_called = false;
+    auto handle = reactor.Register(
+        efd, false, true,
+        []() {},
+        [&]() { write_called = true; },
+        [](int) {});
+
+    // eventfd is always writable
+    reactor.Poll(0);
+    EXPECT_TRUE(write_called);
+
+    close(efd);
+}
+
+TEST(ReactorTest, RegisterHandleUpdate) {
+    Reactor reactor;
+
+    int efd = eventfd(0, EFD_NONBLOCK);
+    ASSERT_GE(efd, 0);
+
+    int read_count = 0;
+    int write_count = 0;
+    auto handle = reactor.Register(
+        efd, true, false,
+        [&]() { read_count++; },
+        [&]() { write_count++; },
+        [](int) {});
+
+    // Initially only watching read
+    reactor.Poll(0);
+    EXPECT_EQ(read_count, 0);  // Not readable yet
+    EXPECT_EQ(write_count, 0);
+
+    // Update to watch write
+    handle->Update(false, true);
+    reactor.Poll(0);
+    EXPECT_EQ(write_count, 1);  // eventfd always writable
+
+    close(efd);
+}
+
+TEST(ReactorTest, RegisterHandleUnregisterOnDestruction) {
+    Reactor reactor;
+
+    int efd = eventfd(0, EFD_NONBLOCK);
+    ASSERT_GE(efd, 0);
+
+    bool called = false;
+    {
+        auto handle = reactor.Register(
+            efd, false, true,
+            []() {},
+            [&]() { called = true; },
+            [](int) {});
+
+        reactor.Poll(0);
+        EXPECT_TRUE(called);
+        called = false;
+        // handle goes out of scope
+    }
+
+    // After handle destruction, no more callbacks
+    reactor.Poll(0);
+    EXPECT_FALSE(called);
+
+    close(efd);
+}
+
+TEST(ReactorTest, DeferFromIEventLoop) {
+    Reactor reactor;
+
+    IEventLoop& loop = reactor;
+
+    bool deferred_called = false;
+    loop.Defer([&]() { deferred_called = true; });
+
+    EXPECT_FALSE(deferred_called);
+    reactor.Poll(0);
+    EXPECT_TRUE(deferred_called);
+}
+
+TEST(ReactorTest, IsInEventLoopThread) {
+    Reactor reactor;
+
+    // Before Poll, no thread recorded yet, so returns false
+    EXPECT_FALSE(reactor.IsInEventLoopThread());
+
+    bool in_loop = false;
+    reactor.Defer([&]() {
+        in_loop = reactor.IsInEventLoopThread();
+    });
+
+    reactor.Poll(0);
+    EXPECT_TRUE(in_loop);
+
+    // After Poll from same thread, should still return true
+    EXPECT_TRUE(reactor.IsInEventLoopThread());
+}
