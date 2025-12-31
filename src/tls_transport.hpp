@@ -47,7 +47,38 @@ public:
 
     ~TlsTransport() { Cleanup(); }
 
-    // Upstream interface: receive encrypted data from TcpSocket
+    // Downstream interface: receive encrypted data from TcpSocket
+    // Satisfies Downstream concept requirement
+    void OnData(BufferChain& chain) {
+        // Move data out of chain (TcpSocket passes by ref, we consume all)
+        BufferChain data = std::move(chain);
+        chain.Clear();
+        Read(std::move(data));
+    }
+
+    void OnError(const Error& e) {
+        // Propagate error to our downstream
+        this->PropagateError(*downstream_, e);
+    }
+
+    void OnDone() {
+        // Process any remaining buffered data, then signal done
+        auto guard = this->TryGuard();
+        if (!guard) return;
+
+        // Flush any remaining decrypted data
+        if (this->IsSuspended()) {
+            this->DeferOnDone();
+            return;
+        }
+
+        // Complete with flush of pending data
+        if (this->CompleteWithFlush(*downstream_, pending_read_chain_)) {
+            this->RequestClose();
+        }
+    }
+
+    // Internal: process encrypted data (called by OnData)
     void Read(BufferChain data);
 
     // Upstream interface: write plaintext (from downstream) to be encrypted
