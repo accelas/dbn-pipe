@@ -349,15 +349,19 @@ private:
             batch_handler_(std::move(batch));
         } else if (record_handler_) {
             // Fallback: iterate and call per-record handler
-            // Only enabled when Record is constructible from RecordHeader*
-            if constexpr (std::is_constructible_v<Record, const databento::RecordHeader*>) {
+            // When Record is RecordRef, just pass each ref directly (zero-copy)
+            if constexpr (std::is_same_v<Record, RecordRef>) {
+                for (const auto& ref : batch) {
+                    record_handler_(ref);
+                }
+            } else if constexpr (std::is_constructible_v<Record, const databento::RecordHeader*>) {
+                // Legacy: construct Record from header pointer
                 for (const auto& ref : batch) {
                     Record rec{reinterpret_cast<const databento::RecordHeader*>(ref.data)};
                     record_handler_(rec);
                 }
             }
-            // If Record is not constructible, silently drop batch
-            // (user should use batch handler for custom Record types)
+            // If neither applies, silently drop batch
         }
     }
 

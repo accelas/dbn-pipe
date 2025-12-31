@@ -29,7 +29,7 @@ int main() {
         .schema = "trades"
     });
 
-    client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
+    client->OnRecord([](const dbn_pipe::RecordRef& ref) {
         std::cout << "Record received\n";
     });
 
@@ -61,7 +61,7 @@ int main() {
         .end = 1704153600000000000     // 2024-01-02 00:00:00 UTC (ns)
     });
 
-    client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
+    client->OnRecord([](const dbn_pipe::RecordRef& ref) {
         std::cout << "Record received\n";
     });
 
@@ -84,8 +84,8 @@ int main() {
 ### Per-Record
 
 ```cpp
-client->OnRecord([](const dbn_pipe::DbnRecord& rec) {
-    const auto& trade = rec.As<databento::TradeMsg>();
+client->OnRecord([](const dbn_pipe::RecordRef& ref) {
+    const auto& trade = ref.As<databento::TradeMsg>();
     std::cout << "Price: " << trade.price << "\n";
 });
 ```
@@ -119,14 +119,19 @@ client->OnRecord([](dbn_pipe::RecordBatch&& batch) {
 
 Setting a batch callback bypasses the per-record callback.
 
-### RecordRef vs DbnRecord
+### RecordRef
 
-| Type | Fields | Use |
-|------|--------|-----|
-| `DbnRecord` | `header` pointer | Per-record callback |
-| `RecordRef` | `data`, `size`, `keepalive` | Batch callback |
+`RecordRef` provides zero-copy access to records:
 
-Both support `As<T>()`. `RecordRef` adds `Header()`.
+| Field | Description |
+|-------|-------------|
+| `data` | Pointer to raw record bytes |
+| `size` | Record size in bytes |
+| `keepalive` | Shared pointer ensuring buffer validity |
+
+Methods:
+- `Header()` — access `RecordHeader`
+- `As<T>()` — typed access (e.g., `As<databento::TradeMsg>()`)
 
 ## Error Handling
 
