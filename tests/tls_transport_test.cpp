@@ -1,4 +1,4 @@
-// tests/tls_socket_test.cpp
+// tests/tls_transport_test.cpp
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -7,7 +7,7 @@
 #include "src/buffer_chain.hpp"
 #include "src/pipeline_component.hpp"
 #include "src/reactor.hpp"
-#include "src/tls_socket.hpp"
+#include "src/tls_transport.hpp"
 
 using namespace databento_async;
 
@@ -32,29 +32,29 @@ struct MockTlsDownstream {
 // Verify MockTlsDownstream satisfies Downstream concept
 static_assert(Downstream<MockTlsDownstream>);
 
-TEST(TlsSocketTest, FactoryCreatesInstance) {
+TEST(TlsTransportTest, FactoryCreatesInstance) {
     Reactor reactor;
     auto downstream = std::make_shared<MockTlsDownstream>();
 
-    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
     ASSERT_NE(tls, nullptr);
 }
 
-TEST(TlsSocketTest, ImplementsUpstreamConcept) {
-    // TlsSocket must satisfy Upstream concept for pipeline integration
+TEST(TlsTransportTest, ImplementsUpstreamConcept) {
+    // TlsTransport must satisfy Upstream concept for pipeline integration
     Reactor reactor;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
 
     // Verify Upstream interface is available
-    static_assert(Upstream<TlsSocket<MockTlsDownstream>>);
+    static_assert(Upstream<TlsTransport<MockTlsDownstream>>);
     SUCCEED();
 }
 
-TEST(TlsSocketTest, SuspendAndResumeWork) {
+TEST(TlsTransportTest, SuspendAndResumeWork) {
     Reactor reactor;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
 
     // Initialize reactor thread ID for Suspend/Resume assertions
     reactor.Poll(0);
@@ -69,27 +69,27 @@ TEST(TlsSocketTest, SuspendAndResumeWork) {
     EXPECT_FALSE(tls->IsSuspended());
 }
 
-TEST(TlsSocketTest, CloseCallsDoClose) {
+TEST(TlsTransportTest, CloseCallsDoClose) {
     Reactor reactor;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
 
     tls->Close();
     EXPECT_TRUE(tls->IsClosed());
 }
 
-TEST(TlsSocketTest, HandshakeNotCompleteInitially) {
+TEST(TlsTransportTest, HandshakeNotCompleteInitially) {
     Reactor reactor;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
 
     EXPECT_FALSE(tls->IsHandshakeComplete());
 }
 
-TEST(TlsSocketTest, CanSetHostnameForSNI) {
+TEST(TlsTransportTest, CanSetHostnameForSNI) {
     Reactor reactor;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
 
     // Setting hostname should not throw
     tls->SetHostname("example.com");
@@ -97,10 +97,10 @@ TEST(TlsSocketTest, CanSetHostnameForSNI) {
 }
 
 // Integration test: verify the TLS objects are properly initialized
-TEST(TlsSocketTest, OpenSSLObjectsInitialized) {
+TEST(TlsTransportTest, OpenSSLObjectsInitialized) {
     Reactor reactor;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
 
     // The TLS socket should have valid SSL context and connection
     // We can't directly check internals, but construction should succeed
@@ -108,10 +108,10 @@ TEST(TlsSocketTest, OpenSSLObjectsInitialized) {
 }
 
 // Test that StartHandshake initiates TLS negotiation
-TEST(TlsSocketTest, StartHandshakeProducesData) {
+TEST(TlsTransportTest, StartHandshakeProducesData) {
     Reactor reactor;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsSocket<MockTlsDownstream>::Create(reactor, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(reactor, downstream);
 
     tls->SetHostname("test.example.com");
 
