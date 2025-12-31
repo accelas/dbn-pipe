@@ -9,7 +9,7 @@
 
 #include "src/buffer_chain.hpp"
 #include "src/dbn_parser_component.hpp"
-#include "src/pipeline.hpp"
+#include "src/pipeline_component.hpp"
 #include "src/record_batch.hpp"
 
 // Mock sink that receives RecordBatch

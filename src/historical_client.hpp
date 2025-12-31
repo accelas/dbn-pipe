@@ -18,7 +18,7 @@
 #include "dbn_parser_component.hpp"
 #include "error.hpp"
 #include "http_client.hpp"
-#include "pipeline.hpp"
+#include "pipeline_component.hpp"
 #include "reactor.hpp"
 #include "record_batch.hpp"
 #include "tcp_socket.hpp"

@@ -15,7 +15,7 @@
 
 #include "buffer_chain.hpp"
 #include "error.hpp"
-#include "pipeline.hpp"
+#include "pipeline_component.hpp"
 #include "reactor.hpp"
 
 namespace databento_async {

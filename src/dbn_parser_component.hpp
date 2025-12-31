@@ -13,7 +13,7 @@
 
 #include "buffer_chain.hpp"
 #include "error.hpp"
-#include "pipeline.hpp"
+#include "pipeline_component.hpp"
 #include "record_batch.hpp"
 
 namespace databento_async {
