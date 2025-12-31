@@ -7,6 +7,14 @@ cc_library(
 )
 
 cc_library(
+    name = "epoll_event_loop",
+    srcs = ["epoll_event_loop.cpp"],
+    hdrs = ["epoll_event_loop.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [":event_loop"],
+)
+
+cc_library(
     name = "error",
     hdrs = ["error.hpp"],
     visibility = ["//visibility:public"],

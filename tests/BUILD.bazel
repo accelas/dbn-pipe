@@ -217,3 +217,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "epoll_event_loop_test",
+    srcs = ["epoll_event_loop_test.cpp"],
+    deps = [
+        "//src:epoll_event_loop",
+        "//src:event_loop",
+        "@googletest//:gtest_main",
+    ],
+)
