@@ -1,25 +1,88 @@
 // src/cram_auth.hpp
 #pragma once
 
+#include <openssl/sha.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <functional>
+#include <iomanip>
 #include <memory>
 #include <memory_resource>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "buffer_chain.hpp"
-#include "cram_auth_utils.hpp"
 #include "error.hpp"
 #include "pipeline_component.hpp"
 #include "reactor.hpp"
 #include "tls_transport.hpp"  // For Suspendable
 
 namespace databento_async {
+
+// Greeting parsed from server
+struct Greeting {
+    std::string session_id;
+    std::string version;
+};
+
+// Utility class for CRAM authentication helpers
+class CramAuthUtils {
+public:
+    // Parse "session_id|version\n"
+    static std::optional<Greeting> ParseGreeting(std::string_view data) {
+        auto pipe = data.find('|');
+        if (pipe == std::string_view::npos) {
+            return std::nullopt;
+        }
+        auto newline = data.find('\n', pipe);
+        if (newline == std::string_view::npos) {
+            newline = data.size();
+        }
+        return Greeting{
+            .session_id = std::string(data.substr(0, pipe)),
+            .version = std::string(data.substr(pipe + 1, newline - pipe - 1)),
+        };
+    }
+
+    // Parse "cram=challenge\n"
+    static std::optional<std::string> ParseChallenge(std::string_view data) {
+        constexpr std::string_view prefix = "cram=";
+        if (!data.starts_with(prefix)) {
+            return std::nullopt;
+        }
+        auto newline = data.find('\n', prefix.size());
+        if (newline == std::string_view::npos) {
+            newline = data.size();
+        }
+        return std::string(data.substr(prefix.size(), newline - prefix.size()));
+    }
+
+    // Compute SHA256(challenge + '|' + api_key) as hex
+    static std::string ComputeResponse(std::string_view challenge,
+                                       std::string_view api_key) {
+        std::string challenge_key;
+        challenge_key.reserve(challenge.size() + 1 + api_key.size());
+        challenge_key.append(challenge);
+        challenge_key.push_back('|');
+        challenge_key.append(api_key);
+
+        unsigned char digest[SHA256_DIGEST_LENGTH];
+        SHA256(reinterpret_cast<const unsigned char*>(challenge_key.data()),
+               challenge_key.size(), digest);
+
+        std::ostringstream oss;
+        for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
+            oss << std::hex << std::setfill('0') << std::setw(2)
+                << static_cast<int>(digest[i]);
+        }
+        return oss.str();
+    }
+};
 
 // State machine for CRAM authentication and streaming
 enum class CramAuthState {
