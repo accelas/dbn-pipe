@@ -9,8 +9,8 @@
 #include <memory>
 #include <string>
 
+#include "event_loop.hpp"
 #include "pipeline_sink.hpp"
-#include "reactor.hpp"
 
 namespace databento_async {
 
@@ -36,14 +36,14 @@ concept ProtocolDriver = requires {
 
     // Required static methods
     requires requires(
-        Reactor& reactor,
+        IEventLoop& loop,
         Sink<Record>& sink,
         const std::string& api_key,
         std::shared_ptr<typename P::ChainType> chain,
         const typename P::Request& request
     ) {
         // Build component chain (including TcpSocket), returns entry point
-        { P::BuildChain(reactor, sink, api_key) }
+        { P::BuildChain(loop, sink, api_key) }
             -> std::same_as<std::shared_ptr<typename P::ChainType>>;
 
         // Send the protocol-specific request

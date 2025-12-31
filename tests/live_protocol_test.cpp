@@ -3,9 +3,8 @@
 
 #include "src/buffer_chain.hpp"
 #include "src/live_protocol.hpp"
-#include "src/protocol_driver.hpp"
 #include "src/pipeline_sink.hpp"
-#include "src/reactor.hpp"
+#include "src/protocol_driver.hpp"
 
 using namespace databento_async;
 

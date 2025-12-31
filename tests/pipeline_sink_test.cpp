@@ -1,9 +1,9 @@
 // tests/pipeline_base_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/pipeline_sink.hpp"
+#include "src/epoll_event_loop.hpp"
 #include "src/error.hpp"
-#include "src/reactor.hpp"
+#include "src/pipeline_sink.hpp"
 
 using namespace databento_async;
 
@@ -16,8 +16,8 @@ using TestPipelineBase = PipelineBase<MockRecord>;
 using TestSink = Sink<MockRecord>;
 
 TEST(PipelineBaseTest, SinkInvalidationStopsCallbacks) {
-    Reactor reactor;
-    reactor.Poll(0);  // Initialize thread ID
+    EpollEventLoop loop;
+    loop.Poll(0);  // Initialize thread ID
 
     bool record_called = false;
     bool error_called = false;
@@ -40,7 +40,7 @@ TEST(PipelineBaseTest, SinkInvalidationStopsCallbacks) {
     pipeline.error_flag = &error_called;
     pipeline.complete_flag = &complete_called;
 
-    TestSink sink(reactor, &pipeline);
+    TestSink sink(loop, &pipeline);
 
     // Before invalidation, callbacks should work
     sink.OnRecord(MockRecord{42});
@@ -62,9 +62,9 @@ TEST(PipelineBaseTest, SinkInvalidationStopsCallbacks) {
     EXPECT_FALSE(complete_called);
 }
 
-TEST(PipelineBaseTest, SinkRequiresReactorThread) {
-    Reactor reactor;
-    reactor.Poll(0);  // Initialize thread ID
+TEST(PipelineBaseTest, SinkRequiresEventLoopThread) {
+    EpollEventLoop loop;
+    loop.Poll(0);  // Initialize thread ID
 
     struct MockPipeline : TestPipelineBase {
         void HandleRecord(const MockRecord&) override {}
@@ -74,9 +74,9 @@ TEST(PipelineBaseTest, SinkRequiresReactorThread) {
     };
 
     MockPipeline pipeline;
-    TestSink sink(reactor, &pipeline);
+    TestSink sink(loop, &pipeline);
 
-    // Should not crash when called from reactor thread
+    // Should not crash when called from event loop thread
     sink.OnComplete();
     SUCCEED();
 }

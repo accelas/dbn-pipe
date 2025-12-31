@@ -13,10 +13,10 @@
 
 #include "dns_resolver.hpp"
 #include "error.hpp"
+#include "event_loop.hpp"
 #include "pipeline_component.hpp"
 #include "pipeline_sink.hpp"
 #include "protocol_driver.hpp"
-#include "reactor.hpp"
 
 namespace databento_async {
 
@@ -38,7 +38,7 @@ enum class PipelineState {
 //
 // Lifecycle: Single-use. For reconnect, create a new Pipeline instance.
 //
-// Thread safety: All public methods must be called from reactor thread.
+// Thread safety: All public methods must be called from event loop thread.
 // IsSuspended() is the only exception - it's thread-safe.
 //
 // Template parameters:
@@ -58,20 +58,20 @@ public:
 
     // Factory method required for shared_from_this safety.
     // weak_from_this() only works when the object is owned by a shared_ptr.
-    static std::shared_ptr<Pipeline> Create(Reactor& reactor, std::string api_key) {
-        return std::make_shared<Pipeline>(PrivateTag{}, reactor, std::move(api_key));
+    static std::shared_ptr<Pipeline> Create(IEventLoop& loop, std::string api_key) {
+        return std::make_shared<Pipeline>(PrivateTag{}, loop, std::move(api_key));
     }
 
     // Constructor is "public" for make_shared but requires PrivateTag.
     // This prevents direct construction while allowing make_shared to work.
-    Pipeline(PrivateTag, Reactor& reactor, std::string api_key)
-        : reactor_(reactor), api_key_(std::move(api_key)) {}
+    Pipeline(PrivateTag, IEventLoop& loop, std::string api_key)
+        : loop_(loop), api_key_(std::move(api_key)) {}
 
-    // Destructor must run on reactor thread because DoTeardown touches
-    // TcpSocket and chain components that have reactor-thread affinity.
-    // Ensure the last shared_ptr release happens on reactor thread.
+    // Destructor must run on event loop thread because DoTeardown touches
+    // TcpSocket and chain components that have event loop thread affinity.
+    // Ensure the last shared_ptr release happens on event loop thread.
     ~Pipeline() {
-        // Note: In test scenarios, reactor thread ID may not be set
+        // Note: In test scenarios, event loop thread ID may not be set
         // if Poll() was never called. We still need cleanup to work.
         // Invalidate sink first to prevent callbacks during teardown
         // (P::Teardown might trigger Close() which emits OnComplete)
@@ -85,7 +85,7 @@ public:
 
     // Set the request parameters. Must be called before Start().
     void SetRequest(Request params) {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         request_ = std::move(params);
         request_set_ = true;
     }
@@ -94,7 +94,7 @@ public:
     template <typename H>
         requires std::invocable<H, const Record&>
     void OnRecord(H&& h) {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         record_handler_ = std::forward<H>(h);
     }
 
@@ -103,21 +103,21 @@ public:
     template <typename H>
         requires std::invocable<H, RecordBatch&&>
     void OnRecord(H&& h) {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         batch_handler_ = std::forward<H>(h);
     }
 
     // Set callback for errors.
     template <typename H>
     void OnError(H&& h) {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         error_handler_ = std::forward<H>(h);
     }
 
     // Set callback for stream completion.
     template <typename H>
     void OnComplete(H&& h) {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         complete_handler_ = std::forward<H>(h);
     }
 
@@ -129,7 +129,7 @@ public:
     // SetRequest() must be called first.
     // Does synchronous DNS resolution (blocking).
     void Connect() {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
 
         // Terminal state guard
         if (teardown_pending_ || state_ == PipelineState::Error ||
@@ -159,7 +159,7 @@ public:
     // Connect to the given address. Must be called once before Start().
     // Terminal state guard - silently ignores if pipeline is done.
     void Connect(const sockaddr_storage& addr) {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
 
         // Terminal state guard - can't connect after teardown or terminal error
         if (teardown_pending_ || state_ == PipelineState::Error ||
@@ -181,7 +181,7 @@ public:
     // Start streaming. Must be called after Connect() and SetRequest().
     // Terminal state guard - silently ignores if pipeline is done.
     void Start() {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
 
         // Terminal state guard - pipeline is single-use
         // Note: Disconnected is NOT terminal - it's the initial state.
@@ -217,7 +217,7 @@ public:
     //   - Initial: state_ == Disconnected && !teardown_pending_
     //   - Stopped: state_ == Disconnected && teardown_pending_
     void Stop() {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         if (IsTerminal()) return;  // Already done or errored
         state_ = PipelineState::Stopping;  // Transition to Stopping
         TeardownPipeline();
@@ -229,7 +229,7 @@ public:
 
     // Increment suspend count. When count goes 0->1, propagate to chain.
     void Suspend() override {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         if (++suspend_count_ == 1 && chain_) {
             chain_->Suspend();
         }
@@ -237,7 +237,7 @@ public:
 
     // Decrement suspend count. When count goes 1->0, propagate to chain.
     void Resume() override {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         assert(suspend_count_ > 0);
         if (--suspend_count_ == 0 && chain_) {
             chain_->Resume();
@@ -246,7 +246,7 @@ public:
 
     // Terminate the connection via TeardownPipeline.
     void Close() override {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         TeardownPipeline();
     }
 
@@ -260,14 +260,14 @@ public:
     // State accessors
     // =========================================================================
 
-    // Get current pipeline state. Must be called from reactor thread.
+    // Get current pipeline state. Must be called from event loop thread.
     PipelineState GetState() const {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         return state_;
     }
 
 private:
-    // Private helpers don't assert reactor thread - they're only called
+    // Private helpers don't assert event loop thread - they're only called
     // from public/handler methods that already assert.
 
     // Check if pipeline is in a terminal state (Done or Error).
@@ -281,10 +281,10 @@ private:
         connected_ = true;
 
         // Create sink (bridges to callbacks)
-        sink_ = std::make_shared<Sink<Record>>(reactor_, this);
+        sink_ = std::make_shared<Sink<Record>>(loop_, this);
 
         // Build protocol-specific chain (includes TcpSocket as head)
-        chain_ = P::BuildChain(reactor_, *sink_, api_key_);
+        chain_ = P::BuildChain(loop_, *sink_, api_key_);
 
         // Set up ready callback for when protocol is ready to send request
         // (Live: on connect, Historical: after TLS handshake)
@@ -307,7 +307,7 @@ private:
         // Defer actual teardown to avoid reentrancy (may be called from callbacks)
         // Use weak_ptr to safely handle destruction before deferred call runs
         auto weak_self = this->weak_from_this();
-        reactor_.Defer([weak_self] {
+        loop_.Defer([weak_self] {
             if (auto self = weak_self.lock()) {
                 self->DoTeardown();
             }
@@ -379,7 +379,7 @@ private:
     // Member variables
     // =========================================================================
 
-    Reactor& reactor_;
+    IEventLoop& loop_;
     std::string api_key_;
     Request request_;
     PipelineState state_ = PipelineState::Disconnected;

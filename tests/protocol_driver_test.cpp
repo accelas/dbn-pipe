@@ -8,9 +8,9 @@
 #include <memory>
 #include <string>
 
-#include "src/protocol_driver.hpp"
-#include "src/reactor.hpp"
+#include "src/event_loop.hpp"
 #include "src/pipeline_sink.hpp"
+#include "src/protocol_driver.hpp"
 
 using namespace databento_async;
 
@@ -36,7 +36,7 @@ struct ValidProtocol {
     using ChainType = MockChain;
 
     static std::shared_ptr<ChainType> BuildChain(
-        Reactor&, TestSink&, const std::string&
+        IEventLoop&, TestSink&, const std::string&
     ) {
         return std::make_shared<ChainType>();
     }

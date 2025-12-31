@@ -10,7 +10,7 @@
 #include <string>
 
 #include "error.hpp"
-#include "reactor.hpp"
+#include "event_loop.hpp"
 
 namespace databento_async {
 
@@ -23,7 +23,7 @@ namespace databento_async {
 // - This allows nested suspend calls from multiple sources
 //
 // Thread safety:
-// - Suspend(), Resume(), Close() MUST be called from reactor thread only.
+// - Suspend(), Resume(), Close() MUST be called from event loop thread only.
 // - IsSuspended() is thread-safe and can be called from any thread.
 //
 // OnDone coordination:
@@ -103,7 +103,7 @@ concept Upstream = requires(U& u, BufferChain chain) {
 template<typename Derived>
 class PipelineComponent : public Suspendable {
 public:
-    explicit PipelineComponent(Reactor& reactor) : reactor_(reactor) {}
+    explicit PipelineComponent(IEventLoop& loop) : loop_(loop) {}
 
     // RAII guard for reentrancy-safe processing
     // Move-safe via active flag to prevent double-decrement
@@ -180,7 +180,7 @@ public:
 
     // Increment suspend count. On 0→1 transition, propagates suspend upstream.
     void Suspend() override {
-        assert(reactor_.IsInReactorThread() && "Suspend must be called from reactor thread");
+        assert(loop_.IsInEventLoopThread() && "Suspend must be called from event loop thread");
         int prev = suspend_count_.fetch_add(1, std::memory_order_acq_rel);
         if (prev == 0) {
             // 0→1 transition: propagate backpressure upstream
@@ -191,7 +191,7 @@ public:
     // Decrement suspend count. On 1→0 transition, processes pending data
     // and completes any deferred OnDone.
     void Resume() override {
-        assert(reactor_.IsInReactorThread() && "Resume must be called from reactor thread");
+        assert(loop_.IsInEventLoopThread() && "Resume must be called from event loop thread");
         int prev = suspend_count_.fetch_sub(1, std::memory_order_acq_rel);
         assert(prev > 0 && "Resume called more times than Suspend");
         if (prev == 1) {
@@ -322,12 +322,12 @@ protected:
             // Object is already being destroyed, skip deferred close
             return;
         }
-        reactor_.Defer([self]() {
+        loop_.Defer([self]() {
             self->DoClose();
         });
     }
 
-    Reactor& reactor_;
+    IEventLoop& loop_;
     Suspendable* upstream_ = nullptr;  // Upstream for backpressure propagation
 
 private:

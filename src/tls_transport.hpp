@@ -15,8 +15,8 @@
 
 #include "buffer_chain.hpp"
 #include "error.hpp"
+#include "event_loop.hpp"
 #include "pipeline_component.hpp"
-#include "reactor.hpp"
 
 namespace databento_async {
 
@@ -35,14 +35,14 @@ public:
     using UpstreamWriteCallback = std::function<void(BufferChain)>;
 
     // Factory method for shared_from_this safety
-    static std::shared_ptr<TlsTransport> Create(Reactor& reactor,
+    static std::shared_ptr<TlsTransport> Create(IEventLoop& loop,
                                               std::shared_ptr<D> downstream) {
         // Use a helper struct to access private constructor
         struct MakeSharedEnabler : public TlsTransport {
-            MakeSharedEnabler(Reactor& r, std::shared_ptr<D> ds)
-                : TlsTransport(r, std::move(ds)) {}
+            MakeSharedEnabler(IEventLoop& l, std::shared_ptr<D> ds)
+                : TlsTransport(l, std::move(ds)) {}
         };
-        return std::make_shared<MakeSharedEnabler>(reactor, std::move(downstream));
+        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream));
     }
 
     ~TlsTransport() { Cleanup(); }
@@ -93,7 +93,7 @@ public:
 
 private:
     // Private constructor - use Create() factory method
-    TlsTransport(Reactor& reactor, std::shared_ptr<D> downstream);
+    TlsTransport(IEventLoop& loop, std::shared_ptr<D> downstream);
 
     // OpenSSL initialization (static, thread-safe)
     static void InitOpenSSL();
@@ -149,8 +149,8 @@ private:
 // Implementation - must be in header due to template
 
 template <Downstream D>
-TlsTransport<D>::TlsTransport(Reactor& reactor, std::shared_ptr<D> downstream)
-    : PipelineComponent<TlsTransport<D>>(reactor), downstream_(std::move(downstream)) {
+TlsTransport<D>::TlsTransport(IEventLoop& loop, std::shared_ptr<D> downstream)
+    : PipelineComponent<TlsTransport<D>>(loop), downstream_(std::move(downstream)) {
     InitOpenSSL();
 
     // Create SSL context for client-side TLS

@@ -12,10 +12,10 @@
 
 #include "buffer_chain.hpp"
 #include "dbn_parser_component.hpp"
+#include "event_loop.hpp"
 #include "http_client.hpp"
 #include "pipeline_component.hpp"
 #include "pipeline_sink.hpp"
-#include "reactor.hpp"
 #include "tcp_socket.hpp"
 #include "tls_transport.hpp"
 #include "zstd_decompressor.hpp"
@@ -135,14 +135,14 @@ struct HistoricalProtocol {
         using TlsType = TlsTransport<HttpType>;
         using HeadType = TcpSocket<TlsType>;
 
-        ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
-            : reactor_(reactor)
+        ChainImpl(IEventLoop& loop, Sink<Record>& sink, const std::string& api_key)
+            : loop_(loop)
             , api_key_(api_key)
             , parser_(std::make_shared<ParserType>(sink))
-            , zstd_(ZstdType::Create(reactor, parser_))
-            , http_(HttpType::Create(reactor, zstd_))
-            , tls_(TlsType::Create(reactor, http_))
-            , head_(HeadType::Create(reactor, tls_))
+            , zstd_(ZstdType::Create(loop, parser_))
+            , http_(HttpType::Create(loop, zstd_))
+            , tls_(TlsType::Create(loop, http_))
+            , head_(HeadType::Create(loop, tls_))
         {
             // Wire up upstream pointers for backpressure propagation
             http_->SetUpstream(tls_.get());
@@ -194,7 +194,7 @@ struct HistoricalProtocol {
         const std::string& GetApiKey() const override { return api_key_; }
 
     private:
-        Reactor& reactor_;
+        IEventLoop& loop_;
         std::string api_key_;
         std::shared_ptr<ParserType> parser_;
         std::shared_ptr<ZstdType> zstd_;
@@ -207,11 +207,11 @@ struct HistoricalProtocol {
     // Build the component chain for historical protocol
     template <typename Record>
     static std::shared_ptr<ChainType> BuildChain(
-        Reactor& reactor,
+        IEventLoop& loop,
         Sink<Record>& sink,
         const std::string& api_key
     ) {
-        return std::make_shared<ChainImpl<Record>>(reactor, sink, api_key);
+        return std::make_shared<ChainImpl<Record>>(loop, sink, api_key);
     }
 
     // Send request - build and send HTTP GET request
