@@ -368,10 +368,7 @@ void CramAuth<D>::ProcessLineBuffer() {
                 return;
             }
             // Create a chain with leftover bytes (one-time copy at auth completion)
-            auto seg = std::make_shared<Segment>();
-            std::memcpy(seg->data.data(), line_buffer_.data(), line_buffer_.size());
-            seg->size = line_buffer_.size();
-            streaming_chain_.Append(std::move(seg));
+            streaming_chain_.AppendBytes(line_buffer_.data(), line_buffer_.size());
             line_buffer_.clear();
 
             // Respect IsSuspended() check for leftover bytes (backpressure)
@@ -566,13 +563,9 @@ void CramAuth<D>::SendLine(std::string_view line) {
         return;
     }
 
-    // Create BufferChain with single segment for the line
-    auto seg = std::make_shared<Segment>();
-    std::memcpy(seg->data.data(), with_newline.data(), with_newline.size());
-    seg->size = with_newline.size();
-
+    // Create BufferChain with the line
     BufferChain chain;
-    chain.Append(std::move(seg));
+    chain.AppendBytes(with_newline.data(), with_newline.size());
 
     write_callback_(std::move(chain));
 }

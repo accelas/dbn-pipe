@@ -210,15 +210,7 @@ private:
             this->RequestClose();
             return false;
         }
-        size_t offset = 0;
-        while (offset < len) {
-            size_t chunk = std::min(len - offset, Segment::kSize);
-            auto seg = segment_pool_.Acquire();
-            std::memcpy(seg->data.data(), bytes + offset, chunk);
-            seg->size = chunk;
-            pending_chain_.Append(std::move(seg));
-            offset += chunk;
-        }
+        pending_chain_.AppendBytes(bytes, len, segment_pool_);
         return true;
     }
 
