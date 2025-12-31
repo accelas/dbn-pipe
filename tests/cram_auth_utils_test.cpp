@@ -1,7 +1,7 @@
 // tests/cram_auth_utils_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/cram_auth_utils.hpp"
+#include "src/cram_auth.hpp"
 
 using namespace databento_async;
 
