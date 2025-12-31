@@ -196,6 +196,7 @@ cc_library(
     name = "pipeline",
     hdrs = ["pipeline.hpp"],
     deps = [
+        ":dns_resolver",
         ":error",
         ":pipeline_component",
         ":pipeline_sink",

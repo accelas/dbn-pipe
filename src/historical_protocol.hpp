@@ -32,6 +32,10 @@ struct HistoricalRequest {
     uint64_t end;          // End time in nanoseconds since Unix epoch
 };
 
+// Historical gateway constants
+constexpr const char* kHistoricalHostname = "hist.databento.com";
+constexpr uint16_t kHistoricalPort = 443;
+
 // HistoricalProtocol - ProtocolDriver implementation for historical downloads
 //
 // Satisfies the ProtocolDriver concept. Uses TLS -> HTTP -> Zstd -> DBN parser chain.
@@ -253,6 +257,16 @@ struct HistoricalProtocol {
         if (chain) {
             chain->Close();
         }
+    }
+
+    // Get gateway hostname (static for historical)
+    static std::string GetHostname(const Request&) {
+        return kHistoricalHostname;
+    }
+
+    // Get gateway port
+    static uint16_t GetPort(const Request&) {
+        return kHistoricalPort;
     }
 };
 

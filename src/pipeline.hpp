@@ -11,6 +11,7 @@
 
 #include <databento/record.hpp>
 
+#include "dns_resolver.hpp"
 #include "error.hpp"
 #include "pipeline_component.hpp"
 #include "pipeline_sink.hpp"
@@ -123,6 +124,37 @@ public:
     // =========================================================================
     // Control methods
     // =========================================================================
+
+    // Connect using protocol-derived hostname/port from request.
+    // SetRequest() must be called first.
+    // Does synchronous DNS resolution (blocking).
+    void Connect() {
+        assert(reactor_.IsInReactorThread());
+
+        // Terminal state guard
+        if (teardown_pending_ || state_ == PipelineState::Error ||
+            state_ == PipelineState::Done) {
+            return;
+        }
+
+        if (!request_set_) {
+            HandlePipelineError(Error{ErrorCode::InvalidState,
+                                      "SetRequest() must be called before Connect()"});
+            return;
+        }
+
+        std::string hostname = P::GetHostname(request_);
+        uint16_t port = P::GetPort(request_);
+
+        auto addr = ResolveHostname(hostname, port);
+        if (!addr) {
+            HandlePipelineError(Error{ErrorCode::DnsResolutionFailed,
+                                      "Failed to resolve hostname: " + hostname});
+            return;
+        }
+
+        Connect(*addr);
+    }
 
     // Connect to the given address. Must be called once before Start().
     // Terminal state guard - silently ignores if pipeline is done.
