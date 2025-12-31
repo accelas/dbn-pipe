@@ -23,8 +23,8 @@ cc_test(
     srcs = ["tcp_socket_test.cpp"],
     deps = [
         "//src:buffer_chain",
+        "//src:epoll_event_loop",
         "//src:error",
-        "//src:reactor",
         "//src:tcp_socket",
         "@googletest//:gtest_main",
     ],
@@ -44,8 +44,8 @@ cc_test(
     srcs = ["cram_auth_test.cpp"],
     deps = [
         "//src:cram_auth",
+        "//src:epoll_event_loop",
         "//src:pipeline_component",
-        "//src:reactor",
         "@googletest//:gtest_main",
     ],
 )
@@ -56,6 +56,7 @@ cc_test(
     srcs = ["pipeline_component_test.cpp"],
     deps = [
         "//src:buffer_chain",
+        "//src:epoll_event_loop",
         "//src:pipeline_component",
         "@googletest//:gtest_main",
     ],
@@ -66,8 +67,8 @@ cc_test(
     srcs = ["tls_transport_test.cpp"],
     deps = [
         "//src:buffer_chain",
+        "//src:epoll_event_loop",
         "//src:pipeline_component",
-        "//src:reactor",
         "//src:tls_transport",
         "@googletest//:gtest_main",
     ],
@@ -77,9 +78,9 @@ cc_test(
     name = "http_client_test",
     srcs = ["http_client_test.cpp"],
     deps = [
+        "//src:epoll_event_loop",
         "//src:http_client",
         "//src:pipeline_component",
-        "//src:reactor",
         "@googletest//:gtest_main",
     ],
 )
@@ -88,8 +89,8 @@ cc_test(
     name = "zstd_decompressor_test",
     srcs = ["zstd_decompressor_test.cpp"],
     deps = [
+        "//src:epoll_event_loop",
         "//src:pipeline_component",
-        "//src:reactor",
         "//src:zstd_decompressor",
         "@googletest//:gtest_main",
         "@zstd",
@@ -144,9 +145,9 @@ cc_test(
     name = "pipeline_sink_test",
     srcs = ["pipeline_sink_test.cpp"],
     deps = [
-        "//src:pipeline_sink",
+        "//src:epoll_event_loop",
         "//src:error",
-        "//src:reactor",
+        "//src:pipeline_sink",
         "@googletest//:gtest_main",
     ],
 )
@@ -155,9 +156,9 @@ cc_test(
     name = "protocol_driver_test",
     srcs = ["protocol_driver_test.cpp"],
     deps = [
-        "//src:protocol_driver",
+        "//src:event_loop",
         "//src:pipeline_sink",
-        "//src:reactor",
+        "//src:protocol_driver",
         "@googletest//:gtest_main",
     ],
 )
@@ -168,9 +169,8 @@ cc_test(
     deps = [
         "//src:buffer_chain",
         "//src:live_protocol",
-        "//src:protocol_driver",
         "//src:pipeline_sink",
-        "//src:reactor",
+        "//src:protocol_driver",
         "@googletest//:gtest_main",
     ],
 )
@@ -180,9 +180,8 @@ cc_test(
     srcs = ["historical_protocol_test.cpp"],
     deps = [
         "//src:historical_protocol",
-        "//src:protocol_driver",
         "//src:pipeline_sink",
-        "//src:reactor",
+        "//src:protocol_driver",
         "@googletest//:gtest_main",
     ],
 )
@@ -191,9 +190,9 @@ cc_test(
     name = "pipeline_test",
     srcs = ["pipeline_test.cpp"],
     deps = [
-        "//src:pipeline",
+        "//src:epoll_event_loop",
         "//src:live_protocol",
-        "//src:reactor",
+        "//src:pipeline",
         "@googletest//:gtest_main",
     ],
 )
@@ -203,7 +202,7 @@ cc_test(
     srcs = ["client_test.cpp"],
     deps = [
         "//src:client",
-        "//src:reactor",
+        "//src:epoll_event_loop",
         "@googletest//:gtest_main",
     ],
 )
@@ -213,7 +212,17 @@ cc_test(
     srcs = ["pipeline_integration_test.cpp"],
     deps = [
         "//src:client",
-        "//src:reactor",
+        "//src:epoll_event_loop",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "epoll_event_loop_test",
+    srcs = ["epoll_event_loop_test.cpp"],
+    deps = [
+        "//src:epoll_event_loop",
+        "//src:event_loop",
         "@googletest//:gtest_main",
     ],
 )

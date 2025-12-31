@@ -4,7 +4,8 @@ Async Databento client using epoll with zero-copy pipeline architecture.
 
 ## Features
 
-- Epoll-based async I/O with custom Reactor
+- Pluggable event loop via `IEventLoop` interface (integrate with libuv, asio, etc.)
+- Built-in epoll-based `EventLoop` for standalone usage
 - Zero-copy DBN record parsing with BufferChain
 - Template-based static dispatch (no virtual calls in hot path)
 - Backpressure via Suspend/Resume propagation
@@ -97,6 +98,56 @@ int main() {
 }
 ```
 
+#### Integration with Existing Event Loop (libuv)
+
+For applications with an existing event loop, implement the `IEventLoop` interface:
+
+```cpp
+#include <uv.h>
+#include "src/client.hpp"
+
+// Adapter wrapping existing uv_loop_t* (see docs/libuv-integration.md)
+class LibuvEventLoop : public databento_async::IEventLoop {
+public:
+    explicit LibuvEventLoop(uv_loop_t* loop);
+
+    std::unique_ptr<IEventHandle> Register(
+        int fd, bool want_read, bool want_write,
+        ReadCallback on_read, WriteCallback on_write,
+        ErrorCallback on_error) override;
+
+    void Defer(std::function<void()> fn) override;
+    bool IsInEventLoopThread() const override;
+
+private:
+    uv_loop_t* loop_;  // Non-owning
+};
+
+int main() {
+    uv_loop_t* loop = uv_default_loop();
+    LibuvEventLoop adapter(loop);  // Wrap existing loop
+
+    auto client = databento_async::LiveClient::Create(adapter, "your-api-key");
+
+    client->SetRequest({
+        .dataset = "GLBX.MDP3",
+        .symbols = "ESZ4",
+        .schema = "mbp-1"
+    });
+
+    client->OnRecord([](const databento_async::DbnRecord& rec) {
+        // Process alongside other libuv handlers
+    });
+
+    client->Connect();
+    client->Start();
+
+    uv_run(loop, UV_RUN_DEFAULT);  // Your loop drives everything
+}
+```
+
+See [docs/libuv-integration.md](docs/libuv-integration.md) for complete implementation.
+
 ## Architecture
 
 ```
@@ -111,7 +162,8 @@ Historical Pipeline:
 
 | Component | Description |
 |-----------|-------------|
-| `Reactor` | Epoll-based event loop |
+| `IEventLoop` | Event loop interface for custom integrations (libuv, asio) |
+| `EventLoop` | Built-in epoll-based event loop |
 | `LiveClient` | Alias for `Pipeline<LiveProtocol, DbnRecord>` |
 | `HistoricalClient` | Alias for `Pipeline<HistoricalProtocol, DbnRecord>` |
 | `BufferChain` | Zero-copy buffer management with segment pooling |

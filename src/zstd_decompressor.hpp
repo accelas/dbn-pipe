@@ -10,8 +10,8 @@
 
 #include "buffer_chain.hpp"
 #include "error.hpp"
+#include "event_loop.hpp"
 #include "pipeline_component.hpp"
-#include "reactor.hpp"
 
 namespace databento_async {
 
@@ -26,13 +26,13 @@ class ZstdDecompressor : public PipelineComponent<ZstdDecompressor<D>>,
                          public std::enable_shared_from_this<ZstdDecompressor<D>> {
 public:
     // Factory method for shared_from_this safety
-    static std::shared_ptr<ZstdDecompressor> Create(Reactor& reactor,
+    static std::shared_ptr<ZstdDecompressor> Create(IEventLoop& loop,
                                                     std::shared_ptr<D> downstream) {
         struct MakeSharedEnabler : public ZstdDecompressor {
-            MakeSharedEnabler(Reactor& r, std::shared_ptr<D> ds)
-                : ZstdDecompressor(r, std::move(ds)) {}
+            MakeSharedEnabler(IEventLoop& l, std::shared_ptr<D> ds)
+                : ZstdDecompressor(l, std::move(ds)) {}
         };
-        return std::make_shared<MakeSharedEnabler>(reactor, std::move(downstream));
+        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream));
     }
 
     ~ZstdDecompressor() { Cleanup(); }
@@ -89,7 +89,7 @@ public:
     }
 
 private:
-    ZstdDecompressor(Reactor& reactor, std::shared_ptr<D> downstream);
+    ZstdDecompressor(IEventLoop& loop, std::shared_ptr<D> downstream);
 
     void ProcessPendingData();
     bool DecompressChain(BufferChain& chain);
@@ -139,8 +139,8 @@ private:
 // Implementation
 
 template <Downstream D>
-ZstdDecompressor<D>::ZstdDecompressor(Reactor& reactor, std::shared_ptr<D> downstream)
-    : PipelineComponent<ZstdDecompressor<D>>(reactor), downstream_(std::move(downstream)) {
+ZstdDecompressor<D>::ZstdDecompressor(IEventLoop& loop, std::shared_ptr<D> downstream)
+    : PipelineComponent<ZstdDecompressor<D>>(loop), downstream_(std::move(downstream)) {
 
     // Set up segment recycling
     output_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());

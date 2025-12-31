@@ -1,5 +1,30 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
+# Public event loop interface + type-erased wrapper
+cc_library(
+    name = "event_loop",
+    srcs = ["event_loop.cpp"],
+    hdrs = ["event_loop.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [":epoll_event_loop_internal"],
+)
+
+# Internal epoll implementation - not part of public API
+cc_library(
+    name = "epoll_event_loop_internal",
+    srcs = ["epoll_event_loop.cpp"],
+    hdrs = ["epoll_event_loop.hpp", "event_loop.hpp"],
+    visibility = ["//tests:__pkg__"],
+)
+
+# For tests that need direct access to EpollEventLoop
+cc_library(
+    name = "epoll_event_loop",
+    hdrs = ["epoll_event_loop.hpp"],
+    visibility = ["//tests:__pkg__"],
+    deps = [":epoll_event_loop_internal"],
+)
+
 cc_library(
     name = "error",
     hdrs = ["error.hpp"],
@@ -20,8 +45,8 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
+        ":event_loop",
         ":pipeline_component",
-        ":reactor",
     ],
 )
 
@@ -32,7 +57,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":error",
-        ":reactor",
+        ":event_loop",
     ],
 )
 
@@ -43,8 +68,8 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
+        ":event_loop",
         ":pipeline_component",
-        ":reactor",
         "@openssl_sys//:ssl",
         "@openssl_sys//:crypto",
     ],
@@ -56,8 +81,8 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":error",
+        ":event_loop",
         ":pipeline_component",
-        ":reactor",
         ":tls_transport",
         "@llhttp",
     ],
@@ -70,8 +95,8 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
+        ":event_loop",
         ":pipeline_component",
-        ":reactor",
         "@zstd",
     ],
 )
@@ -98,8 +123,8 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
+        ":event_loop",
         ":pipeline_component",
-        ":reactor",
         ":tls_transport",
         "@openssl_sys//:crypto",
     ],
@@ -138,7 +163,7 @@ cc_library(
 cc_library(
     name = "pipeline_sink",
     hdrs = ["pipeline_sink.hpp"],
-    deps = [":error", ":reactor", ":record_batch"],
+    deps = [":error", ":event_loop", ":record_batch"],
     visibility = ["//visibility:public"],
 )
 
@@ -146,7 +171,7 @@ cc_library(
 cc_library(
     name = "protocol_driver",
     hdrs = ["protocol_driver.hpp"],
-    deps = [":pipeline_sink", ":reactor"],
+    deps = [":event_loop", ":pipeline_sink"],
     visibility = ["//visibility:public"],
 )
 
@@ -157,10 +182,10 @@ cc_library(
         ":buffer_chain",
         ":cram_auth",
         ":dbn_parser_component",
+        ":event_loop",
         ":pipeline_component",
         ":pipeline_sink",
         ":protocol_driver",
-        ":reactor",
         ":tcp_socket",
     ],
     visibility = ["//visibility:public"],
@@ -172,11 +197,11 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":dbn_parser_component",
+        ":event_loop",
         ":http_client",
         ":pipeline_component",
         ":pipeline_sink",
         ":protocol_driver",
-        ":reactor",
         ":tcp_socket",
         ":tls_transport",
         ":zstd_decompressor",
@@ -190,10 +215,10 @@ cc_library(
     deps = [
         ":dns_resolver",
         ":error",
+        ":event_loop",
         ":pipeline_component",
         ":pipeline_sink",
         ":protocol_driver",
-        ":reactor",
         "@databento_cpp//:databento_headers",
     ],
     visibility = ["//visibility:public"],

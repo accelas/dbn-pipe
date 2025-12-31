@@ -13,8 +13,8 @@
 #include <vector>
 
 #include "src/buffer_chain.hpp"
+#include "src/epoll_event_loop.hpp"
 #include "src/error.hpp"
-#include "src/reactor.hpp"
 #include "src/tcp_socket.hpp"
 
 using namespace databento_async;
@@ -25,7 +25,7 @@ struct MockDownstream {
     std::optional<Error> last_error;
     bool done_called = false;
     bool error_called = false;
-    Reactor* reactor = nullptr;  // For stopping reactor in callbacks
+    EpollEventLoop* loop = nullptr;  // For stopping loop in callbacks
 
     void OnData(BufferChain& chain) {
         while (!chain.Empty()) {
@@ -39,12 +39,12 @@ struct MockDownstream {
     void OnError(const Error& e) {
         error_called = true;
         last_error = e;
-        if (reactor) reactor->Stop();
+        if (loop) loop->Stop();
     }
 
     void OnDone() {
         done_called = true;
-        if (reactor) reactor->Stop();
+        if (loop) loop->Stop();
     }
 };
 
@@ -92,31 +92,37 @@ int create_listener(int& port) {
 }
 
 TEST(TcpSocketTest, ConnectSuccess) {
-    Reactor reactor;
+    EpollEventLoop loop;
     int port;
     int listener = create_listener(port);
 
     auto downstream = std::make_shared<MockDownstream>();
 
     bool connected = false;
-    auto sock = TcpSocket<MockDownstream>::Create(reactor, downstream);
+    auto sock = TcpSocket<MockDownstream>::Create(loop, downstream);
 
     sock->OnConnect([&]() {
         connected = true;
-        reactor.Stop();
+        loop.Stop();
     });
 
     sock->Connect(make_addr("127.0.0.1", port));
 
-    // Accept on server side using Event
-    Event listener_event(reactor, listener, EPOLLIN);
-    listener_event.OnEvent([&](uint32_t) {
-        int client = accept(listener, nullptr, nullptr);
-        EXPECT_GE(client, 0);
-        close(client);
-    });
+    // Accept on server side using IEventHandle
+    auto listener_handle = loop.Register(
+        listener,
+        /*want_read=*/true,
+        /*want_write=*/false,
+        [&]() {
+            int client = accept(listener, nullptr, nullptr);
+            EXPECT_GE(client, 0);
+            close(client);
+        },
+        []() {},
+        [](int) {}
+    );
 
-    reactor.Run();
+    loop.Run();
 
     EXPECT_TRUE(connected);
 
@@ -124,33 +130,36 @@ TEST(TcpSocketTest, ConnectSuccess) {
 }
 
 TEST(TcpSocketTest, ConnectFail) {
-    Reactor reactor;
+    EpollEventLoop loop;
 
     auto downstream = std::make_shared<MockDownstream>();
-    downstream->reactor = &reactor;
+    downstream->loop = &loop;
 
-    auto sock = TcpSocket<MockDownstream>::Create(reactor, downstream);
+    auto sock = TcpSocket<MockDownstream>::Create(loop, downstream);
 
     // Connect to a port that won't accept connections
     sock->Connect(make_addr("127.0.0.1", 1));  // Port 1 is privileged and unlikely to accept
 
-    reactor.Run();
+    loop.Run();
 
     EXPECT_TRUE(downstream->error_called);
 }
 
 TEST(TcpSocketTest, ReadWrite) {
-    Reactor reactor;
+    EpollEventLoop loop;
     int port;
     int listener = create_listener(port);
 
     auto downstream = std::make_shared<MockDownstream>();
-    downstream->reactor = &reactor;
+    downstream->loop = &loop;
 
-    auto sock = TcpSocket<MockDownstream>::Create(reactor, downstream);
+    auto sock = TcpSocket<MockDownstream>::Create(loop, downstream);
 
     int server_fd = -1;
     bool connected = false;
+
+    // Server side handle for reading from client and echoing back
+    std::unique_ptr<IEventHandle> server_handle;
 
     sock->OnConnect([&]() {
         connected = true;
@@ -160,34 +169,40 @@ TEST(TcpSocketTest, ReadWrite) {
 
     sock->Connect(make_addr("127.0.0.1", port));
 
-    // Accept and echo on server side
-    Event listener_event(reactor, listener, EPOLLIN);
-    listener_event.OnEvent([&](uint32_t) {
-        server_fd = accept(listener, nullptr, nullptr);
-        if (server_fd >= 0) {
-            // Make non-blocking
-            fcntl(server_fd, F_SETFL, O_NONBLOCK);
-        }
-    });
+    // Accept on listener and immediately register for server data
+    auto listener_handle = loop.Register(
+        listener,
+        /*want_read=*/true,
+        /*want_write=*/false,
+        [&]() {
+            server_fd = accept(listener, nullptr, nullptr);
+            if (server_fd >= 0) {
+                // Make non-blocking
+                fcntl(server_fd, F_SETFL, O_NONBLOCK);
+                // Register for reading from client
+                server_handle = loop.Register(
+                    server_fd,
+                    /*want_read=*/true,
+                    /*want_write=*/false,
+                    [&]() {
+                        char buf[1024];
+                        ssize_t n = read(server_fd, buf, sizeof(buf));
+                        if (n > 0) {
+                            write(server_fd, buf, n);  // Echo back
+                            close(server_fd);
+                            server_fd = -1;
+                        }
+                    },
+                    []() {},
+                    [](int) {}
+                );
+            }
+        },
+        []() {},
+        [](int) {}
+    );
 
-    // Read from server and echo back, then close
-    std::unique_ptr<Event> server_event;
-    reactor.Defer([&]() {
-        if (server_fd >= 0) {
-            server_event = std::make_unique<Event>(reactor, server_fd, EPOLLIN);
-            server_event->OnEvent([&](uint32_t) {
-                char buf[1024];
-                ssize_t n = read(server_fd, buf, sizeof(buf));
-                if (n > 0) {
-                    write(server_fd, buf, n);  // Echo back
-                    close(server_fd);
-                    server_fd = -1;
-                }
-            });
-        }
-    });
-
-    reactor.Run();
+    loop.Run();
 
     EXPECT_TRUE(connected);
     // Data received by downstream
@@ -199,10 +214,10 @@ TEST(TcpSocketTest, ReadWrite) {
 }
 
 TEST(TcpSocketTest, SuspendResumeBeforeConnect) {
-    Reactor reactor;
+    EpollEventLoop loop;
 
     auto downstream = std::make_shared<MockDownstream>();
-    auto sock = TcpSocket<MockDownstream>::Create(reactor, downstream);
+    auto sock = TcpSocket<MockDownstream>::Create(loop, downstream);
 
     // Suspend before connect should work
     EXPECT_FALSE(sock->IsSuspended());
@@ -213,12 +228,12 @@ TEST(TcpSocketTest, SuspendResumeBeforeConnect) {
 }
 
 TEST(TcpSocketTest, SuspendStopsCallbacks) {
-    Reactor reactor;
+    EpollEventLoop loop;
     int port;
     int listener = create_listener(port);
 
     auto downstream = std::make_shared<MockDownstream>();
-    auto sock = TcpSocket<MockDownstream>::Create(reactor, downstream);
+    auto sock = TcpSocket<MockDownstream>::Create(loop, downstream);
 
     bool connected = false;
 
@@ -227,22 +242,28 @@ TEST(TcpSocketTest, SuspendStopsCallbacks) {
         // Suspend immediately after connect
         sock->Suspend();
         EXPECT_TRUE(sock->IsSuspended());
-        reactor.Stop();
+        loop.Stop();
     });
 
     sock->Connect(make_addr("127.0.0.1", port));
 
     // Accept on server side
-    Event listener_event(reactor, listener, EPOLLIN);
-    listener_event.OnEvent([&](uint32_t) {
-        int client = accept(listener, nullptr, nullptr);
-        EXPECT_GE(client, 0);
-        // Send data - should not trigger callback while suspended
-        write(client, "test", 4);
-        close(client);
-    });
+    auto listener_handle = loop.Register(
+        listener,
+        /*want_read=*/true,
+        /*want_write=*/false,
+        [&]() {
+            int client = accept(listener, nullptr, nullptr);
+            EXPECT_GE(client, 0);
+            // Send data - should not trigger callback while suspended
+            write(client, "test", 4);
+            close(client);
+        },
+        []() {},
+        [](int) {}
+    );
 
-    reactor.Run();
+    loop.Run();
 
     EXPECT_TRUE(connected);
     EXPECT_TRUE(sock->IsSuspended());
@@ -255,12 +276,12 @@ TEST(TcpSocketTest, SuspendStopsCallbacks) {
 }
 
 TEST(TcpSocketTest, CloseResetsSuspendedState) {
-    Reactor reactor;
+    EpollEventLoop loop;
     int port;
     int listener = create_listener(port);
 
     auto downstream = std::make_shared<MockDownstream>();
-    auto sock = TcpSocket<MockDownstream>::Create(reactor, downstream);
+    auto sock = TcpSocket<MockDownstream>::Create(loop, downstream);
 
     bool connected = false;
 
@@ -271,19 +292,25 @@ TEST(TcpSocketTest, CloseResetsSuspendedState) {
         EXPECT_TRUE(sock->IsSuspended());
         sock->Close();
         EXPECT_FALSE(sock->IsSuspended());
-        reactor.Stop();
+        loop.Stop();
     });
 
     sock->Connect(make_addr("127.0.0.1", port));
 
     // Accept on server side
-    Event listener_event(reactor, listener, EPOLLIN);
-    listener_event.OnEvent([&](uint32_t) {
-        int client = accept(listener, nullptr, nullptr);
-        if (client >= 0) close(client);
-    });
+    auto listener_handle = loop.Register(
+        listener,
+        /*want_read=*/true,
+        /*want_write=*/false,
+        [&]() {
+            int client = accept(listener, nullptr, nullptr);
+            if (client >= 0) close(client);
+        },
+        []() {},
+        [](int) {}
+    );
 
-    reactor.Run();
+    loop.Run();
 
     EXPECT_TRUE(connected);
     EXPECT_FALSE(sock->IsSuspended());

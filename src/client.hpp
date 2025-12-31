@@ -6,6 +6,7 @@
 #include "pipeline.hpp"
 #include "live_protocol.hpp"
 #include "historical_protocol.hpp"
+#include "event_loop.hpp"
 
 namespace databento_async {
 
@@ -28,5 +29,8 @@ struct DbnRecord {
 // Type aliases for backward compatibility
 using LiveClient = Pipeline<LiveProtocol, DbnRecord>;
 using HistoricalClient = Pipeline<HistoricalProtocol, DbnRecord>;
+
+// Backward compatibility - Reactor is now EventLoop
+using Reactor = EventLoop;
 
 }  // namespace databento_async
