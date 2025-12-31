@@ -3,7 +3,7 @@
 
 #include <databento/record.hpp>
 
-#include "unified_pipeline.hpp"
+#include "pipeline.hpp"
 #include "live_protocol.hpp"
 #include "historical_protocol.hpp"
 

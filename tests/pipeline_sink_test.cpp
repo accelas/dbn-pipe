@@ -1,7 +1,7 @@
 // tests/pipeline_base_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/pipeline_base.hpp"
+#include "src/pipeline_sink.hpp"
 #include "src/error.hpp"
 #include "src/reactor.hpp"
 

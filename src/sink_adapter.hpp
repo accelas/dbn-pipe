@@ -5,7 +5,7 @@
 #include <type_traits>
 
 #include "error.hpp"
-#include "pipeline_base.hpp"
+#include "pipeline_sink.hpp"
 #include "record_batch.hpp"
 
 namespace databento_async {

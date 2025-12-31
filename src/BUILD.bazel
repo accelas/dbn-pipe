@@ -48,8 +48,8 @@ cc_library(
 )
 
 cc_library(
-    name = "pipeline",
-    hdrs = ["pipeline.hpp"],
+    name = "pipeline_component",
+    hdrs = ["pipeline_component.hpp"],
     visibility = ["//visibility:public"],
     deps = [
         ":error",
@@ -64,7 +64,7 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
-        ":pipeline",
+        ":pipeline_component",
         ":reactor",
         "@openssl_sys//:ssl",
         "@openssl_sys//:crypto",
@@ -77,7 +77,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":error",
-        ":pipeline",
+        ":pipeline_component",
         ":reactor",
         ":tls_socket",
         "@llhttp",
@@ -91,7 +91,7 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
-        ":pipeline",
+        ":pipeline_component",
         ":reactor",
         "@zstd",
     ],
@@ -121,7 +121,7 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":error",
-        ":pipeline",
+        ":pipeline_component",
         ":record_batch",
         # Full library needed: uses RecordHeader::Size()
         "@databento_cpp//:databento_with_impl",
@@ -136,7 +136,7 @@ cc_library(
         ":buffer_chain",
         ":cram_auth_utils",
         ":error",
-        ":pipeline",
+        ":pipeline_component",
         ":reactor",
         ":tls_socket",
     ],
@@ -173,8 +173,8 @@ cc_library(
 )
 
 cc_library(
-    name = "pipeline_base",
-    hdrs = ["pipeline_base.hpp"],
+    name = "pipeline_sink",
+    hdrs = ["pipeline_sink.hpp"],
     deps = [":error", ":reactor", ":record_batch"],
     visibility = ["//visibility:public"],
 )
@@ -182,14 +182,14 @@ cc_library(
 cc_library(
     name = "sink_adapter",
     hdrs = ["sink_adapter.hpp"],
-    deps = [":error", ":pipeline_base", ":record_batch"],
+    deps = [":error", ":pipeline_sink", ":record_batch"],
     visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "protocol_driver",
     hdrs = ["protocol_driver.hpp"],
-    deps = [":pipeline_base", ":reactor", ":tcp_socket"],
+    deps = [":pipeline_sink", ":reactor", ":tcp_socket"],
     visibility = ["//visibility:public"],
 )
 
@@ -200,8 +200,8 @@ cc_library(
         ":buffer_chain",
         ":cram_auth",
         ":dbn_parser_component",
-        ":pipeline",
-        ":pipeline_base",
+        ":pipeline_component",
+        ":pipeline_sink",
         ":protocol_driver",
         ":reactor",
         ":sink_adapter",
@@ -217,8 +217,8 @@ cc_library(
         ":buffer_chain",
         ":dbn_parser_component",
         ":http_client",
-        ":pipeline",
-        ":pipeline_base",
+        ":pipeline_component",
+        ":pipeline_sink",
         ":protocol_driver",
         ":reactor",
         ":sink_adapter",
@@ -230,12 +230,12 @@ cc_library(
 )
 
 cc_library(
-    name = "unified_pipeline",
-    hdrs = ["unified_pipeline.hpp"],
+    name = "pipeline",
+    hdrs = ["pipeline.hpp"],
     deps = [
         ":error",
-        ":pipeline",
-        ":pipeline_base",
+        ":pipeline_component",
+        ":pipeline_sink",
         ":protocol_driver",
         ":reactor",
         ":tcp_socket",
@@ -248,7 +248,7 @@ cc_library(
     name = "client",
     hdrs = ["client.hpp"],
     deps = [
-        ":unified_pipeline",
+        ":pipeline",
         ":live_protocol",
         ":historical_protocol",
         "@databento_cpp//:databento_headers",
