@@ -107,7 +107,7 @@
     "//third_party/databento:databento.bzl%databento": {
       "general": {
         "bzlTransitiveDigest": "iffhU+v9uuhQwlvHvRRGsc1G0OvqAyIARI76mDVl3I0=",
-        "usagesDigest": "1vQuQB+BTsj9NG9f1YtGQvSkIoDMyNeETF4AhIoKIwo=",
+        "usagesDigest": "SRtfoBOjziiS47HBfj54zazfNLgpbmEOtxWVS9SL+mE=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -137,7 +137,7 @@
     "//third_party/llhttp:llhttp.bzl%llhttp_ext": {
       "general": {
         "bzlTransitiveDigest": "WIHfiHlSnpp7b+DThRofkkvRKePY47SehC/Hb4sMyq8=",
-        "usagesDigest": "TqunWvzfcCoVeob6aTamzonIax3tJ8OSb6xwAYR8oBM=",
+        "usagesDigest": "ESLQAFprzZWtRYhn37NPge/CW3UrjpXxpoTCfljV1ws=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
@@ -167,7 +167,7 @@
     "//third_party/openssl:openssl.bzl%openssl_sys_ext": {
       "general": {
         "bzlTransitiveDigest": "xE7E5XrJLoDzdh/ZGht+lGHi5fn+J+dUi0vZn1lENuo=",
-        "usagesDigest": "yij4RNz35hnwR6ACHo+cp8K+lfHspKWCa7M038BbC7E=",
+        "usagesDigest": "MCHz3hDDYjucjcxmvt/O4ltYMvTiYdKjOUA5nhYNxK0=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},
