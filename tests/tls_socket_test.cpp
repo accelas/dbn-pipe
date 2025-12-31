@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "src/buffer_chain.hpp"
-#include "src/pipeline.hpp"
+#include "src/pipeline_component.hpp"
 #include "src/reactor.hpp"
 #include "src/tls_socket.hpp"
 
