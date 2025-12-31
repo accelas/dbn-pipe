@@ -14,12 +14,12 @@
 #include "error.hpp"
 #include "pipeline_component.hpp"
 #include "reactor.hpp"
-#include "tls_socket.hpp"
+#include "tls_transport.hpp"
 
 namespace databento_async {
 
 // HttpClient parses HTTP responses using llhttp.
-// Sits between TlsSocket (upstream) and ZstdDecompressor (downstream).
+// Sits between TlsTransport (upstream) and ZstdDecompressor (downstream).
 // PipelineComponent provides Suspendable interface with suspend count semantics.
 //
 // Template parameter D must satisfy the Downstream concept.
@@ -39,7 +39,7 @@ public:
 
     ~HttpClient() = default;
 
-    // Downstream interface: receive decrypted HTTP response data from TlsSocket
+    // Downstream interface: receive decrypted HTTP response data from TlsTransport
     void OnData(BufferChain& data);
 
     // Forward errors from upstream
@@ -358,7 +358,7 @@ template <Downstream D>
 void HttpClient<D>::Write(BufferChain /*data*/) {
     throw std::logic_error(
         "HttpClient::Write() is not supported - HttpClient is a receiver-only "
-        "component for HTTP responses. Use TlsSocket directly for sending requests.");
+        "component for HTTP responses. Use TlsTransport directly for sending requests.");
 }
 
 template <Downstream D>

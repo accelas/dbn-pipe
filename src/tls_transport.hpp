@@ -1,4 +1,4 @@
-// src/tls_socket.hpp
+// src/tls_transport.hpp
 #pragma once
 
 #include <openssl/bio.h>
@@ -20,29 +20,29 @@
 
 namespace databento_async {
 
-// TlsSocket handles TLS encryption/decryption using OpenSSL with memory BIOs.
+// TlsTransport handles TLS encryption/decryption using OpenSSL with memory BIOs.
 // Sits between TcpSocket (upstream) and HttpClient (downstream) in the pipeline.
 // PipelineComponent provides Suspendable interface with suspend count semantics.
 //
 // Template parameter D must satisfy the Downstream concept.
 template <Downstream D>
-class TlsSocket : public PipelineComponent<TlsSocket<D>>,
-                  public std::enable_shared_from_this<TlsSocket<D>> {
+class TlsTransport : public PipelineComponent<TlsTransport<D>>,
+                  public std::enable_shared_from_this<TlsTransport<D>> {
 public:
     using UpstreamWriteCallback = std::function<void(BufferChain)>;
 
     // Factory method for shared_from_this safety
-    static std::shared_ptr<TlsSocket> Create(Reactor& reactor,
+    static std::shared_ptr<TlsTransport> Create(Reactor& reactor,
                                               std::shared_ptr<D> downstream) {
         // Use a helper struct to access private constructor
-        struct MakeSharedEnabler : public TlsSocket {
+        struct MakeSharedEnabler : public TlsTransport {
             MakeSharedEnabler(Reactor& r, std::shared_ptr<D> ds)
-                : TlsSocket(r, std::move(ds)) {}
+                : TlsTransport(r, std::move(ds)) {}
         };
         return std::make_shared<MakeSharedEnabler>(reactor, std::move(downstream));
     }
 
-    ~TlsSocket() { Cleanup(); }
+    ~TlsTransport() { Cleanup(); }
 
     // Upstream interface: receive encrypted data from TcpSocket
     void Read(BufferChain data);
@@ -85,7 +85,7 @@ public:
 
 private:
     // Private constructor - use Create() factory method
-    TlsSocket(Reactor& reactor, std::shared_ptr<D> downstream);
+    TlsTransport(Reactor& reactor, std::shared_ptr<D> downstream);
 
     // OpenSSL initialization (static, thread-safe)
     static void InitOpenSSL();
@@ -141,8 +141,8 @@ private:
 // Implementation - must be in header due to template
 
 template <Downstream D>
-TlsSocket<D>::TlsSocket(Reactor& reactor, std::shared_ptr<D> downstream)
-    : PipelineComponent<TlsSocket<D>>(reactor), downstream_(std::move(downstream)) {
+TlsTransport<D>::TlsTransport(Reactor& reactor, std::shared_ptr<D> downstream)
+    : PipelineComponent<TlsTransport<D>>(reactor), downstream_(std::move(downstream)) {
     InitOpenSSL();
 
     // Create SSL context for client-side TLS
@@ -190,7 +190,7 @@ TlsSocket<D>::TlsSocket(Reactor& reactor, std::shared_ptr<D> downstream)
 }
 
 template <Downstream D>
-void TlsSocket<D>::InitOpenSSL() {
+void TlsTransport<D>::InitOpenSSL() {
     // Thread-safe static initialization using C++11 magic statics
     [[maybe_unused]] static bool _ = []() {
         OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS |
@@ -200,7 +200,7 @@ void TlsSocket<D>::InitOpenSSL() {
 }
 
 template <Downstream D>
-void TlsSocket<D>::SetHostname(const std::string& hostname) {
+void TlsTransport<D>::SetHostname(const std::string& hostname) {
     if (ssl_) {
         // Set SNI hostname
         SSL_set_tlsext_host_name(ssl_, hostname.c_str());
@@ -210,7 +210,7 @@ void TlsSocket<D>::SetHostname(const std::string& hostname) {
 }
 
 template <Downstream D>
-void TlsSocket<D>::StartHandshake() {
+void TlsTransport<D>::StartHandshake() {
     if (handshake_started_) return;
     handshake_started_ = true;
 
@@ -218,7 +218,7 @@ void TlsSocket<D>::StartHandshake() {
 }
 
 template <Downstream D>
-void TlsSocket<D>::ProcessHandshake() {
+void TlsTransport<D>::ProcessHandshake() {
     if (handshake_complete_) return;
 
     int ret = SSL_do_handshake(ssl_);
@@ -260,7 +260,7 @@ void TlsSocket<D>::ProcessHandshake() {
 }
 
 template <Downstream D>
-void TlsSocket<D>::Read(BufferChain data) {
+void TlsTransport<D>::Read(BufferChain data) {
     auto guard = this->TryGuard();
     if (!guard) return;
 
@@ -306,7 +306,7 @@ void TlsSocket<D>::Read(BufferChain data) {
 }
 
 template <Downstream D>
-void TlsSocket<D>::ProcessPendingReads() {
+void TlsTransport<D>::ProcessPendingReads() {
     if (this->IsClosed() || !handshake_complete_) return;
 
     // Ensure recycling callback is set
@@ -380,7 +380,7 @@ void TlsSocket<D>::ProcessPendingReads() {
 }
 
 template <Downstream D>
-void TlsSocket<D>::Write(BufferChain data) {
+void TlsTransport<D>::Write(BufferChain data) {
     auto guard = this->TryGuard();
     if (!guard) return;
 
@@ -436,7 +436,7 @@ void TlsSocket<D>::Write(BufferChain data) {
 }
 
 template <Downstream D>
-void TlsSocket<D>::RetryPendingWrites() {
+void TlsTransport<D>::RetryPendingWrites() {
     if (write_pending_.Empty()) return;
 
     // Move pending data to local and retry
@@ -464,7 +464,7 @@ void TlsSocket<D>::RetryPendingWrites() {
 }
 
 template <Downstream D>
-void TlsSocket<D>::FlushWbio() {
+void TlsTransport<D>::FlushWbio() {
     // Read encrypted data from write BIO and send upstream
     int pending = BIO_ctrl_pending(wbio_);
     if (pending <= 0) return;
@@ -490,7 +490,7 @@ void TlsSocket<D>::FlushWbio() {
 }
 
 template <Downstream D>
-void TlsSocket<D>::HandleSSLError(int ssl_error, const char* operation) {
+void TlsTransport<D>::HandleSSLError(int ssl_error, const char* operation) {
     std::string msg = std::string(operation) + " failed: ";
 
     switch (ssl_error) {
@@ -520,7 +520,7 @@ void TlsSocket<D>::HandleSSLError(int ssl_error, const char* operation) {
 }
 
 template <Downstream D>
-std::string TlsSocket<D>::GetSSLErrorString() {
+std::string TlsTransport<D>::GetSSLErrorString() {
     unsigned long err = ERR_get_error();
     if (err == 0) return "unknown error";
 
@@ -530,7 +530,7 @@ std::string TlsSocket<D>::GetSSLErrorString() {
 }
 
 template <Downstream D>
-void TlsSocket<D>::Cleanup() {
+void TlsTransport<D>::Cleanup() {
     // Note: SSL_set_bio() transfers ownership of BIOs to SSL,
     // so we only free SSL (which frees the BIOs)
     if (ssl_) {
@@ -547,7 +547,7 @@ void TlsSocket<D>::Cleanup() {
 }
 
 template <Downstream D>
-void TlsSocket<D>::DoClose() {
+void TlsTransport<D>::DoClose() {
     if (ssl_ && handshake_complete_) {
         // Initiate TLS shutdown
         SSL_shutdown(ssl_);
