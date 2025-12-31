@@ -22,6 +22,9 @@ struct LiveRequest {
     std::string schema;    // Schema for data (e.g., "mbp-1")
 };
 
+// Default live gateway port
+constexpr uint16_t kLivePort = 13000;
+
 // LiveProtocol - ProtocolDriver implementation for live streaming
 //
 // Satisfies the ProtocolDriver concept. Uses CramAuth for authentication
@@ -136,6 +139,22 @@ struct LiveProtocol {
         if (chain) {
             chain->Close();
         }
+    }
+
+    // Get gateway hostname from dataset (e.g., "GLBX.MDP3" -> "glbx-mdp3.lsg.databento.com")
+    static std::string GetHostname(const Request& request) {
+        std::string hostname;
+        hostname.reserve(request.dataset.size() + 20);
+        for (char c : request.dataset) {
+            hostname += (c == '.') ? '-' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        hostname += ".lsg.databento.com";
+        return hostname;
+    }
+
+    // Get gateway port
+    static uint16_t GetPort(const Request&) {
+        return kLivePort;
     }
 };
 
