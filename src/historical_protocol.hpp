@@ -16,7 +16,6 @@
 #include "pipeline_component.hpp"
 #include "pipeline_sink.hpp"
 #include "reactor.hpp"
-#include "sink_adapter.hpp"
 #include "tcp_socket.hpp"
 #include "tls_transport.hpp"
 #include "zstd_decompressor.hpp"
@@ -40,7 +39,7 @@ constexpr uint16_t kHistoricalPort = 443;
 //
 // Satisfies the ProtocolDriver concept. Uses TLS -> HTTP -> Zstd -> DBN parser chain.
 //
-// Chain: TcpSocket -> TlsTransport -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> SinkAdapter -> Sink
+// Chain: TcpSocket -> TlsTransport -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> Sink
 //
 // Historical protocol requires TLS handshake before sending HTTP request.
 // OnConnect starts the handshake and returns false (not ready yet).
@@ -129,8 +128,8 @@ struct HistoricalProtocol {
     // Static dispatch within chain via template parameters
     template <typename Record>
     struct ChainImpl : ChainType {
-        using SinkAdapterType = SinkAdapter<Record>;
-        using ParserType = DbnParserComponent<SinkAdapterType>;
+        using SinkType = Sink<Record>;
+        using ParserType = DbnParserComponent<SinkType>;
         using ZstdType = ZstdDecompressor<ParserType>;
         using HttpType = HttpClient<ZstdType>;
         using TlsType = TlsTransport<HttpType>;
@@ -139,8 +138,7 @@ struct HistoricalProtocol {
         ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
             : reactor_(reactor)
             , api_key_(api_key)
-            , sink_adapter_(std::make_unique<SinkAdapterType>(sink))
-            , parser_(std::make_shared<ParserType>(*sink_adapter_))
+            , parser_(std::make_shared<ParserType>(sink))
             , zstd_(ZstdType::Create(reactor, parser_))
             , http_(HttpType::Create(reactor, zstd_))
             , tls_(TlsType::Create(reactor, http_))
@@ -198,7 +196,6 @@ struct HistoricalProtocol {
     private:
         Reactor& reactor_;
         std::string api_key_;
-        std::unique_ptr<SinkAdapterType> sink_adapter_;
         std::shared_ptr<ParserType> parser_;
         std::shared_ptr<ZstdType> zstd_;
         std::shared_ptr<HttpType> http_;

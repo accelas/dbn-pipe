@@ -65,10 +65,10 @@ int main() {
 
 ```
 Live Pipeline:
-  TcpSocket -> CramAuth -> DbnParser -> SinkAdapter -> Sink -> User Callback
+  TcpSocket -> CramAuth -> DbnParser -> Sink -> User Callback
 
 Historical Pipeline:
-  TcpSocket -> TlsTransport -> HttpClient -> ZstdDecompressor -> DbnParser -> SinkAdapter -> Sink
+  TcpSocket -> TlsTransport -> HttpClient -> ZstdDecompressor -> DbnParser -> Sink
 ```
 
 ### Key Components
