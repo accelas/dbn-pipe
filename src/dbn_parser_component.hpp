@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <cstring>
 #include <memory>
-#include <memory_resource>
 #include <new>
 #include <string>
 
@@ -28,10 +27,6 @@ constexpr size_t kMaxRecordSize = 64 * 1024;
 // for the backpressure pipeline. It uses zero-copy references where possible,
 // only copying when records span segment boundaries.
 //
-// Two input paths:
-// - Direct: OnData(BufferChain&) - caller manages the chain (live path)
-// - Legacy: Read(pmr::vector<byte>) - internal chain management (historical path)
-//
 // Key features:
 // - Outputs RecordBatch with RecordRef entries (zero-copy when possible)
 // - Uses BufferChain for input (chain manages unconsumed data)
@@ -44,33 +39,24 @@ constexpr size_t kMaxRecordSize = 64 * 1024;
 template <RecordSink S>
 class DbnParserComponent {
 public:
-    explicit DbnParserComponent(S& sink) : sink_(sink) {
-        // Set up segment recycling for legacy Read() path
-        parse_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
-    }
+    explicit DbnParserComponent(S& sink) : sink_(sink) {}
 
     // Primary interface - parse bytes from caller-managed chain into records.
     // Leaves incomplete records in the chain for next call.
     void OnData(BufferChain& chain);
 
-    // Legacy adapter interface for Downstream concept compatibility.
-    // Appends data to internal chain and calls OnData.
-    // Used by CramAuth, ZstdDecompressor, and other upstream components.
-    void Read(std::pmr::vector<std::byte> data);
-
-    // TerminalDownstream interface for CramAuth compatibility
+    // TerminalDownstream interface
     void OnDone() noexcept { OnComplete(); }
 
     // Forward error to sink (one-shot)
     void OnError(const Error& e) noexcept;
 
-    // Forward completion to sink (one-shot).
-    // Checks internal parse_chain_ for incomplete data when using legacy path.
+    // Forward completion to sink (one-shot, no chain check).
+    // Use when caller has already verified chain is empty.
     void OnComplete() noexcept;
 
     // Forward completion to sink (one-shot).
     // Checks that chain is empty (no incomplete records).
-    // Use this overload when caller manages the chain directly.
     void OnComplete(BufferChain& chain) noexcept;
 
 private:
@@ -84,13 +70,6 @@ private:
     S& sink_;                              // Reference to sink
     std::atomic<bool> error_state_{false}; // One-shot error guard
     bool metadata_parsed_ = false;         // Whether DBN header has been skipped
-
-    // Internal chain for legacy Read() path
-    // Note: Each Read() fills segments to capacity before acquiring new ones.
-    // Cross-Read() segment reuse was considered but adds complexity
-    // (must track pending segment state vs chain state).
-    SegmentPool segment_pool_{8};          // Pool for segment allocation
-    BufferChain parse_chain_;              // Internal chain for byte->chain conversion
 
     // DBN file header structure (first 8 bytes of DBN stream)
     struct DbnHeader {
@@ -219,37 +198,11 @@ void DbnParserComponent<S>::OnError(const Error& e) noexcept {
 }
 
 template <RecordSink S>
-void DbnParserComponent<S>::Read(std::pmr::vector<std::byte> data) {
-    // Check error state - if already in error, ignore all data
-    if (error_state_.load(std::memory_order_acquire)) {
-        return;
-    }
-
-    if (data.empty()) {
-        return;
-    }
-
-    // Append incoming bytes to internal chain using segments from pool
-    parse_chain_.AppendBytes(data.data(), data.size(), segment_pool_);
-
-    // Parse using common logic
-    OnData(parse_chain_);
-}
-
-template <RecordSink S>
 void DbnParserComponent<S>::OnComplete() noexcept {
     // Check error state - if already in error, ignore completion
     if (error_state_.load(std::memory_order_acquire)) {
         return;
     }
-
-    // Check for incomplete record in internal chain (legacy path)
-    if (!parse_chain_.Empty()) {
-        ReportTerminalError("Incomplete record at end of stream (" +
-                          std::to_string(parse_chain_.Size()) + " bytes remaining)");
-        return;
-    }
-
     sink_.OnComplete();
 }
 
