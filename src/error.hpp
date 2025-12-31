@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 enum class ErrorCode {
     // Connection
@@ -80,4 +80,4 @@ constexpr std::string_view error_category(ErrorCode code) {
     return "unknown";
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

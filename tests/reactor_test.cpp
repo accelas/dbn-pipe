@@ -6,7 +6,7 @@
 
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(ReactorTest, Construction) {
     Reactor reactor;

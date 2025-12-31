@@ -12,7 +12,7 @@
 #include "src/record_batch.hpp"
 
 using namespace databento;
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Helper to create an aligned buffer for testing
 class AlignedBuffer {

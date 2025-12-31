@@ -13,7 +13,7 @@
 
 #include "src/epoll_event_loop.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 class EpollEventLoopTest : public ::testing::Test {
 protected:

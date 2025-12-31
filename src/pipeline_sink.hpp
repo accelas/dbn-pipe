@@ -7,7 +7,7 @@
 #include "event_loop.hpp"
 #include "record_batch.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Forward declaration for templated record type
 // Pipeline implementations define their own record type
@@ -71,4 +71,4 @@ private:
     bool valid_ = true;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

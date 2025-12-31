@@ -8,7 +8,7 @@
 
 #include "src/symbol_map.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 class SymbolMapTest : public ::testing::Test {};
 

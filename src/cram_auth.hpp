@@ -22,7 +22,7 @@
 #include "pipeline_component.hpp"
 #include "tls_transport.hpp"  // For Suspendable
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Greeting parsed from server
 struct Greeting {
@@ -662,4 +662,4 @@ void CramAuth<D>::OnDone() {
     FlushAndComplete();
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

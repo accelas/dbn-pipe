@@ -4,7 +4,7 @@
 #include "src/client.hpp"
 #include "src/epoll_event_loop.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(ClientTest, LiveClientIsAlias) {
     EpollEventLoop loop;
