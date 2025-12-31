@@ -1,20 +1,27 @@
 // src/protocol_driver.hpp
 #pragma once
 
+#include <netinet/in.h>
+#include <sys/socket.h>
+
 #include <concepts>
+#include <functional>
 #include <memory>
 #include <string>
 
-#include "buffer_chain.hpp"
 #include "pipeline_sink.hpp"
 #include "reactor.hpp"
-#include "tcp_socket.hpp"
 
 namespace databento_async {
 
 // ProtocolDriver concept defines the interface for protocol implementations.
 // Each protocol (Live, Historical) provides static methods that the Pipeline
 // template uses to handle protocol-specific behavior.
+//
+// With TcpSocket as part of the chain, the interface is simplified:
+// - Connect/disconnect handled by ChainType
+// - Ready callback notifies when protocol is ready to send request
+// - Data flow handled internally by chain components
 //
 // Template parameters:
 //   P - The protocol type (e.g., LiveProtocol, HistoricalProtocol)
@@ -24,7 +31,7 @@ concept ProtocolDriver = requires {
     // Request type for this protocol
     typename P::Request;
 
-    // Chain type - the entry point component for this protocol
+    // Chain type - includes TcpSocket as head
     typename P::ChainType;
 
     // Required static methods
@@ -32,33 +39,31 @@ concept ProtocolDriver = requires {
         Reactor& reactor,
         Sink<Record>& sink,
         const std::string& api_key,
-        TcpSocket& tcp,
         std::shared_ptr<typename P::ChainType> chain,
-        const typename P::Request& request,
-        BufferChain data
+        const typename P::Request& request
     ) {
-        // Build component chain, returns entry point
+        // Build component chain (including TcpSocket), returns entry point
         { P::BuildChain(reactor, sink, api_key) }
             -> std::same_as<std::shared_ptr<typename P::ChainType>>;
-
-        // Wire TCP write callbacks to chain
-        { P::WireTcp(tcp, chain) } -> std::same_as<void>;
-
-        // Handle TCP connect event - returns true if ready to send request
-        // Live: returns true (send on connect)
-        // Historical: returns false (must wait for TLS handshake)
-        { P::OnConnect(chain) } -> std::same_as<bool>;
-
-        // Handle TCP read - returns true if ready to send request
-        // Live: always returns true (already ready)
-        // Historical: returns true after TLS handshake completes
-        { P::OnRead(chain, std::move(data)) } -> std::same_as<bool>;
 
         // Send the protocol-specific request
         { P::SendRequest(chain, request) } -> std::same_as<void>;
 
         // Teardown chain components
         { P::Teardown(chain) } -> std::same_as<void>;
+    };
+
+    // ChainType must support Connect, SetReadyCallback, Suspend, Resume, Close
+    requires requires(
+        typename P::ChainType& chain,
+        const sockaddr_storage& addr,
+        std::function<void()> cb
+    ) {
+        { chain.Connect(addr) } -> std::same_as<void>;
+        { chain.SetReadyCallback(cb) } -> std::same_as<void>;
+        { chain.Suspend() } -> std::same_as<void>;
+        { chain.Resume() } -> std::same_as<void>;
+        { chain.Close() } -> std::same_as<void>;
     };
 };
 

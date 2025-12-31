@@ -16,13 +16,6 @@ TEST(HistoricalProtocolTest, SatisfiesProtocolDriverConcept) {
     SUCCEED();
 }
 
-TEST(HistoricalProtocolTest, OnConnectReturnsFalse) {
-    std::shared_ptr<HistoricalProtocol::ChainType> chain = nullptr;
-    // With a null chain, OnConnect should still return false
-    bool result = HistoricalProtocol::OnConnect(chain);
-    EXPECT_FALSE(result);
-}
-
 TEST(HistoricalProtocolTest, RequestHasTimeRange) {
     HistoricalProtocol::Request req;
     req.dataset = "GLBX.MDP3";
