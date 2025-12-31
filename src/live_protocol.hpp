@@ -7,9 +7,9 @@
 #include "buffer_chain.hpp"
 #include "cram_auth.hpp"
 #include "dbn_parser_component.hpp"
+#include "event_loop.hpp"
 #include "pipeline_component.hpp"
 #include "pipeline_sink.hpp"
-#include "reactor.hpp"
 #include "tcp_socket.hpp"
 
 namespace databento_async {
@@ -67,10 +67,10 @@ struct LiveProtocol {
         using CramType = CramAuth<ParserType>;
         using HeadType = TcpSocket<CramType>;
 
-        ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
+        ChainImpl(IEventLoop& loop, Sink<Record>& sink, const std::string& api_key)
             : parser_(std::make_shared<ParserType>(sink))
-            , cram_(CramType::Create(reactor, parser_, api_key))
-            , head_(HeadType::Create(reactor, cram_))
+            , cram_(CramType::Create(loop, parser_, api_key))
+            , head_(HeadType::Create(loop, cram_))
         {
             // Wire connect callback for ready signal
             head_->OnConnect([this]() {
@@ -116,11 +116,11 @@ struct LiveProtocol {
     // Build the component chain for live protocol
     template <typename Record>
     static std::shared_ptr<ChainType> BuildChain(
-        Reactor& reactor,
+        IEventLoop& loop,
         Sink<Record>& sink,
         const std::string& api_key
     ) {
-        return std::make_shared<ChainImpl<Record>>(reactor, sink, api_key);
+        return std::make_shared<ChainImpl<Record>>(loop, sink, api_key);
     }
 
     // Send request - subscribe and start streaming

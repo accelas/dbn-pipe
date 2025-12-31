@@ -152,7 +152,7 @@ cc_library(
 cc_library(
     name = "pipeline_sink",
     hdrs = ["pipeline_sink.hpp"],
-    deps = [":error", ":reactor", ":record_batch"],
+    deps = [":error", ":event_loop", ":record_batch"],
     visibility = ["//visibility:public"],
 )
 
@@ -160,7 +160,7 @@ cc_library(
 cc_library(
     name = "protocol_driver",
     hdrs = ["protocol_driver.hpp"],
-    deps = [":pipeline_sink", ":reactor"],
+    deps = [":event_loop", ":pipeline_sink"],
     visibility = ["//visibility:public"],
 )
 
@@ -171,10 +171,10 @@ cc_library(
         ":buffer_chain",
         ":cram_auth",
         ":dbn_parser_component",
+        ":event_loop",
         ":pipeline_component",
         ":pipeline_sink",
         ":protocol_driver",
-        ":reactor",
         ":tcp_socket",
     ],
     visibility = ["//visibility:public"],
@@ -186,11 +186,11 @@ cc_library(
     deps = [
         ":buffer_chain",
         ":dbn_parser_component",
+        ":event_loop",
         ":http_client",
         ":pipeline_component",
         ":pipeline_sink",
         ":protocol_driver",
-        ":reactor",
         ":tcp_socket",
         ":tls_transport",
         ":zstd_decompressor",
@@ -204,10 +204,10 @@ cc_library(
     deps = [
         ":dns_resolver",
         ":error",
+        ":event_loop",
         ":pipeline_component",
         ":pipeline_sink",
         ":protocol_driver",
-        ":reactor",
         "@databento_cpp//:databento_headers",
     ],
     visibility = ["//visibility:public"],

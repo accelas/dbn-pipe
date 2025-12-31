@@ -1,27 +1,27 @@
 // tests/unified_pipeline_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/pipeline.hpp"
+#include "src/epoll_event_loop.hpp"
 #include "src/live_protocol.hpp"
-#include "src/reactor.hpp"
+#include "src/pipeline.hpp"
 
 using namespace databento_async;
 
 struct TestRecord {};
 
 TEST(UnifiedPipelineTest, CreateReturnsSharedPtr) {
-    Reactor reactor;
+    EpollEventLoop loop;
     auto pipeline = Pipeline<LiveProtocol, TestRecord>::Create(
-        reactor, "test_api_key");
+        loop, "test_api_key");
     ASSERT_NE(pipeline, nullptr);
 }
 
 TEST(UnifiedPipelineTest, SetRequestStoresRequest) {
-    Reactor reactor;
-    reactor.Poll(0);  // Initialize thread ID
+    EpollEventLoop loop;
+    loop.Poll(0);  // Initialize thread ID
 
     auto pipeline = Pipeline<LiveProtocol, TestRecord>::Create(
-        reactor, "test_api_key");
+        loop, "test_api_key");
 
     LiveRequest req{"GLBX.MDP3", "ESZ4", "mbp-1"};
     pipeline->SetRequest(req);
@@ -31,11 +31,11 @@ TEST(UnifiedPipelineTest, SetRequestStoresRequest) {
 }
 
 TEST(UnifiedPipelineTest, StartBeforeConnectEmitsError) {
-    Reactor reactor;
-    reactor.Poll(0);
+    EpollEventLoop loop;
+    loop.Poll(0);
 
     auto pipeline = Pipeline<LiveProtocol, TestRecord>::Create(
-        reactor, "test_api_key");
+        loop, "test_api_key");
 
     bool error_received = false;
     pipeline->OnError([&](const Error& e) {
@@ -51,22 +51,22 @@ TEST(UnifiedPipelineTest, StartBeforeConnectEmitsError) {
 }
 
 TEST(UnifiedPipelineTest, SuspendBeforeConnectIsRespected) {
-    Reactor reactor;
-    reactor.Poll(0);
+    EpollEventLoop loop;
+    loop.Poll(0);
 
     auto pipeline = Pipeline<LiveProtocol, TestRecord>::Create(
-        reactor, "test_api_key");
+        loop, "test_api_key");
 
     pipeline->Suspend();
     EXPECT_TRUE(pipeline->IsSuspended());
 }
 
 TEST(UnifiedPipelineTest, StateStartsDisconnected) {
-    Reactor reactor;
-    reactor.Poll(0);
+    EpollEventLoop loop;
+    loop.Poll(0);
 
     auto pipeline = Pipeline<LiveProtocol, TestRecord>::Create(
-        reactor, "test_api_key");
+        loop, "test_api_key");
 
     EXPECT_EQ(pipeline->GetState(), PipelineState::Disconnected);
 }

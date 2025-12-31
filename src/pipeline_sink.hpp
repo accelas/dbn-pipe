@@ -4,7 +4,7 @@
 #include <cassert>
 
 #include "error.hpp"
-#include "reactor.hpp"
+#include "event_loop.hpp"
 #include "record_batch.hpp"
 
 namespace databento_async {
@@ -28,45 +28,45 @@ public:
 template <typename Record>
 class Sink {
 public:
-    Sink(Reactor& reactor, PipelineBase<Record>* pipeline)
-        : reactor_(reactor), pipeline_(pipeline) {}
+    Sink(IEventLoop& loop, PipelineBase<Record>* pipeline)
+        : loop_(loop), pipeline_(pipeline) {}
 
     // Invalidate clears valid_ and nulls pipeline_.
     // Called from TeardownPipeline before deferred cleanup.
     void Invalidate() {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         valid_ = false;
         pipeline_ = nullptr;
     }
 
-    // RecordSink interface - only called from reactor thread
+    // RecordSink interface - only called from event loop thread
     // Note: Handler may trigger teardown, so check valid_ on each iteration.
     void OnRecord(const Record& rec) {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         if (!valid_ || !pipeline_) return;
         pipeline_->HandleRecord(rec);
     }
 
     void OnData(RecordBatch&& batch) {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         if (!valid_ || !pipeline_) return;
         pipeline_->HandleRecordBatch(std::move(batch));
     }
 
     void OnError(const Error& e) {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         if (!valid_ || !pipeline_) return;
         pipeline_->HandlePipelineError(e);
     }
 
     void OnComplete() {
-        assert(reactor_.IsInReactorThread());
+        assert(loop_.IsInEventLoopThread());
         if (!valid_ || !pipeline_) return;
         pipeline_->HandlePipelineComplete();
     }
 
 private:
-    Reactor& reactor_;
+    IEventLoop& loop_;
     PipelineBase<Record>* pipeline_;
     bool valid_ = true;
 };
