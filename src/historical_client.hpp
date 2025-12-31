@@ -22,7 +22,7 @@
 #include "reactor.hpp"
 #include "record_batch.hpp"
 #include "tcp_socket.hpp"
-#include "tls_socket.hpp"
+#include "tls_transport.hpp"
 #include "zstd_decompressor.hpp"
 
 namespace databento_async {
@@ -30,7 +30,7 @@ namespace databento_async {
 // HistoricalClient fetches historical data from the Databento Historical API.
 // Uses HTTPS (TLS) + HTTP + zstd decompression + DBN parsing pipeline.
 //
-// Architecture: TcpSocket -> TlsSocket -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> Sink
+// Architecture: TcpSocket -> TlsTransport -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> Sink
 //
 // Lifecycle:
 // 1. Construct with reactor and API key
@@ -84,7 +84,7 @@ public:
     using ParserType = DbnParserComponent<Sink>;
     using ZstdType = ZstdDecompressor<ParserType>;
     using HttpType = HttpClient<ZstdType>;
-    using TlsType = TlsSocket<HttpType>;
+    using TlsType = TlsTransport<HttpType>;
 
     HistoricalClient(Reactor& reactor, std::string api_key);
     ~HistoricalClient();

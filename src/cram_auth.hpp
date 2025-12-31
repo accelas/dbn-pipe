@@ -17,7 +17,7 @@
 #include "error.hpp"
 #include "pipeline_component.hpp"
 #include "reactor.hpp"
-#include "tls_socket.hpp"  // For Suspendable
+#include "tls_transport.hpp"  // For Suspendable
 
 namespace databento_async {
 

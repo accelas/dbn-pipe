@@ -248,7 +248,7 @@ void HistoricalClient::BuildPipeline() {
     http_ = HttpType::Create(reactor_, zstd_);
     zstd_->SetUpstream(http_.get());
 
-    // 5. Create TlsSocket with http as downstream
+    // 5. Create TlsTransport with http as downstream
     tls_ = TlsType::Create(reactor_, http_);
     http_->SetUpstream(tls_.get());
     tls_->SetHostname("hist.databento.com");
@@ -269,7 +269,7 @@ void HistoricalClient::BuildPipeline() {
         HandleTcpError(ec);
     });
 
-    // 8. Wire TlsSocket to write encrypted data back through TcpSocket
+    // 8. Wire TlsTransport to write encrypted data back through TcpSocket
     tls_->SetUpstreamWriteCallback([this](BufferChain encrypted) {
         if (tcp_ && tcp_->IsConnected()) {
             tcp_->Write(std::move(encrypted));
