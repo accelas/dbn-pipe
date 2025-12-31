@@ -1,9 +1,9 @@
 // src/historical_client.cpp
 #include "historical_client.hpp"
 
-#include <cstring>
 #include <iostream>
-#include <sstream>
+#include <span>
+#include <spanstream>
 
 namespace databento_async {
 
@@ -12,66 +12,56 @@ namespace databento_async {
 
 namespace {
 
-// Base64 encode for HTTP Basic authentication
-std::string Base64Encode(std::string_view input) {
+// Base64 encode for HTTP Basic authentication - writes directly to ostream
+void Base64Encode(std::ostream& out, std::string_view input) {
     static const char* kBase64Chars =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-    std::string result;
-    result.reserve(((input.size() + 2) / 3) * 4);
 
     size_t i = 0;
     while (i + 2 < input.size()) {
         uint32_t triple = (static_cast<uint8_t>(input[i]) << 16) |
                           (static_cast<uint8_t>(input[i + 1]) << 8) |
                           static_cast<uint8_t>(input[i + 2]);
-        result += kBase64Chars[(triple >> 18) & 0x3F];
-        result += kBase64Chars[(triple >> 12) & 0x3F];
-        result += kBase64Chars[(triple >> 6) & 0x3F];
-        result += kBase64Chars[triple & 0x3F];
+        out << kBase64Chars[(triple >> 18) & 0x3F];
+        out << kBase64Chars[(triple >> 12) & 0x3F];
+        out << kBase64Chars[(triple >> 6) & 0x3F];
+        out << kBase64Chars[triple & 0x3F];
         i += 3;
     }
 
     if (i + 1 == input.size()) {
         uint32_t val = static_cast<uint8_t>(input[i]) << 16;
-        result += kBase64Chars[(val >> 18) & 0x3F];
-        result += kBase64Chars[(val >> 12) & 0x3F];
-        result += '=';
-        result += '=';
+        out << kBase64Chars[(val >> 18) & 0x3F];
+        out << kBase64Chars[(val >> 12) & 0x3F];
+        out << '=';
+        out << '=';
     } else if (i + 2 == input.size()) {
         uint32_t val = (static_cast<uint8_t>(input[i]) << 16) |
                        (static_cast<uint8_t>(input[i + 1]) << 8);
-        result += kBase64Chars[(val >> 18) & 0x3F];
-        result += kBase64Chars[(val >> 12) & 0x3F];
-        result += kBase64Chars[(val >> 6) & 0x3F];
-        result += '=';
+        out << kBase64Chars[(val >> 18) & 0x3F];
+        out << kBase64Chars[(val >> 12) & 0x3F];
+        out << kBase64Chars[(val >> 6) & 0x3F];
+        out << '=';
     }
-
-    return result;
 }
 
-// URL-encode a string for use in query parameters
-std::string UrlEncode(std::string_view str) {
-    std::string result;
-    result.reserve(str.size());
-
+// URL-encode a string for use in query parameters - writes directly to ostream
+void UrlEncode(std::ostream& out, std::string_view str) {
     for (unsigned char c : str) {
         // Unreserved characters (RFC 3986): A-Z a-z 0-9 - _ . ~
         if ((c >= 'A' && c <= 'Z') ||
             (c >= 'a' && c <= 'z') ||
             (c >= '0' && c <= '9') ||
             c == '-' || c == '_' || c == '.' || c == '~') {
-            result += static_cast<char>(c);
+            out << static_cast<char>(c);
         } else {
             // Percent-encode all other characters
             static const char hex[] = "0123456789ABCDEF";
-            result += '%';
-            result += hex[(c >> 4) & 0x0F];
-            result += hex[c & 0x0F];
+            out << '%';
+            out << hex[(c >> 4) & 0x0F];
+            out << hex[c & 0x0F];
         }
     }
-
-    return result;
 }
 
 }  // namespace
@@ -369,49 +359,43 @@ void HistoricalClient::HandlePipelineComplete() {
 }
 
 void HistoricalClient::SendHttpRequest() {
-    std::string request = BuildHttpRequest();
-    HIST_DEBUG("Sending HTTP request:\n" << request.substr(0, 200) << "...");
+    // Format HTTP request directly into Segment buffer (zero-copy)
+    auto seg = std::make_shared<Segment>();
+    std::ospanstream out(std::span<char>(
+        reinterpret_cast<char*>(seg->data.data()), Segment::kSize));
 
-    // Convert to BufferChain for TlsSocket::Write
+    // Build the path with query parameters (URL-encoded)
+    out << "GET /v0/timeseries.get_range?dataset=";
+    UrlEncode(out, dataset_);
+    out << "&symbols=";
+    UrlEncode(out, symbols_);
+    out << "&schema=";
+    UrlEncode(out, schema_);
+    out << "&start=" << start_;
+    out << "&end=" << end_;
+    out << "&encoding=dbn";       // DBN binary format
+    out << "&compression=zstd";   // zstd compression
+    out << " HTTP/1.1\r\n";
+
+    // Headers
+    out << "Host: hist.databento.com\r\n";
+    // HTTP Basic auth: base64(api_key:)
+    out << "Authorization: Basic ";
+    Base64Encode(out, api_key_ + ":");
+    out << "\r\n";
+    out << "Accept: application/octet-stream\r\n";
+    out << "Accept-Encoding: identity\r\n";  // We handle decompression ourselves
+    out << "Connection: close\r\n";
+    out << "\r\n";
+
+    seg->size = out.span().size();
+    HIST_DEBUG("Sending HTTP request: " << seg->size << " bytes");
+
     BufferChain chain;
-    size_t offset = 0;
-    while (offset < request.size()) {
-        auto seg = std::make_shared<Segment>();
-        size_t to_copy = std::min(Segment::kSize, request.size() - offset);
-        std::memcpy(seg->data.data(), request.data() + offset, to_copy);
-        seg->size = to_copy;
-        chain.Append(std::move(seg));
-        offset += to_copy;
-    }
+    chain.Append(std::move(seg));
 
     state_ = State::ReceivingResponse;
     tls_->Write(std::move(chain));
-}
-
-std::string HistoricalClient::BuildHttpRequest() const {
-    std::ostringstream request;
-
-    // Build the path with query parameters (URL-encoded)
-    request << "GET /v0/timeseries.get_range?";
-    request << "dataset=" << UrlEncode(dataset_);
-    request << "&symbols=" << UrlEncode(symbols_);
-    request << "&schema=" << UrlEncode(schema_);
-    request << "&start=" << start_;
-    request << "&end=" << end_;
-    request << "&encoding=dbn";       // DBN binary format
-    request << "&compression=zstd";   // zstd compression
-    request << " HTTP/1.1\r\n";
-
-    // Headers
-    request << "Host: hist.databento.com\r\n";
-    // HTTP Basic auth: base64(api_key:)
-    request << "Authorization: Basic " << Base64Encode(api_key_ + ":") << "\r\n";
-    request << "Accept: application/octet-stream\r\n";
-    request << "Accept-Encoding: identity\r\n";  // We handle decompression ourselves
-    request << "Connection: close\r\n";
-    request << "\r\n";
-
-    return request.str();
 }
 
 }  // namespace databento_async
