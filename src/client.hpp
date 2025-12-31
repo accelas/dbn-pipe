@@ -26,11 +26,8 @@ struct DbnRecord {
     }
 };
 
-// Type aliases for backward compatibility
+// Type aliases for convenience
 using LiveClient = Pipeline<LiveProtocol, DbnRecord>;
 using HistoricalClient = Pipeline<HistoricalProtocol, DbnRecord>;
-
-// Backward compatibility - Reactor is now EventLoop
-using Reactor = EventLoop;
 
 }  // namespace dbn_pipe
