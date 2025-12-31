@@ -44,8 +44,8 @@ cc_test(
     srcs = ["cram_auth_test.cpp"],
     deps = [
         "//src:cram_auth",
+        "//src:epoll_event_loop",
         "//src:pipeline_component",
-        "//src:reactor",
         "@googletest//:gtest_main",
     ],
 )
@@ -56,6 +56,7 @@ cc_test(
     srcs = ["pipeline_component_test.cpp"],
     deps = [
         "//src:buffer_chain",
+        "//src:epoll_event_loop",
         "//src:pipeline_component",
         "@googletest//:gtest_main",
     ],
@@ -66,8 +67,8 @@ cc_test(
     srcs = ["tls_transport_test.cpp"],
     deps = [
         "//src:buffer_chain",
+        "//src:epoll_event_loop",
         "//src:pipeline_component",
-        "//src:reactor",
         "//src:tls_transport",
         "@googletest//:gtest_main",
     ],
@@ -77,9 +78,9 @@ cc_test(
     name = "http_client_test",
     srcs = ["http_client_test.cpp"],
     deps = [
+        "//src:epoll_event_loop",
         "//src:http_client",
         "//src:pipeline_component",
-        "//src:reactor",
         "@googletest//:gtest_main",
     ],
 )
@@ -88,8 +89,8 @@ cc_test(
     name = "zstd_decompressor_test",
     srcs = ["zstd_decompressor_test.cpp"],
     deps = [
+        "//src:epoll_event_loop",
         "//src:pipeline_component",
-        "//src:reactor",
         "//src:zstd_decompressor",
         "@googletest//:gtest_main",
         "@zstd",
