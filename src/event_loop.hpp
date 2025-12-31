@@ -48,4 +48,32 @@ public:
     virtual bool IsInEventLoopThread() const = 0;
 };
 
+// Type-erased event loop wrapper.
+// Hides concrete implementation (epoll) behind stable ABI.
+// Provides implicit conversion to IEventLoop& for use with Pipeline.
+class EventLoop {
+public:
+    EventLoop();
+    ~EventLoop();
+
+    // Non-copyable, non-movable
+    EventLoop(const EventLoop&) = delete;
+    EventLoop& operator=(const EventLoop&) = delete;
+    EventLoop(EventLoop&&) = delete;
+    EventLoop& operator=(EventLoop&&) = delete;
+
+    // Event loop control
+    void Poll(int timeout_ms = -1);
+    void Run();
+    void Stop();
+
+    // Implicit conversion for Pipeline::Create(loop, ...)
+    operator IEventLoop&();
+    operator const IEventLoop&() const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 }  // namespace databento_async
