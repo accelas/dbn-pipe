@@ -230,21 +230,7 @@ void DbnParserComponent<S>::Read(std::pmr::vector<std::byte> data) {
     }
 
     // Append incoming bytes to internal chain using segments from pool
-    // Fill each segment to capacity before acquiring a new one
-    size_t offset = 0;
-    while (offset < data.size()) {
-        // Acquire a segment from pool
-        auto seg = segment_pool_.Acquire();
-
-        // Fill segment as much as possible
-        size_t to_copy = std::min(data.size() - offset, seg->Remaining());
-        std::memcpy(seg->data.data() + seg->size, data.data() + offset, to_copy);
-        seg->size += to_copy;
-        offset += to_copy;
-
-        // Append to chain (ownership transferred)
-        parse_chain_.Append(std::move(seg));
-    }
+    parse_chain_.AppendBytes(data.data(), data.size(), segment_pool_);
 
     // Parse using common logic
     OnData(parse_chain_);
