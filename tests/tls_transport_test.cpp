@@ -51,6 +51,12 @@ TEST(TlsTransportTest, ImplementsUpstreamConcept) {
     SUCCEED();
 }
 
+TEST(TlsTransportTest, ImplementsDownstreamConcept) {
+    // TlsTransport must satisfy Downstream concept so TcpSocket can use it
+    static_assert(Downstream<TlsTransport<MockTlsDownstream>>);
+    SUCCEED();
+}
+
 TEST(TlsTransportTest, SuspendAndResumeWork) {
     EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
