@@ -10,7 +10,7 @@
 #include <string>
 #include <string_view>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Resolve hostname to sockaddr_storage using getaddrinfo (blocking)
 // Returns nullopt if resolution fails
@@ -45,4 +45,4 @@ inline std::optional<sockaddr_storage> ResolveHostname(std::string_view hostname
     return addr;
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

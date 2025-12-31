@@ -7,7 +7,7 @@
 #include "src/epoll_event_loop.hpp"
 #include "src/pipeline_component.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock downstream that satisfies Downstream concept (receives BufferChain)
 struct MockDownstream {

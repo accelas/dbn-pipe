@@ -12,7 +12,7 @@
 #include "event_loop.hpp"
 #include "pipeline_sink.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // ProtocolDriver concept defines the interface for protocol implementations.
 // Each protocol (Live, Historical) provides static methods that the Pipeline
@@ -67,4 +67,4 @@ concept ProtocolDriver = requires {
     };
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

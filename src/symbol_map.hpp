@@ -7,7 +7,7 @@
 
 #include <databento/record.hpp>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // SymbolMap tracks instrument_id -> symbol mappings from SymbolMappingMsg records.
 // Used for live streaming where records contain instrument_id but callers need symbol.
@@ -54,4 +54,4 @@ private:
     std::unordered_map<uint32_t, std::string> map_;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

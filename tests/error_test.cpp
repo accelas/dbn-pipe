@@ -5,7 +5,7 @@
 
 #include "src/error.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(ErrorTest, Construction) {
     Error err{ErrorCode::ConnectionFailed, "connection refused"};

@@ -12,7 +12,7 @@
 #include "src/pipeline_component.hpp"
 #include "src/zstd_decompressor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock downstream that receives decompressed data
 struct MockZstdDownstream {

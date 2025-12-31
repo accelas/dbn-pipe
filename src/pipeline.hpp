@@ -18,7 +18,7 @@
 #include "pipeline_sink.hpp"
 #include "protocol_driver.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Pipeline states
 enum class PipelineState {
@@ -402,4 +402,4 @@ private:
     std::function<void()> complete_handler_;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

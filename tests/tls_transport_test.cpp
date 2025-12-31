@@ -9,7 +9,7 @@
 #include "src/pipeline_component.hpp"
 #include "src/tls_transport.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock downstream that receives decrypted data
 struct MockTlsDownstream {

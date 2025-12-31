@@ -18,7 +18,7 @@
 #include "event_loop.hpp"
 #include "pipeline_component.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // TLS handshake state machine
 enum class TlsHandshakeState { NotStarted, InProgress, Complete };
@@ -587,4 +587,4 @@ void TlsTransport<D>::DoClose() {
     downstream_.reset();
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

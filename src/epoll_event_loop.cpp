@@ -11,7 +11,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // EpollEventHandle implementation
 
@@ -178,4 +178,4 @@ void EpollEventLoop::ProcessDeferredCallbacks() {
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

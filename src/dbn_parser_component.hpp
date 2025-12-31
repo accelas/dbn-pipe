@@ -15,7 +15,7 @@
 #include "pipeline_component.hpp"
 #include "record_batch.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Maximum valid DBN record size (64KB)
 // Records larger than this are considered invalid
@@ -276,4 +276,4 @@ bool DbnParserComponent<S>::SkipMetadataIfNeeded(BufferChain& chain) {
     return true;
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

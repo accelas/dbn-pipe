@@ -12,7 +12,7 @@
 #include "error.hpp"
 #include "event_loop.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Suspendable - interface for components that support backpressure.
 //
@@ -342,4 +342,4 @@ private:
     bool done_pending_ = false;          // OnDone received while suspended
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

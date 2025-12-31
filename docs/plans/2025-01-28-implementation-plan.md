@@ -99,7 +99,7 @@ git commit -m "build: replace libuv with llhttp and zstd deps"
 
 #include "src/error.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(ErrorTest, Construction) {
     Error err{ErrorCode::ConnectionFailed, "connection refused"};
@@ -160,7 +160,7 @@ Expected: FAIL (src/error.hpp not found)
 #include <string>
 #include <string_view>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 enum class ErrorCode {
     // Connection
@@ -227,7 +227,7 @@ constexpr std::string_view error_category(ErrorCode code) {
     return "unknown";
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 5: Update src/BUILD.bazel**
@@ -285,7 +285,7 @@ git commit -m "feat: add error types"
 
 #include "src/reactor.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(ReactorTest, Construction) {
     Reactor reactor;
@@ -412,7 +412,7 @@ Expected: FAIL
 #include <unordered_map>
 #include <vector>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 class Reactor {
 public:
@@ -455,7 +455,7 @@ private:
     static constexpr int kMaxEvents = 64;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 5: Write reactor.cpp**
@@ -469,7 +469,7 @@ private:
 #include <stdexcept>
 #include <system_error>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 Reactor::Reactor() : events_(kMaxEvents) {
     epoll_fd_ = epoll_create1(EPOLL_CLOEXEC);
@@ -542,7 +542,7 @@ void Reactor::Stop() {
     running_ = false;
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 6: Update src/BUILD.bazel**
@@ -591,7 +591,7 @@ git commit -m "feat: add Reactor epoll wrapper"
 #include "src/data_source.hpp"
 
 using namespace databento;
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Concrete test implementation
 class TestDataSource : public DataSource {
@@ -705,7 +705,7 @@ Expected: FAIL
 #include "error.hpp"
 #include "parser.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 class DataSource {
 public:
@@ -775,7 +775,7 @@ inline void DataSource::DrainParser() {
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 5: Update src/BUILD.bazel**
@@ -835,7 +835,7 @@ git commit -m "feat: add DataSource base class with backpressure"
 #include "src/reactor.hpp"
 #include "src/tcp_socket.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Helper to create a listening socket
 int create_listener(int& port) {
@@ -992,7 +992,7 @@ Expected: FAIL
 #include <system_error>
 #include <vector>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 class Reactor;
 
@@ -1051,7 +1051,7 @@ private:
     static constexpr size_t kReadBufferSize = 65536;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 5: Write tcp_socket.cpp**
@@ -1073,7 +1073,7 @@ private:
 
 #include "reactor.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 TcpSocket::TcpSocket(Reactor* reactor)
     : reactor_(reactor), read_buffer_(kReadBufferSize) {}
@@ -1240,7 +1240,7 @@ void TcpSocket::HandleWrite() {
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 6: Update src/BUILD.bazel**
@@ -1295,7 +1295,7 @@ Check databento-cpp source at `~/work/databento-cpp` for exact CRAM format:
 
 #include "src/cram_auth.hpp"
 
-using namespace databento_async;
+using namespace dbn_pipe;
 
 TEST(CramAuthTest, ParseGreeting) {
     std::string greeting = "lsg-test|20231015\n";
@@ -1371,7 +1371,7 @@ Expected: FAIL
 #include <string>
 #include <string_view>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 struct Greeting {
     std::string session_id;
@@ -1396,7 +1396,7 @@ public:
                                          std::string_view response);
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 6: Write cram_auth.cpp**
@@ -1411,7 +1411,7 @@ public:
 #include <iomanip>
 #include <sstream>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 std::optional<Greeting> CramAuth::ParseGreeting(std::string_view data) {
     // Format: "session_id|version\n"
@@ -1478,7 +1478,7 @@ std::string CramAuth::FormatAuthMessage(std::string_view api_key,
     return msg;
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
 ```
 
 **Step 7: Update src/BUILD.bazel**
@@ -1534,7 +1534,7 @@ git commit -m "feat: add CRAM authentication"
 #include "src/reactor.hpp"
 
 using namespace databento;
-using namespace databento_async;
+using namespace dbn_pipe;
 
 // Mock databento server
 class MockServer {

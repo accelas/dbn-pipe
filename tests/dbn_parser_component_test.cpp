@@ -14,15 +14,15 @@
 
 // Mock sink that receives RecordBatch
 struct MockSink {
-    std::vector<databento_async::RecordBatch> batches;
-    databento_async::Error last_error;
+    std::vector<dbn_pipe::RecordBatch> batches;
+    dbn_pipe::Error last_error;
     bool complete_called = false;
     bool error_called = false;
 
-    void OnData(databento_async::RecordBatch&& batch) {
+    void OnData(dbn_pipe::RecordBatch&& batch) {
         batches.push_back(std::move(batch));
     }
-    void OnError(const databento_async::Error& e) {
+    void OnError(const dbn_pipe::Error& e) {
         last_error = e;
         error_called = true;
     }
@@ -30,7 +30,7 @@ struct MockSink {
 };
 
 // Verify MockSink satisfies RecordSink concept
-static_assert(databento_async::RecordSink<MockSink>);
+static_assert(dbn_pipe::RecordSink<MockSink>);
 
 // Helper to create a minimal valid MboMsg record
 alignas(8) static std::byte g_record_buffer[sizeof(databento::MboMsg)] = {};
@@ -46,40 +46,40 @@ databento::MboMsg* CreateMinimalRecord(uint32_t instrument_id = 100) {
 }
 
 // Helper to create a segment containing data from a record
-std::shared_ptr<databento_async::Segment> MakeSegmentFromRecord(
+std::shared_ptr<dbn_pipe::Segment> MakeSegmentFromRecord(
     const databento::MboMsg* msg) {
-    auto seg = std::make_shared<databento_async::Segment>();
+    auto seg = std::make_shared<dbn_pipe::Segment>();
     std::memcpy(seg->data.data(), msg, sizeof(databento::MboMsg));
     seg->size = sizeof(databento::MboMsg);
     return seg;
 }
 
 // Helper to create a segment from raw bytes
-std::shared_ptr<databento_async::Segment> MakeSegmentFromBytes(
+std::shared_ptr<dbn_pipe::Segment> MakeSegmentFromBytes(
     const std::byte* data, size_t len) {
-    auto seg = std::make_shared<databento_async::Segment>();
+    auto seg = std::make_shared<dbn_pipe::Segment>();
     std::memcpy(seg->data.data(), data, len);
     seg->size = len;
     return seg;
 }
 
 // Helper to create a BufferChain with a single record
-databento_async::BufferChain MakeChainWithRecord(const databento::MboMsg* msg) {
-    databento_async::BufferChain chain;
+dbn_pipe::BufferChain MakeChainWithRecord(const databento::MboMsg* msg) {
+    dbn_pipe::BufferChain chain;
     chain.Append(MakeSegmentFromRecord(msg));
     return chain;
 }
 
 TEST(DbnParserComponentTest, Construction) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
     // Just verify construction works
     SUCCEED();
 }
 
 TEST(DbnParserComponentTest, ParsesSingleRecord) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     auto* msg = CreateMinimalRecord(100);
     auto chain = MakeChainWithRecord(msg);
@@ -100,7 +100,7 @@ TEST(DbnParserComponentTest, ParsesSingleRecord) {
 
 TEST(DbnParserComponentTest, ParsesMultipleRecordsInSingleSegment) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create segment with two records
     alignas(8) std::byte buffer1[sizeof(databento::MboMsg)] = {};
@@ -118,12 +118,12 @@ TEST(DbnParserComponentTest, ParsesMultipleRecordsInSingleSegment) {
     msg2->hd.publisher_id = 1;
     msg2->hd.instrument_id = 200;
 
-    auto seg = std::make_shared<databento_async::Segment>();
+    auto seg = std::make_shared<dbn_pipe::Segment>();
     std::memcpy(seg->data.data(), buffer1, sizeof(databento::MboMsg));
     std::memcpy(seg->data.data() + sizeof(databento::MboMsg), buffer2, sizeof(databento::MboMsg));
     seg->size = 2 * sizeof(databento::MboMsg);
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(seg);
 
     parser.OnData(chain);
@@ -138,14 +138,14 @@ TEST(DbnParserComponentTest, ParsesMultipleRecordsInSingleSegment) {
 
 TEST(DbnParserComponentTest, HandlesPartialRecordAcrossCalls) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     auto* msg = CreateMinimalRecord(100);
     auto* bytes = reinterpret_cast<const std::byte*>(msg);
     size_t half = sizeof(databento::MboMsg) / 2;
 
     // First call: partial record
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(MakeSegmentFromBytes(bytes, half));
 
     parser.OnData(chain);
@@ -170,7 +170,7 @@ TEST(DbnParserComponentTest, HandlesPartialRecordAcrossCalls) {
 
 TEST(DbnParserComponentTest, HandlesMultipleCallsWithPartialRecords) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create two records
     alignas(8) std::byte buffer1[sizeof(databento::MboMsg)] = {};
@@ -188,12 +188,12 @@ TEST(DbnParserComponentTest, HandlesMultipleCallsWithPartialRecords) {
 
     // First call: first record complete + half of second
     size_t half = sizeof(databento::MboMsg) / 2;
-    auto seg1 = std::make_shared<databento_async::Segment>();
+    auto seg1 = std::make_shared<dbn_pipe::Segment>();
     std::memcpy(seg1->data.data(), buffer1, sizeof(databento::MboMsg));
     std::memcpy(seg1->data.data() + sizeof(databento::MboMsg), buffer2, half);
     seg1->size = sizeof(databento::MboMsg) + half;
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(seg1);
 
     parser.OnData(chain);
@@ -222,7 +222,7 @@ TEST(DbnParserComponentTest, HandlesMultipleCallsWithPartialRecords) {
 
 TEST(DbnParserComponentTest, ForwardsOnComplete) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     parser.OnComplete();
 
@@ -232,19 +232,19 @@ TEST(DbnParserComponentTest, ForwardsOnComplete) {
 
 TEST(DbnParserComponentTest, ForwardsOnError) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
-    databento_async::Error err{databento_async::ErrorCode::ConnectionFailed, "test error"};
+    dbn_pipe::Error err{dbn_pipe::ErrorCode::ConnectionFailed, "test error"};
     parser.OnError(err);
 
     EXPECT_TRUE(sink.error_called);
-    EXPECT_EQ(sink.last_error.code, databento_async::ErrorCode::ConnectionFailed);
+    EXPECT_EQ(sink.last_error.code, dbn_pipe::ErrorCode::ConnectionFailed);
     EXPECT_EQ(sink.last_error.message, "test error");
 }
 
 TEST(DbnParserComponentTest, InvalidRecordSizeEmitsError) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create a header with size smaller than header (invalid)
     alignas(8) std::byte buffer[sizeof(databento::RecordHeader)] = {};
@@ -255,13 +255,13 @@ TEST(DbnParserComponentTest, InvalidRecordSizeEmitsError) {
     hdr->publisher_id = 1;
     hdr->instrument_id = 100;
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(MakeSegmentFromBytes(buffer, sizeof(buffer)));
 
     parser.OnData(chain);
 
     EXPECT_TRUE(sink.error_called);
-    EXPECT_EQ(sink.last_error.code, databento_async::ErrorCode::ParseError);
+    EXPECT_EQ(sink.last_error.code, dbn_pipe::ErrorCode::ParseError);
     EXPECT_TRUE(sink.last_error.message.find("smaller than header") != std::string::npos);
 }
 
@@ -272,19 +272,19 @@ TEST(DbnParserComponentTest, MaxRecordSizeIsReasonable) {
 
     // Verify kMaxRecordSize is larger than any valid DBN record
     constexpr size_t max_dbn_record = 255 * databento::kRecordHeaderLengthMultiplier;
-    EXPECT_GT(databento_async::kMaxRecordSize, max_dbn_record);
+    EXPECT_GT(dbn_pipe::kMaxRecordSize, max_dbn_record);
 
     // Verify constant has the expected value (64KB)
-    EXPECT_EQ(databento_async::kMaxRecordSize, 64 * 1024);
+    EXPECT_EQ(dbn_pipe::kMaxRecordSize, 64 * 1024);
 }
 
 TEST(DbnParserComponentTest, IncompleteRecordAtEndEmitsError) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Add partial data to chain
     std::byte partial[] = {std::byte{0x01}, std::byte{0x02}};
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(MakeSegmentFromBytes(partial, sizeof(partial)));
 
     parser.OnData(chain);
@@ -293,33 +293,33 @@ TEST(DbnParserComponentTest, IncompleteRecordAtEndEmitsError) {
     parser.OnComplete(chain);
 
     EXPECT_TRUE(sink.error_called);
-    EXPECT_EQ(sink.last_error.code, databento_async::ErrorCode::ParseError);
+    EXPECT_EQ(sink.last_error.code, dbn_pipe::ErrorCode::ParseError);
     EXPECT_TRUE(sink.last_error.message.find("Incomplete record") != std::string::npos);
     EXPECT_FALSE(sink.complete_called);
 }
 
 TEST(DbnParserComponentTest, OneShotErrorGuard) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
-    databento_async::Error err1{databento_async::ErrorCode::ConnectionFailed, "first error"};
-    databento_async::Error err2{databento_async::ErrorCode::ParseError, "second error"};
+    dbn_pipe::Error err1{dbn_pipe::ErrorCode::ConnectionFailed, "first error"};
+    dbn_pipe::Error err2{dbn_pipe::ErrorCode::ParseError, "second error"};
 
     parser.OnError(err1);
     parser.OnError(err2);
 
     // Only first error should be forwarded
     EXPECT_TRUE(sink.error_called);
-    EXPECT_EQ(sink.last_error.code, databento_async::ErrorCode::ConnectionFailed);
+    EXPECT_EQ(sink.last_error.code, dbn_pipe::ErrorCode::ConnectionFailed);
     EXPECT_EQ(sink.last_error.message, "first error");
 }
 
 TEST(DbnParserComponentTest, IgnoresDataAfterError) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Trigger error
-    databento_async::Error err{databento_async::ErrorCode::ConnectionFailed, "error"};
+    dbn_pipe::Error err{dbn_pipe::ErrorCode::ConnectionFailed, "error"};
     parser.OnError(err);
 
     // Send more data - should be ignored
@@ -333,10 +333,10 @@ TEST(DbnParserComponentTest, IgnoresDataAfterError) {
 
 TEST(DbnParserComponentTest, IgnoresCompleteAfterError) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Trigger error
-    databento_async::Error err{databento_async::ErrorCode::ConnectionFailed, "error"};
+    dbn_pipe::Error err{dbn_pipe::ErrorCode::ConnectionFailed, "error"};
     parser.OnError(err);
 
     // Send complete - should be ignored
@@ -348,9 +348,9 @@ TEST(DbnParserComponentTest, IgnoresCompleteAfterError) {
 
 TEST(DbnParserComponentTest, EmptyChainDoesNothing) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     parser.OnData(chain);
 
     EXPECT_EQ(sink.batches.size(), 0);
@@ -363,7 +363,7 @@ TEST(DbnParserComponentTest, EmptyChainDoesNothing) {
 
 TEST(DbnParserComponentTest, SkipsDbMetadataHeader) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Build DBN metadata header
     struct DbnHeader {
@@ -382,7 +382,7 @@ TEST(DbnParserComponentTest, SkipsDbMetadataHeader) {
     auto* msg = CreateMinimalRecord(100);
 
     // Combine: header + metadata content + record
-    auto seg = std::make_shared<databento_async::Segment>();
+    auto seg = std::make_shared<dbn_pipe::Segment>();
     size_t offset = 0;
     std::memcpy(seg->data.data() + offset, &header, sizeof(header));
     offset += sizeof(header);
@@ -392,7 +392,7 @@ TEST(DbnParserComponentTest, SkipsDbMetadataHeader) {
     offset += sizeof(databento::MboMsg);
     seg->size = offset;
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(seg);
 
     parser.OnData(chain);
@@ -407,7 +407,7 @@ TEST(DbnParserComponentTest, SkipsDbMetadataHeader) {
 
 TEST(DbnParserComponentTest, HandlesChunkedMetadata) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Build DBN metadata header
     struct DbnHeader {
@@ -434,7 +434,7 @@ TEST(DbnParserComponentTest, HandlesChunkedMetadata) {
     all_data.insert(all_data.end(), msg_bytes, msg_bytes + sizeof(databento::MboMsg));
 
     // Send in small segments (4 bytes each)
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     size_t chunk_size = 4;
     for (size_t i = 0; i < all_data.size(); i += chunk_size) {
         size_t len = std::min(chunk_size, all_data.size() - i);
@@ -451,7 +451,7 @@ TEST(DbnParserComponentTest, HandlesChunkedMetadata) {
 
 TEST(DbnParserComponentTest, NoMetadataParsesDirect) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Send record directly without DBN header (live streaming case)
     auto* msg = CreateMinimalRecord(100);
@@ -467,7 +467,7 @@ TEST(DbnParserComponentTest, NoMetadataParsesDirect) {
 
 TEST(DbnParserComponentTest, RecordRefContainsCorrectData) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create a record with specific values
     alignas(8) std::byte buffer[sizeof(databento::MboMsg)] = {};
@@ -480,7 +480,7 @@ TEST(DbnParserComponentTest, RecordRefContainsCorrectData) {
     msg->price = 50 * databento::kFixedPriceScale;
     msg->size = 100;
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(MakeSegmentFromBytes(buffer, sizeof(databento::MboMsg)));
 
     parser.OnData(chain);
@@ -504,14 +504,14 @@ TEST(DbnParserComponentTest, RecordRefContainsCorrectData) {
 
 TEST(DbnParserComponentTest, RecordSpanningTwoSegments) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create a record and split it across two segments
     auto* msg = CreateMinimalRecord(100);
     auto* bytes = reinterpret_cast<const std::byte*>(msg);
     size_t split = sizeof(databento::MboMsg) / 2;
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(MakeSegmentFromBytes(bytes, split));
     chain.Append(MakeSegmentFromBytes(bytes + split, sizeof(databento::MboMsg) - split));
 
@@ -532,7 +532,7 @@ TEST(DbnParserComponentTest, RecordSpanningTwoSegments) {
 
 TEST(DbnParserComponentTest, HeaderSpanningTwoSegments) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create a record and split it so header spans two segments
     auto* msg = CreateMinimalRecord(100);
@@ -541,7 +541,7 @@ TEST(DbnParserComponentTest, HeaderSpanningTwoSegments) {
     // Split in the middle of the header (header is 8 bytes)
     size_t split = sizeof(databento::RecordHeader) / 2;
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(MakeSegmentFromBytes(bytes, split));
     chain.Append(MakeSegmentFromBytes(bytes + split, sizeof(databento::MboMsg) - split));
 
@@ -557,7 +557,7 @@ TEST(DbnParserComponentTest, HeaderSpanningTwoSegments) {
 
 TEST(DbnParserComponentTest, RecordSpanningThreeSegments) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create a record and split it across three segments
     auto* msg = CreateMinimalRecord(100);
@@ -565,7 +565,7 @@ TEST(DbnParserComponentTest, RecordSpanningThreeSegments) {
     size_t record_size = sizeof(databento::MboMsg);
     size_t third = record_size / 3;
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(MakeSegmentFromBytes(bytes, third));
     chain.Append(MakeSegmentFromBytes(bytes + third, third));
     chain.Append(MakeSegmentFromBytes(bytes + 2 * third, record_size - 2 * third));
@@ -582,7 +582,7 @@ TEST(DbnParserComponentTest, RecordSpanningThreeSegments) {
 
 TEST(DbnParserComponentTest, MultipleRecordsSomeBoundaryCrossing) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create three records
     alignas(8) std::byte rec1[sizeof(databento::MboMsg)] = {};
@@ -607,18 +607,18 @@ TEST(DbnParserComponentTest, MultipleRecordsSomeBoundaryCrossing) {
     size_t record_size = sizeof(databento::MboMsg);
 
     // Segment 1: record1 complete + first half of record2
-    auto seg1 = std::make_shared<databento_async::Segment>();
+    auto seg1 = std::make_shared<dbn_pipe::Segment>();
     std::memcpy(seg1->data.data(), rec1, record_size);
     std::memcpy(seg1->data.data() + record_size, rec2, record_size / 2);
     seg1->size = record_size + record_size / 2;
 
     // Segment 2: second half of record2 + record3 complete
-    auto seg2 = std::make_shared<databento_async::Segment>();
+    auto seg2 = std::make_shared<dbn_pipe::Segment>();
     std::memcpy(seg2->data.data(), rec2 + record_size / 2, record_size - record_size / 2);
     std::memcpy(seg2->data.data() + record_size - record_size / 2, rec3, record_size);
     seg2->size = record_size - record_size / 2 + record_size;
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(seg1);
     chain.Append(seg2);
 
@@ -635,14 +635,14 @@ TEST(DbnParserComponentTest, MultipleRecordsSomeBoundaryCrossing) {
 
 TEST(DbnParserComponentTest, ZeroCopyWhenContiguous) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create a single record in one segment (contiguous case)
     auto* msg = CreateMinimalRecord(100);
     auto seg = MakeSegmentFromRecord(msg);
     const std::byte* original_ptr = seg->data.data();
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(seg);
 
     parser.OnData(chain);
@@ -660,14 +660,14 @@ TEST(DbnParserComponentTest, ZeroCopyWhenContiguous) {
 
 TEST(DbnParserComponentTest, ScratchBufferIsAligned) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create a record spanning two segments to force scratch buffer allocation
     auto* msg = CreateMinimalRecord(100);
     auto* bytes = reinterpret_cast<const std::byte*>(msg);
     size_t split = 8;  // Split early to maximize data in second segment
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(MakeSegmentFromBytes(bytes, split));
     chain.Append(MakeSegmentFromBytes(bytes + split, sizeof(databento::MboMsg) - split));
 
@@ -683,7 +683,7 @@ TEST(DbnParserComponentTest, ScratchBufferIsAligned) {
 
 TEST(DbnParserComponentTest, KeepaliveKeepsDataValid) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     auto* msg = CreateMinimalRecord(100);
     auto chain = MakeChainWithRecord(msg);
@@ -694,7 +694,7 @@ TEST(DbnParserComponentTest, KeepaliveKeepsDataValid) {
     ASSERT_EQ(sink.batches[0].size(), 1);
 
     // Take a copy of the RecordRef
-    databento_async::RecordRef ref = sink.batches[0][0];
+    dbn_pipe::RecordRef ref = sink.batches[0][0];
 
     // Clear batches (but ref still holds keepalive)
     sink.batches.clear();
@@ -705,14 +705,14 @@ TEST(DbnParserComponentTest, KeepaliveKeepsDataValid) {
 
 TEST(DbnParserComponentTest, BoundaryCrossingKeepaliveKeepsDataValid) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Create boundary-crossing record
     auto* msg = CreateMinimalRecord(100);
     auto* bytes = reinterpret_cast<const std::byte*>(msg);
     size_t split = sizeof(databento::MboMsg) / 2;
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
     chain.Append(MakeSegmentFromBytes(bytes, split));
     chain.Append(MakeSegmentFromBytes(bytes + split, sizeof(databento::MboMsg) - split));
 
@@ -721,7 +721,7 @@ TEST(DbnParserComponentTest, BoundaryCrossingKeepaliveKeepsDataValid) {
     ASSERT_EQ(sink.batches.size(), 1);
 
     // Take a copy of the RecordRef
-    databento_async::RecordRef ref = sink.batches[0][0];
+    dbn_pipe::RecordRef ref = sink.batches[0][0];
 
     // Clear batches
     sink.batches.clear();
@@ -732,7 +732,7 @@ TEST(DbnParserComponentTest, BoundaryCrossingKeepaliveKeepsDataValid) {
 
 TEST(DbnParserComponentTest, MetadataSpanningSegments) {
     MockSink sink;
-    databento_async::DbnParserComponent<MockSink> parser(sink);
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
 
     // Build DBN metadata header
     struct DbnHeader {
@@ -753,13 +753,13 @@ TEST(DbnParserComponentTest, MetadataSpanningSegments) {
     // Split metadata header across two segments
     auto* header_bytes = reinterpret_cast<const std::byte*>(&header);
 
-    databento_async::BufferChain chain;
+    dbn_pipe::BufferChain chain;
 
     // First segment: half of DBN header
     chain.Append(MakeSegmentFromBytes(header_bytes, 4));
 
     // Second segment: rest of header + metadata content + record
-    auto seg2 = std::make_shared<databento_async::Segment>();
+    auto seg2 = std::make_shared<dbn_pipe::Segment>();
     size_t offset = 0;
     std::memcpy(seg2->data.data() + offset, header_bytes + 4, 4);
     offset += 4;

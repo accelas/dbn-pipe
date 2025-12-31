@@ -8,7 +8,7 @@
 
 #include <databento/record.hpp>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Zero-copy reference to a record in BufferChain.
 // Provides direct pointer access to aligned record data with lifetime management.
@@ -82,4 +82,4 @@ private:
     std::vector<RecordRef> refs_;
 };
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

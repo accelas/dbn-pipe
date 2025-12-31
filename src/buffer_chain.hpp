@@ -12,7 +12,7 @@
 #include <span>
 #include <vector>
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Forward declaration
 class SegmentPool;
@@ -373,4 +373,4 @@ inline void BufferChain::AppendBytes(const void* data, size_t len, SegmentPool& 
     }
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe

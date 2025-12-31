@@ -4,7 +4,7 @@
 #include "event_loop.hpp"
 #include "epoll_event_loop.hpp"
 
-namespace databento_async {
+namespace dbn_pipe {
 
 // Pimpl implementation using EpollEventLoop
 struct EventLoop::Impl : EpollEventLoop {};
@@ -33,4 +33,4 @@ EventLoop::operator const IEventLoop&() const {
     return *impl_;
 }
 
-}  // namespace databento_async
+}  // namespace dbn_pipe
