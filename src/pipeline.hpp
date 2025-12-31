@@ -38,7 +38,7 @@ enum class PipelineState {
 //
 // Lifecycle: Single-use. For reconnect, create a new Pipeline instance.
 //
-// Thread safety: All public methods must be called from reactor thread.
+// Thread safety: All public methods must be called from event loop thread.
 // IsSuspended() is the only exception - it's thread-safe.
 //
 // Template parameters:
@@ -71,7 +71,7 @@ public:
     // TcpSocket and chain components that have event loop thread affinity.
     // Ensure the last shared_ptr release happens on event loop thread.
     ~Pipeline() {
-        // Note: In test scenarios, reactor thread ID may not be set
+        // Note: In test scenarios, event loop thread ID may not be set
         // if Poll() was never called. We still need cleanup to work.
         // Invalidate sink first to prevent callbacks during teardown
         // (P::Teardown might trigger Close() which emits OnComplete)

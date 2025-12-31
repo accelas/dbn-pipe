@@ -61,7 +61,7 @@ struct Segment {
 // Supports efficient append/consume operations for streaming data.
 //
 // Thread safety: Not thread-safe. All operations must be called from the same
-// thread (typically the reactor thread).
+// thread (typically the event loop thread).
 //
 // Segment recycling: Optionally supports returning consumed segments to a pool
 // via SetRecycleCallback(). When set, consumed segments are passed to the
