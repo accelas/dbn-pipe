@@ -165,7 +165,6 @@ private:
 
     // HTTP request generation
     void SendHttpRequest();
-    std::string BuildHttpRequest() const;
 
     Reactor& reactor_;
     std::string api_key_;
