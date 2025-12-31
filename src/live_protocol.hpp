@@ -114,14 +114,14 @@ struct LiveProtocol {
     struct ChainImpl : ChainType {
         using SinkAdapterType = SinkAdapter<Record>;
         using ParserType = DbnParserComponent<SinkAdapterType>;
-        using InnerHeadType = CramAuth<ParserType>;
-        using HeadType = TcpSocket<InnerHeadType>;
+        using CramType = CramAuth<ParserType>;
+        using HeadType = TcpSocket<CramType>;
 
         ChainImpl(Reactor& reactor, Sink<Record>& sink, const std::string& api_key)
             : sink_adapter_(std::make_unique<SinkAdapterType>(sink))
             , parser_(std::make_shared<ParserType>(*sink_adapter_))
-            , inner_head_(InnerHeadType::Create(reactor, parser_, api_key))
-            , head_(HeadType::Create(reactor, inner_head_))
+            , cram_(CramType::Create(reactor, parser_, api_key))
+            , head_(HeadType::Create(reactor, cram_))
         {
             // Wire connect callback for ready signal
             head_->OnConnect([this]() {
@@ -148,19 +148,19 @@ struct LiveProtocol {
         void Suspend() override { head_->Suspend(); }
         void Resume() override { head_->Resume(); }
 
-        // Protocol-specific - forward to inner head (CramAuth)
+        // Protocol-specific - forward to CramAuth
         void Subscribe(std::string dataset, std::string symbols, std::string schema) override {
-            inner_head_->Subscribe(std::move(dataset), std::move(symbols), std::move(schema));
+            cram_->Subscribe(std::move(dataset), std::move(symbols), std::move(schema));
         }
 
         void StartStreaming() override {
-            inner_head_->StartStreaming();
+            cram_->StartStreaming();
         }
 
     private:
         std::unique_ptr<SinkAdapterType> sink_adapter_;
         std::shared_ptr<ParserType> parser_;
-        std::shared_ptr<InnerHeadType> inner_head_;
+        std::shared_ptr<CramType> cram_;
         std::shared_ptr<HeadType> head_;
         std::function<void()> ready_cb_;
     };
