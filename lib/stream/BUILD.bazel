@@ -40,3 +40,12 @@ cc_library(
     hdrs = ["reactor.hpp"],
     deps = [":event_loop"],
 )
+
+cc_library(
+    name = "component",
+    hdrs = ["component.hpp"],
+    deps = [
+        ":error",
+        ":event_loop",
+    ],
+)
