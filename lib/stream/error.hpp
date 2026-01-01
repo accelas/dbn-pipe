@@ -1,4 +1,4 @@
-// src/error.hpp
+// lib/stream/error.hpp
 #pragma once
 
 #include <string>

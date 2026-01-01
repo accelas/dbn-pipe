@@ -1,8 +1,8 @@
 // tests/pipeline_base_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/epoll_event_loop.hpp"
-#include "src/error.hpp"
+#include "lib/stream/epoll_event_loop.hpp"
+#include "lib/stream/error.hpp"
 #include "src/pipeline_sink.hpp"
 
 using namespace dbn_pipe;

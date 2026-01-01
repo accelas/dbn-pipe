@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 
 #include "src/client.hpp"
-#include "src/epoll_event_loop.hpp"
+#include "lib/stream/epoll_event_loop.hpp"
 
 using namespace dbn_pipe;
 

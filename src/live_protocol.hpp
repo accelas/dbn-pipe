@@ -4,13 +4,13 @@
 #include <memory>
 #include <string>
 
-#include "buffer_chain.hpp"
+#include "lib/stream/buffer_chain.hpp"
 #include "cram_auth.hpp"
 #include "dbn_parser_component.hpp"
-#include "event_loop.hpp"
-#include "pipeline_component.hpp"
+#include "lib/stream/event_loop.hpp"
+#include "lib/stream/component.hpp"
 #include "pipeline_sink.hpp"
-#include "tcp_socket.hpp"
+#include "lib/stream/tcp_socket.hpp"
 
 namespace dbn_pipe {
 

@@ -11,7 +11,7 @@
 #include <thread>
 #include <vector>
 
-#include "src/epoll_event_loop.hpp"
+#include "lib/stream/epoll_event_loop.hpp"
 
 using namespace dbn_pipe;
 

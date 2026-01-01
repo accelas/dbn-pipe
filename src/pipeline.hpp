@@ -12,9 +12,9 @@
 #include <databento/record.hpp>
 
 #include "dns_resolver.hpp"
-#include "error.hpp"
-#include "event_loop.hpp"
-#include "pipeline_component.hpp"
+#include "lib/stream/error.hpp"
+#include "lib/stream/event_loop.hpp"
+#include "lib/stream/component.hpp"
 #include "pipeline_sink.hpp"
 #include "protocol_driver.hpp"
 

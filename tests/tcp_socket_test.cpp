@@ -12,10 +12,10 @@
 #include <thread>
 #include <vector>
 
-#include "src/buffer_chain.hpp"
-#include "src/epoll_event_loop.hpp"
-#include "src/error.hpp"
-#include "src/tcp_socket.hpp"
+#include "lib/stream/buffer_chain.hpp"
+#include "lib/stream/epoll_event_loop.hpp"
+#include "lib/stream/error.hpp"
+#include "lib/stream/tcp_socket.hpp"
 
 using namespace dbn_pipe;
 
