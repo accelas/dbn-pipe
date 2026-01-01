@@ -26,7 +26,7 @@ Implements `IEventHandle` using `uv_poll_t` for fd monitoring:
 #include <mutex>
 #include <vector>
 
-#include "event_loop.hpp"
+#include "src/stream.hpp"
 
 namespace dbn_pipe {
 
