@@ -33,3 +33,10 @@ cc_library(
     hdrs = ["epoll_event_loop.hpp"],
     deps = [":epoll_event_loop_internal"],
 )
+
+cc_library(
+    name = "reactor",
+    srcs = ["reactor.cpp"],
+    hdrs = ["reactor.hpp"],
+    deps = [":event_loop"],
+)
