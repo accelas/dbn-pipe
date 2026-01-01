@@ -52,10 +52,7 @@ cc_library(
     name = "pipeline_component",
     hdrs = ["pipeline_component.hpp"],
     visibility = ["//visibility:public"],
-    deps = [
-        ":error",
-        ":event_loop",
-    ],
+    deps = ["//lib/stream:component"],
 )
 
 cc_library(
