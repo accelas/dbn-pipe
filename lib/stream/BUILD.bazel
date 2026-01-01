@@ -49,3 +49,14 @@ cc_library(
         ":event_loop",
     ],
 )
+
+cc_library(
+    name = "tcp_socket",
+    hdrs = ["tcp_socket.hpp"],
+    deps = [
+        ":buffer_chain",
+        ":component",
+        ":error",
+        ":event_loop",
+    ],
+)
