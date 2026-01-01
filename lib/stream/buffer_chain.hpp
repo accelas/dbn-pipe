@@ -1,4 +1,4 @@
-// src/buffer_chain.hpp
+// lib/stream/buffer_chain.hpp
 #pragma once
 
 #include <algorithm>
