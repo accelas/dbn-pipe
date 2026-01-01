@@ -30,10 +30,9 @@ cc_library(
 
 cc_library(
     name = "reactor",
-    srcs = ["reactor.cpp"],
     hdrs = ["reactor.hpp"],
     visibility = ["//visibility:public"],
-    deps = [":event_loop"],
+    deps = ["//lib/stream:reactor"],
 )
 
 cc_library(
