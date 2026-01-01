@@ -11,3 +11,25 @@ cc_library(
     name = "buffer_chain",
     hdrs = ["buffer_chain.hpp"],
 )
+
+# Internal epoll implementation
+cc_library(
+    name = "epoll_event_loop_internal",
+    srcs = ["epoll_event_loop.cpp"],
+    hdrs = ["epoll_event_loop.hpp", "event_loop.hpp"],
+)
+
+# Public event loop interface + type-erased wrapper
+cc_library(
+    name = "event_loop",
+    srcs = ["event_loop.cpp"],
+    hdrs = ["event_loop.hpp"],
+    deps = [":epoll_event_loop_internal"],
+)
+
+# For tests that need direct access to EpollEventLoop
+cc_library(
+    name = "epoll_event_loop",
+    hdrs = ["epoll_event_loop.hpp"],
+    deps = [":epoll_event_loop_internal"],
+)
