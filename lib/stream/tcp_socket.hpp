@@ -1,4 +1,4 @@
-// src/tcp_socket.hpp
+// lib/stream/tcp_socket.hpp
 #pragma once
 
 #include <netinet/in.h>
@@ -16,10 +16,10 @@
 #include <system_error>
 #include <vector>
 
-#include "buffer_chain.hpp"
-#include "error.hpp"
-#include "pipeline_component.hpp"
-#include "event_loop.hpp"
+#include "lib/stream/buffer_chain.hpp"
+#include "lib/stream/error.hpp"
+#include "lib/stream/component.hpp"
+#include "lib/stream/event_loop.hpp"
 
 namespace dbn_pipe {
 

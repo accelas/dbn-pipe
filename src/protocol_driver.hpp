@@ -9,7 +9,7 @@
 #include <memory>
 #include <string>
 
-#include "event_loop.hpp"
+#include "lib/stream/event_loop.hpp"
 #include "pipeline_sink.hpp"
 
 namespace dbn_pipe {

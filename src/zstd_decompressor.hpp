@@ -8,10 +8,10 @@
 #include <stdexcept>
 #include <string>
 
-#include "buffer_chain.hpp"
-#include "error.hpp"
-#include "event_loop.hpp"
-#include "pipeline_component.hpp"
+#include "lib/stream/buffer_chain.hpp"
+#include "lib/stream/error.hpp"
+#include "lib/stream/event_loop.hpp"
+#include "lib/stream/component.hpp"
 
 namespace dbn_pipe {
 

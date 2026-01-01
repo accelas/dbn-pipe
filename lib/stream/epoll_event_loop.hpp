@@ -12,7 +12,7 @@
 #include <thread>
 #include <vector>
 
-#include "event_loop.hpp"
+#include "lib/stream/event_loop.hpp"
 
 namespace dbn_pipe {
 

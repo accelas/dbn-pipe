@@ -1,6 +1,6 @@
-// src/reactor.cpp
-#include "reactor.hpp"
-#include "event_loop.hpp"
+// lib/stream/reactor.cpp
+#include "lib/stream/reactor.hpp"
+#include "lib/stream/event_loop.hpp"
 
 #include <sys/socket.h>
 #include <sys/timerfd.h>

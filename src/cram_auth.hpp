@@ -16,10 +16,10 @@
 #include <string_view>
 #include <vector>
 
-#include "buffer_chain.hpp"
-#include "error.hpp"
-#include "event_loop.hpp"
-#include "pipeline_component.hpp"
+#include "lib/stream/buffer_chain.hpp"
+#include "lib/stream/error.hpp"
+#include "lib/stream/event_loop.hpp"
+#include "lib/stream/component.hpp"
 #include "tls_transport.hpp"  // For Suspendable
 
 namespace dbn_pipe {

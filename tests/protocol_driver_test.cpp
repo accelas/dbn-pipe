@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "src/event_loop.hpp"
+#include "lib/stream/event_loop.hpp"
 #include "src/pipeline_sink.hpp"
 #include "src/protocol_driver.hpp"
 

@@ -3,8 +3,8 @@
 
 #include <cassert>
 
-#include "error.hpp"
-#include "event_loop.hpp"
+#include "lib/stream/error.hpp"
+#include "lib/stream/event_loop.hpp"
 #include "record_batch.hpp"
 
 namespace dbn_pipe {

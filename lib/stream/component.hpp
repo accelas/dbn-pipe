@@ -1,4 +1,4 @@
-// src/pipeline_component.hpp
+// lib/stream/component.hpp
 #pragma once
 
 #include <atomic>
@@ -9,8 +9,8 @@
 #include <optional>
 #include <string>
 
-#include "error.hpp"
-#include "event_loop.hpp"
+#include "lib/stream/error.hpp"
+#include "lib/stream/event_loop.hpp"
 
 namespace dbn_pipe {
 

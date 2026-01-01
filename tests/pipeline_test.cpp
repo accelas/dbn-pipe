@@ -1,7 +1,7 @@
 // tests/unified_pipeline_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/epoll_event_loop.hpp"
+#include "lib/stream/epoll_event_loop.hpp"
 #include "src/live_protocol.hpp"
 #include "src/pipeline.hpp"
 

@@ -1,76 +1,14 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
-# Public event loop interface + type-erased wrapper
-cc_library(
-    name = "event_loop",
-    srcs = ["event_loop.cpp"],
-    hdrs = ["event_loop.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [":epoll_event_loop_internal"],
-)
-
-# Internal epoll implementation - not part of public API
-cc_library(
-    name = "epoll_event_loop_internal",
-    srcs = ["epoll_event_loop.cpp"],
-    hdrs = ["epoll_event_loop.hpp", "event_loop.hpp"],
-    visibility = ["//tests:__pkg__"],
-)
-
-# For tests that need direct access to EpollEventLoop
-cc_library(
-    name = "epoll_event_loop",
-    hdrs = ["epoll_event_loop.hpp"],
-    visibility = ["//tests:__pkg__"],
-    deps = [":epoll_event_loop_internal"],
-)
-
-cc_library(
-    name = "error",
-    hdrs = ["error.hpp"],
-    visibility = ["//visibility:public"],
-)
-
-cc_library(
-    name = "reactor",
-    srcs = ["reactor.cpp"],
-    hdrs = ["reactor.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [":event_loop"],
-)
-
-cc_library(
-    name = "tcp_socket",
-    hdrs = ["tcp_socket.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        ":buffer_chain",
-        ":error",
-        ":event_loop",
-        ":pipeline_component",
-    ],
-)
-
-
-cc_library(
-    name = "pipeline_component",
-    hdrs = ["pipeline_component.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        ":error",
-        ":event_loop",
-    ],
-)
-
 cc_library(
     name = "tls_transport",
     hdrs = ["tls_transport.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":buffer_chain",
-        ":error",
-        ":event_loop",
-        ":pipeline_component",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
+        "//lib/stream:error",
+        "//lib/stream:event_loop",
         "@openssl_sys//:ssl",
         "@openssl_sys//:crypto",
     ],
@@ -81,9 +19,9 @@ cc_library(
     hdrs = ["http_client.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":error",
-        ":event_loop",
-        ":pipeline_component",
+        "//lib/stream:component",
+        "//lib/stream:error",
+        "//lib/stream:event_loop",
         ":tls_transport",
         "@llhttp",
     ],
@@ -94,10 +32,10 @@ cc_library(
     hdrs = ["zstd_decompressor.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":buffer_chain",
-        ":error",
-        ":event_loop",
-        ":pipeline_component",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
+        "//lib/stream:error",
+        "//lib/stream:event_loop",
         "@zstd",
     ],
 )
@@ -108,9 +46,9 @@ cc_library(
     hdrs = ["dbn_parser_component.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":buffer_chain",
-        ":error",
-        ":pipeline_component",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
+        "//lib/stream:error",
         ":record_batch",
         # Full library needed: uses RecordHeader::Size()
         "@databento_cpp//:databento_with_impl",
@@ -122,10 +60,10 @@ cc_library(
     hdrs = ["cram_auth.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":buffer_chain",
-        ":error",
-        ":event_loop",
-        ":pipeline_component",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
+        "//lib/stream:error",
+        "//lib/stream:event_loop",
         ":tls_transport",
         "@openssl_sys//:crypto",
     ],
@@ -147,12 +85,6 @@ cc_library(
 )
 
 cc_library(
-    name = "buffer_chain",
-    hdrs = ["buffer_chain.hpp"],
-    visibility = ["//visibility:public"],
-)
-
-cc_library(
     name = "record_batch",
     hdrs = ["record_batch.hpp"],
     visibility = ["//visibility:public"],
@@ -164,7 +96,11 @@ cc_library(
 cc_library(
     name = "pipeline_sink",
     hdrs = ["pipeline_sink.hpp"],
-    deps = [":error", ":event_loop", ":record_batch"],
+    deps = [
+        "//lib/stream:error",
+        "//lib/stream:event_loop",
+        ":record_batch",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -172,7 +108,10 @@ cc_library(
 cc_library(
     name = "protocol_driver",
     hdrs = ["protocol_driver.hpp"],
-    deps = [":event_loop", ":pipeline_sink"],
+    deps = [
+        "//lib/stream:event_loop",
+        ":pipeline_sink",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -180,14 +119,14 @@ cc_library(
     name = "live_protocol",
     hdrs = ["live_protocol.hpp"],
     deps = [
-        ":buffer_chain",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
+        "//lib/stream:event_loop",
+        "//lib/stream:tcp_socket",
         ":cram_auth",
         ":dbn_parser_component",
-        ":event_loop",
-        ":pipeline_component",
         ":pipeline_sink",
         ":protocol_driver",
-        ":tcp_socket",
     ],
     visibility = ["//visibility:public"],
 )
@@ -196,14 +135,14 @@ cc_library(
     name = "historical_protocol",
     hdrs = ["historical_protocol.hpp"],
     deps = [
-        ":buffer_chain",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
+        "//lib/stream:event_loop",
+        "//lib/stream:tcp_socket",
         ":dbn_parser_component",
-        ":event_loop",
         ":http_client",
-        ":pipeline_component",
         ":pipeline_sink",
         ":protocol_driver",
-        ":tcp_socket",
         ":tls_transport",
         ":zstd_decompressor",
     ],
@@ -214,10 +153,10 @@ cc_library(
     name = "pipeline",
     hdrs = ["pipeline.hpp"],
     deps = [
+        "//lib/stream:component",
+        "//lib/stream:error",
+        "//lib/stream:event_loop",
         ":dns_resolver",
-        ":error",
-        ":event_loop",
-        ":pipeline_component",
         ":pipeline_sink",
         ":protocol_driver",
         "@databento_cpp//:databento_headers",
@@ -229,10 +168,25 @@ cc_library(
     name = "client",
     hdrs = ["client.hpp"],
     deps = [
+        "//lib/stream:event_loop",
         ":pipeline",
         ":live_protocol",
         ":historical_protocol",
         "@databento_cpp//:databento_headers",
     ],
     visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "stream",
+    hdrs = ["stream.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
+        "//lib/stream:error",
+        "//lib/stream:event_loop",
+        "//lib/stream:reactor",
+        "//lib/stream:tcp_socket",
+    ],
 )

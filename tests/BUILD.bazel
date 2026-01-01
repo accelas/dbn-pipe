@@ -4,7 +4,7 @@ cc_test(
     name = "error_test",
     srcs = ["error_test.cpp"],
     deps = [
-        "//src:error",
+        "//lib/stream:error",
         "@googletest//:gtest_main",
     ],
 )
@@ -13,7 +13,7 @@ cc_test(
     name = "reactor_test",
     srcs = ["reactor_test.cpp"],
     deps = [
-        "//src:reactor",
+        "//lib/stream:reactor",
         "@googletest//:gtest_main",
     ],
 )
@@ -22,10 +22,10 @@ cc_test(
     name = "tcp_socket_test",
     srcs = ["tcp_socket_test.cpp"],
     deps = [
-        "//src:buffer_chain",
-        "//src:epoll_event_loop",
-        "//src:error",
-        "//src:tcp_socket",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:epoll_event_loop",
+        "//lib/stream:error",
+        "//lib/stream:tcp_socket",
         "@googletest//:gtest_main",
     ],
 )
@@ -43,9 +43,9 @@ cc_test(
     name = "cram_auth_test",
     srcs = ["cram_auth_test.cpp"],
     deps = [
+        "//lib/stream:component",
+        "//lib/stream:epoll_event_loop",
         "//src:cram_auth",
-        "//src:epoll_event_loop",
-        "//src:pipeline_component",
         "@googletest//:gtest_main",
     ],
 )
@@ -55,9 +55,9 @@ cc_test(
     name = "pipeline_component_test",
     srcs = ["pipeline_component_test.cpp"],
     deps = [
-        "//src:buffer_chain",
-        "//src:epoll_event_loop",
-        "//src:pipeline_component",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
+        "//lib/stream:epoll_event_loop",
         "@googletest//:gtest_main",
     ],
 )
@@ -66,9 +66,9 @@ cc_test(
     name = "tls_transport_test",
     srcs = ["tls_transport_test.cpp"],
     deps = [
-        "//src:buffer_chain",
-        "//src:epoll_event_loop",
-        "//src:pipeline_component",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
+        "//lib/stream:epoll_event_loop",
         "//src:tls_transport",
         "@googletest//:gtest_main",
     ],
@@ -78,9 +78,9 @@ cc_test(
     name = "http_client_test",
     srcs = ["http_client_test.cpp"],
     deps = [
-        "//src:epoll_event_loop",
+        "//lib/stream:component",
+        "//lib/stream:epoll_event_loop",
         "//src:http_client",
-        "//src:pipeline_component",
         "@googletest//:gtest_main",
     ],
 )
@@ -89,8 +89,8 @@ cc_test(
     name = "zstd_decompressor_test",
     srcs = ["zstd_decompressor_test.cpp"],
     deps = [
-        "//src:epoll_event_loop",
-        "//src:pipeline_component",
+        "//lib/stream:component",
+        "//lib/stream:epoll_event_loop",
         "//src:zstd_decompressor",
         "@googletest//:gtest_main",
         "@zstd",
@@ -102,9 +102,9 @@ cc_test(
     name = "dbn_parser_component_test",
     srcs = ["dbn_parser_component_test.cpp"],
     deps = [
-        "//src:buffer_chain",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
         "//src:dbn_parser_component",
-        "//src:pipeline_component",
         "//src:record_batch",
         "@databento_cpp//:databento_with_impl",
         "@googletest//:gtest_main",
@@ -136,7 +136,7 @@ cc_test(
     name = "buffer_chain_test",
     srcs = ["buffer_chain_test.cpp"],
     deps = [
-        "//src:buffer_chain",
+        "//lib/stream:buffer_chain",
         "@googletest//:gtest_main",
     ],
 )
@@ -145,8 +145,8 @@ cc_test(
     name = "pipeline_sink_test",
     srcs = ["pipeline_sink_test.cpp"],
     deps = [
-        "//src:epoll_event_loop",
-        "//src:error",
+        "//lib/stream:epoll_event_loop",
+        "//lib/stream:error",
         "//src:pipeline_sink",
         "@googletest//:gtest_main",
     ],
@@ -156,7 +156,7 @@ cc_test(
     name = "protocol_driver_test",
     srcs = ["protocol_driver_test.cpp"],
     deps = [
-        "//src:event_loop",
+        "//lib/stream:event_loop",
         "//src:pipeline_sink",
         "//src:protocol_driver",
         "@googletest//:gtest_main",
@@ -167,7 +167,7 @@ cc_test(
     name = "live_protocol_test",
     srcs = ["live_protocol_test.cpp"],
     deps = [
-        "//src:buffer_chain",
+        "//lib/stream:buffer_chain",
         "//src:live_protocol",
         "//src:pipeline_sink",
         "//src:protocol_driver",
@@ -190,7 +190,7 @@ cc_test(
     name = "pipeline_test",
     srcs = ["pipeline_test.cpp"],
     deps = [
-        "//src:epoll_event_loop",
+        "//lib/stream:epoll_event_loop",
         "//src:live_protocol",
         "//src:pipeline",
         "@googletest//:gtest_main",
@@ -201,8 +201,8 @@ cc_test(
     name = "client_test",
     srcs = ["client_test.cpp"],
     deps = [
+        "//lib/stream:epoll_event_loop",
         "//src:client",
-        "//src:epoll_event_loop",
         "@googletest//:gtest_main",
     ],
 )
@@ -211,9 +211,9 @@ cc_test(
     name = "pipeline_integration_test",
     srcs = ["pipeline_integration_test.cpp"],
     deps = [
+        "//lib/stream:epoll_event_loop",
+        "//lib/stream:reactor",
         "//src:client",
-        "//src:epoll_event_loop",
-        "//src:reactor",
         "@googletest//:gtest_main",
     ],
 )
@@ -222,8 +222,8 @@ cc_test(
     name = "epoll_event_loop_test",
     srcs = ["epoll_event_loop_test.cpp"],
     deps = [
-        "//src:epoll_event_loop",
-        "//src:event_loop",
+        "//lib/stream:epoll_event_loop",
+        "//lib/stream:event_loop",
         "@googletest//:gtest_main",
     ],
 )

@@ -10,13 +10,13 @@
 #include <spanstream>
 #include <string>
 
-#include "buffer_chain.hpp"
+#include "lib/stream/buffer_chain.hpp"
 #include "dbn_parser_component.hpp"
-#include "event_loop.hpp"
+#include "lib/stream/event_loop.hpp"
 #include "http_client.hpp"
-#include "pipeline_component.hpp"
+#include "lib/stream/component.hpp"
 #include "pipeline_sink.hpp"
-#include "tcp_socket.hpp"
+#include "lib/stream/tcp_socket.hpp"
 #include "tls_transport.hpp"
 #include "zstd_decompressor.hpp"
 
