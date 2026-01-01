@@ -3,9 +3,9 @@
 
 #include <vector>
 
-#include "src/buffer_chain.hpp"
-#include "src/epoll_event_loop.hpp"
-#include "src/pipeline_component.hpp"
+#include "lib/stream/buffer_chain.hpp"
+#include "lib/stream/epoll_event_loop.hpp"
+#include "lib/stream/component.hpp"
 
 using namespace dbn_pipe;
 

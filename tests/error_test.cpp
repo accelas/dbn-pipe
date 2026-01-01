@@ -3,7 +3,7 @@
 
 #include <gtest/gtest.h>
 
-#include "src/error.hpp"
+#include "lib/stream/error.hpp"
 
 using namespace dbn_pipe;
 
