@@ -6,3 +6,8 @@ cc_library(
     name = "error",
     hdrs = ["error.hpp"],
 )
+
+cc_library(
+    name = "buffer_chain",
+    hdrs = ["buffer_chain.hpp"],
+)

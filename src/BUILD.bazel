@@ -151,6 +151,7 @@ cc_library(
     name = "buffer_chain",
     hdrs = ["buffer_chain.hpp"],
     visibility = ["//visibility:public"],
+    deps = ["//lib/stream:buffer_chain"],
 )
 
 cc_library(
