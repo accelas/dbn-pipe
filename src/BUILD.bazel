@@ -225,3 +225,17 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "stream",
+    hdrs = ["stream.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//lib/stream:buffer_chain",
+        "//lib/stream:component",
+        "//lib/stream:error",
+        "//lib/stream:event_loop",
+        "//lib/stream:reactor",
+        "//lib/stream:tcp_socket",
+    ],
+)
