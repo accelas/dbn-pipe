@@ -7,9 +7,9 @@
 #include <databento/constants.hpp>
 #include <databento/record.hpp>
 
-#include "src/buffer_chain.hpp"
+#include "lib/stream/buffer_chain.hpp"
 #include "src/dbn_parser_component.hpp"
-#include "src/pipeline_component.hpp"
+#include "lib/stream/component.hpp"
 #include "src/record_batch.hpp"
 
 // Mock sink that receives RecordBatch

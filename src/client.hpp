@@ -4,7 +4,7 @@
 #include "pipeline.hpp"
 #include "live_protocol.hpp"
 #include "historical_protocol.hpp"
-#include "event_loop.hpp"
+#include "lib/stream/event_loop.hpp"
 #include "record_batch.hpp"
 
 namespace dbn_pipe {

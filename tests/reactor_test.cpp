@@ -4,7 +4,7 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 
-#include "src/reactor.hpp"
+#include "lib/stream/reactor.hpp"
 
 using namespace dbn_pipe;
 

@@ -1,7 +1,7 @@
 // tests/live_protocol_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/buffer_chain.hpp"
+#include "lib/stream/buffer_chain.hpp"
 #include "src/live_protocol.hpp"
 #include "src/pipeline_sink.hpp"
 #include "src/protocol_driver.hpp"

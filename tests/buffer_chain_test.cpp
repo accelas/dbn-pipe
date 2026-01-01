@@ -3,7 +3,7 @@
 #include <cstring>
 #include <memory>
 
-#include "src/buffer_chain.hpp"
+#include "lib/stream/buffer_chain.hpp"
 
 using namespace dbn_pipe;
 
