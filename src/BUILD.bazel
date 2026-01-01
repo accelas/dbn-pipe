@@ -39,12 +39,7 @@ cc_library(
     name = "tcp_socket",
     hdrs = ["tcp_socket.hpp"],
     visibility = ["//visibility:public"],
-    deps = [
-        ":buffer_chain",
-        ":error",
-        ":event_loop",
-        ":pipeline_component",
-    ],
+    deps = ["//lib/stream:tcp_socket"],
 )
 
 
