@@ -7,6 +7,7 @@
 #include <concepts>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -98,6 +99,9 @@ public:
     Reactor();
     ~Reactor() override;
 
+    // Wake the reactor from another thread (called internally by Defer)
+    void Wake();
+
     // Non-copyable, non-movable
     Reactor(const Reactor&) = delete;
     Reactor& operator=(const Reactor&) = delete;
@@ -114,7 +118,14 @@ public:
         ErrorCallback on_error) override;
 
     void Defer(std::function<void()> fn) override {
-        deferred_.push_back(std::move(fn));
+        {
+            std::lock_guard<std::mutex> lock(deferred_mutex_);
+            deferred_.push_back(std::move(fn));
+        }
+        // Wake reactor if called from another thread
+        if (!IsInEventLoopThread()) {
+            Wake();
+        }
     }
 
     bool IsInEventLoopThread() const override {
@@ -137,8 +148,10 @@ public:
 
 private:
     int epoll_fd_;
-    bool running_ = false;
+    int wake_fd_;  // eventfd for cross-thread wakeup
+    std::atomic<bool> running_{false};
     std::vector<epoll_event> events_;
+    mutable std::mutex deferred_mutex_;
     std::vector<std::function<void()>> deferred_;
     mutable std::atomic<std::thread::id> reactor_thread_id_{};
 
