@@ -29,6 +29,7 @@ struct HistoricalRequest {
     std::string schema;    // Schema for data (e.g., "mbp-1")
     uint64_t start;        // Start time in nanoseconds since Unix epoch
     uint64_t end;          // End time in nanoseconds since Unix epoch
+    std::string stype_in;  // Input symbology type: "raw_symbol" (default), "parent", etc.
 };
 
 // Historical gateway constants
@@ -234,8 +235,13 @@ struct HistoricalProtocol {
         out << "&start=" << request.start
             << "&end=" << request.end
             << "&encoding=dbn"
-            << "&compression=zstd"
-            << " HTTP/1.1\r\n"
+            << "&compression=zstd";
+        // Add stype_in if specified (default is raw_symbol)
+        if (!request.stype_in.empty()) {
+            out << "&stype_in=";
+            UrlEncode(out, request.stype_in);
+        }
+        out << " HTTP/1.1\r\n"
             << "Host: hist.databento.com\r\n"
             << "Authorization: Basic ";
         Base64Encode(out, chain->GetApiKey() + ":");

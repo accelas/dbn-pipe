@@ -50,7 +50,8 @@ TEST_F(PipelineIntegrationTest, HistoricalClientLifecycle) {
         "ESZ4",
         "mbp-1",
         1704067200000000000ULL,
-        1704153600000000000ULL
+        1704153600000000000ULL,
+        ""  // stype_in (empty = default raw_symbol)
     };
     client->SetRequest(req);
 
@@ -117,7 +118,8 @@ TEST_F(ReactorPipelineTest, HistoricalClientWithReactor) {
         "ESZ4",
         "mbp-1",
         1704067200000000000ULL,
-        1704153600000000000ULL
+        1704153600000000000ULL,
+        ""  // stype_in (empty = default raw_symbol)
     };
     client->SetRequest(req);
 
