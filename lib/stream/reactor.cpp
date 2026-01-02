@@ -2,6 +2,7 @@
 #include "lib/stream/reactor.hpp"
 #include "lib/stream/event_loop.hpp"
 
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/timerfd.h>
 #include <unistd.h>
@@ -149,9 +150,29 @@ Reactor::Reactor() : events_(kMaxEvents) {
     if (epoll_fd_ < 0) {
         throw std::system_error(errno, std::system_category(), "epoll_create1");
     }
+
+    // Create eventfd for cross-thread wakeup
+    wake_fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (wake_fd_ < 0) {
+        close(epoll_fd_);
+        throw std::system_error(errno, std::system_category(), "eventfd");
+    }
+
+    // Register wake_fd_ with epoll (no Event wrapper, handled specially in Poll)
+    epoll_event ev{};
+    ev.events = EPOLLIN;
+    ev.data.ptr = nullptr;  // nullptr indicates wake event
+    if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wake_fd_, &ev) < 0) {
+        close(wake_fd_);
+        close(epoll_fd_);
+        throw std::system_error(errno, std::system_category(), "epoll_ctl wake_fd");
+    }
 }
 
 Reactor::~Reactor() {
+    if (wake_fd_ >= 0) {
+        close(wake_fd_);
+    }
     if (epoll_fd_ >= 0) {
         close(epoll_fd_);
     }
@@ -183,13 +204,23 @@ int Reactor::Poll(int timeout_ms) {
 
     for (int i = 0; i < n; ++i) {
         auto* event = static_cast<Event*>(events_[i].data.ptr);
+        if (event == nullptr) {
+            // Wake event - drain the eventfd
+            uint64_t val;
+            read(wake_fd_, &val, sizeof(val));
+            continue;
+        }
         event->Handle(events_[i].events);
     }
 
-    // Run deferred callbacks
-    while (!deferred_.empty()) {
-        auto callbacks = std::move(deferred_);
-        deferred_.clear();
+    // Run deferred callbacks (thread-safe: callbacks may be added from other threads)
+    for (;;) {
+        std::vector<std::function<void()>> callbacks;
+        {
+            std::lock_guard<std::mutex> lock(deferred_mutex_);
+            if (deferred_.empty()) break;
+            callbacks.swap(deferred_);
+        }
         for (auto& cb : callbacks) {
             cb();
         }
@@ -199,14 +230,20 @@ int Reactor::Poll(int timeout_ms) {
 }
 
 void Reactor::Run() {
-    running_ = true;
-    while (running_) {
+    running_.store(true, std::memory_order_relaxed);
+    while (running_.load(std::memory_order_relaxed)) {
         Poll(-1);
     }
 }
 
 void Reactor::Stop() {
-    running_ = false;
+    running_.store(false, std::memory_order_relaxed);
+    Wake();  // Interrupt epoll_wait so Run() exits immediately
+}
+
+void Reactor::Wake() {
+    uint64_t val = 1;
+    write(wake_fd_, &val, sizeof(val));
 }
 
 }  // namespace dbn_pipe

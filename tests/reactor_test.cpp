@@ -283,3 +283,51 @@ TEST(ReactorTest, IsInEventLoopThread) {
     // After Poll from same thread, should still return true
     EXPECT_TRUE(reactor.IsInEventLoopThread());
 }
+
+TEST(ReactorTest, DeferThreadSafety) {
+    Reactor reactor;
+
+    constexpr int kNumThreads = 4;
+    constexpr int kCallsPerThread = 1000;
+    std::atomic<int> total_calls{0};
+
+    // Start threads that will call Defer() concurrently
+    // The internal wake mechanism should handle cross-thread wakeup
+    std::vector<std::thread> threads;
+    std::atomic<bool> start{false};
+    std::atomic<int> threads_done{0};
+
+    for (int t = 0; t < kNumThreads; ++t) {
+        threads.emplace_back([&]() {
+            // Wait for signal to start
+            while (!start.load()) {
+                std::this_thread::yield();
+            }
+
+            // Rapidly call Defer() from this thread
+            // Defer() internally calls Wake() for cross-thread calls
+            for (int i = 0; i < kCallsPerThread; ++i) {
+                reactor.Defer([&]() {
+                    total_calls.fetch_add(1);
+                });
+            }
+
+            threads_done.fetch_add(1);
+        });
+    }
+
+    // Start all threads simultaneously
+    start.store(true);
+
+    // Poll until all threads done and all callbacks processed
+    while (threads_done.load() < kNumThreads ||
+           total_calls.load() < kNumThreads * kCallsPerThread) {
+        reactor.Poll(10);  // 10ms timeout
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    EXPECT_EQ(total_calls.load(), kNumThreads * kCallsPerThread);
+}
