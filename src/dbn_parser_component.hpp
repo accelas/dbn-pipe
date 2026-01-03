@@ -9,6 +9,11 @@
 #include <string>
 
 #include <databento/record.hpp>
+#include <databento/v1.hpp>
+#include <databento/v2.hpp>
+
+// kUndefPrice from databento constants
+constexpr std::int64_t kUndefPrice = std::numeric_limits<std::int64_t>::max();
 
 #include "lib/stream/buffer_chain.hpp"
 #include "lib/stream/error.hpp"
@@ -426,81 +431,264 @@ inline void UpdateHeaderLength(std::byte* dst, size_t v3_size) {
 }
 
 // InstrumentDefMsg v1/v2 -> v3
+// Uses databento-cpp's typed structs for correct field-by-field conversion.
+// V1 (360 bytes) and V2 (456 bytes) have different layouts than V3 (520 bytes):
+// - V1 has strike_price at end (offset 328), V3 at offset 104
+// - V1 raw_symbol is 22 chars, V3 is 71 chars
+// - V3 has additional leg_* fields
 inline bool ConvertInstrumentDef(const std::byte* src, std::byte* dst,
                                   size_t dst_size, std::uint8_t version) {
     if (dst_size < kInstrumentDefMsgV3Size) return false;
 
+    // Zero-initialize destination to handle new fields in V3
+    std::memset(dst, 0, dst_size);
+
     if (version == 1) {
-        // V1 layout differs from V3: strike_price is at end (offset 328) instead of 112
-        std::memcpy(dst, src, 16);  // RecordHeader
-        UpdateHeaderLength(dst, kInstrumentDefMsgV3Size);
-        std::memcpy(dst + 16, src + 16, 96);    // ts_recv through price_ratio
-        std::memcpy(dst + 112, src + 328, 8);   // strike_price
-        std::memcpy(dst + 120, src + 112, 209); // inst_attrib_value through underlying
-        std::memcpy(dst + 329, src + 321, 39);  // strike_price_currency through end
+        // Inline conversion from v1 to v3 (based on databento-cpp v1.cpp)
+        const auto& v1 = *reinterpret_cast<const databento::v1::InstrumentDefMsg*>(src);
+        auto& v3 = *reinterpret_cast<databento::InstrumentDefMsg*>(dst);
+
+        // RecordHeader with updated length
+        v3.hd = databento::RecordHeader{
+            sizeof(databento::InstrumentDefMsg) / databento::RecordHeader::kLengthMultiplier,
+            databento::RType::InstrumentDef, v1.hd.publisher_id, v1.hd.instrument_id,
+            v1.hd.ts_event};
+
+        // Numeric fields
+        v3.ts_recv = v1.ts_recv;
+        v3.min_price_increment = v1.min_price_increment;
+        v3.display_factor = v1.display_factor;
+        v3.expiration = v1.expiration;
+        v3.activation = v1.activation;
+        v3.high_limit_price = v1.high_limit_price;
+        v3.low_limit_price = v1.low_limit_price;
+        v3.max_price_variation = v1.max_price_variation;
+        v3.unit_of_measure_qty = v1.unit_of_measure_qty;
+        v3.min_price_increment_amount = v1.min_price_increment_amount;
+        v3.price_ratio = v1.price_ratio;
+        v3.strike_price = v1.strike_price;
+        v3.raw_instrument_id = v1.raw_instrument_id;
+        v3.leg_price = kUndefPrice;  // New in V3
+        v3.leg_delta = kUndefPrice;  // New in V3
+        v3.inst_attrib_value = v1.inst_attrib_value;
+        v3.underlying_id = v1.underlying_id;
+        v3.market_depth_implied = v1.market_depth_implied;
+        v3.market_depth = v1.market_depth;
+        v3.market_segment_id = v1.market_segment_id;
+        v3.max_trade_vol = v1.max_trade_vol;
+        v3.min_lot_size = v1.min_lot_size;
+        v3.min_lot_size_block = v1.min_lot_size_block;
+        v3.min_lot_size_round_lot = v1.min_lot_size_round_lot;
+        v3.min_trade_vol = v1.min_trade_vol;
+        v3.contract_multiplier = v1.contract_multiplier;
+        v3.decay_quantity = v1.decay_quantity;
+        v3.original_contract_size = v1.original_contract_size;
+        v3.appl_id = v1.appl_id;
+        v3.maturity_year = v1.maturity_year;
+        v3.decay_start_date = v1.decay_start_date;
+        v3.channel_id = v1.channel_id;
+
+        // Copy string fields (V1 has smaller strings, zero-padded in V3)
+        std::copy(v1.currency.begin(), v1.currency.end(), v3.currency.begin());
+        std::copy(v1.settl_currency.begin(), v1.settl_currency.end(), v3.settl_currency.begin());
+        std::copy(v1.secsubtype.begin(), v1.secsubtype.end(), v3.secsubtype.begin());
+        std::copy(v1.raw_symbol.begin(), v1.raw_symbol.end(), v3.raw_symbol.begin());
+        std::copy(v1.group.begin(), v1.group.end(), v3.group.begin());
+        std::copy(v1.exchange.begin(), v1.exchange.end(), v3.exchange.begin());
+        std::copy(v1.asset.begin(), v1.asset.end(), v3.asset.begin());
+        std::copy(v1.cfi.begin(), v1.cfi.end(), v3.cfi.begin());
+        std::copy(v1.security_type.begin(), v1.security_type.end(), v3.security_type.begin());
+        std::copy(v1.unit_of_measure.begin(), v1.unit_of_measure.end(), v3.unit_of_measure.begin());
+        std::copy(v1.underlying.begin(), v1.underlying.end(), v3.underlying.begin());
+        std::copy(v1.strike_price_currency.begin(), v1.strike_price_currency.end(),
+                  v3.strike_price_currency.begin());
+
+        // Trailing single-byte fields
+        v3.instrument_class = v1.instrument_class;
+        v3.match_algorithm = v1.match_algorithm;
+        v3.main_fraction = v1.main_fraction;
+        v3.price_display_format = v1.price_display_format;
+        v3.sub_fraction = v1.sub_fraction;
+        v3.underlying_product = v1.underlying_product;
+        v3.security_update_action = v1.security_update_action;
+        v3.maturity_month = v1.maturity_month;
+        v3.maturity_day = v1.maturity_day;
+        v3.maturity_week = v1.maturity_week;
+        v3.user_defined_instrument = v1.user_defined_instrument;
+        v3.contract_multiplier_unit = v1.contract_multiplier_unit;
+        v3.flow_schedule_type = v1.flow_schedule_type;
+        v3.tick_rule = v1.tick_rule;
+        v3.leg_side = databento::Side::None;  // New in V3
+
         return true;
     } else if (version == 2) {
-        // V2 has same field order as V3, just smaller (400 vs 520 bytes)
-        std::memcpy(dst, src, 16);  // RecordHeader
-        UpdateHeaderLength(dst, kInstrumentDefMsgV3Size);
-        std::memcpy(dst + 8, src + 8, 392);  // Remaining V2 content
+        // Inline conversion from v2 to v3 (based on databento-cpp v2.cpp)
+        const auto& v2 = *reinterpret_cast<const databento::v2::InstrumentDefMsg*>(src);
+        auto& v3 = *reinterpret_cast<databento::InstrumentDefMsg*>(dst);
+
+        // RecordHeader with updated length
+        v3.hd = databento::RecordHeader{
+            sizeof(databento::InstrumentDefMsg) / databento::RecordHeader::kLengthMultiplier,
+            databento::RType::InstrumentDef, v2.hd.publisher_id, v2.hd.instrument_id,
+            v2.hd.ts_event};
+
+        // Numeric fields
+        v3.ts_recv = v2.ts_recv;
+        v3.min_price_increment = v2.min_price_increment;
+        v3.display_factor = v2.display_factor;
+        v3.expiration = v2.expiration;
+        v3.activation = v2.activation;
+        v3.high_limit_price = v2.high_limit_price;
+        v3.low_limit_price = v2.low_limit_price;
+        v3.max_price_variation = v2.max_price_variation;
+        v3.unit_of_measure_qty = v2.unit_of_measure_qty;
+        v3.min_price_increment_amount = v2.min_price_increment_amount;
+        v3.price_ratio = v2.price_ratio;
+        v3.strike_price = v2.strike_price;
+        v3.raw_instrument_id = v2.raw_instrument_id;
+        v3.leg_price = kUndefPrice;  // New in V3
+        v3.leg_delta = kUndefPrice;  // New in V3
+        v3.inst_attrib_value = v2.inst_attrib_value;
+        v3.underlying_id = v2.underlying_id;
+        v3.market_depth_implied = v2.market_depth_implied;
+        v3.market_depth = v2.market_depth;
+        v3.market_segment_id = v2.market_segment_id;
+        v3.max_trade_vol = v2.max_trade_vol;
+        v3.min_lot_size = v2.min_lot_size;
+        v3.min_lot_size_block = v2.min_lot_size_block;
+        v3.min_lot_size_round_lot = v2.min_lot_size_round_lot;
+        v3.min_trade_vol = v2.min_trade_vol;
+        v3.contract_multiplier = v2.contract_multiplier;
+        v3.decay_quantity = v2.decay_quantity;
+        v3.original_contract_size = v2.original_contract_size;
+        v3.appl_id = v2.appl_id;
+        v3.maturity_year = v2.maturity_year;
+        v3.decay_start_date = v2.decay_start_date;
+        v3.channel_id = v2.channel_id;
+
+        // Copy string fields (V2 has same size as V1)
+        std::copy(v2.currency.begin(), v2.currency.end(), v3.currency.begin());
+        std::copy(v2.settl_currency.begin(), v2.settl_currency.end(), v3.settl_currency.begin());
+        std::copy(v2.secsubtype.begin(), v2.secsubtype.end(), v3.secsubtype.begin());
+        std::copy(v2.raw_symbol.begin(), v2.raw_symbol.end(), v3.raw_symbol.begin());
+        std::copy(v2.group.begin(), v2.group.end(), v3.group.begin());
+        std::copy(v2.exchange.begin(), v2.exchange.end(), v3.exchange.begin());
+        std::copy(v2.asset.begin(), v2.asset.end(), v3.asset.begin());
+        std::copy(v2.cfi.begin(), v2.cfi.end(), v3.cfi.begin());
+        std::copy(v2.security_type.begin(), v2.security_type.end(), v3.security_type.begin());
+        std::copy(v2.unit_of_measure.begin(), v2.unit_of_measure.end(), v3.unit_of_measure.begin());
+        std::copy(v2.underlying.begin(), v2.underlying.end(), v3.underlying.begin());
+        std::copy(v2.strike_price_currency.begin(), v2.strike_price_currency.end(),
+                  v3.strike_price_currency.begin());
+
+        // Trailing single-byte fields
+        v3.instrument_class = v2.instrument_class;
+        v3.match_algorithm = v2.match_algorithm;
+        v3.main_fraction = v2.main_fraction;
+        v3.price_display_format = v2.price_display_format;
+        v3.sub_fraction = v2.sub_fraction;
+        v3.underlying_product = v2.underlying_product;
+        v3.security_update_action = v2.security_update_action;
+        v3.maturity_month = v2.maturity_month;
+        v3.maturity_day = v2.maturity_day;
+        v3.maturity_week = v2.maturity_week;
+        v3.user_defined_instrument = v2.user_defined_instrument;
+        v3.contract_multiplier_unit = v2.contract_multiplier_unit;
+        v3.flow_schedule_type = v2.flow_schedule_type;
+        v3.tick_rule = v2.tick_rule;
+        v3.leg_side = databento::Side::None;  // New in V3
+
         return true;
     }
     return false;
 }
 
 // StatMsg v1/v2 -> v3 (quantity: i32 -> i64)
+// Uses typed structs for correctness
 inline bool ConvertStat(const std::byte* src, std::byte* dst, size_t dst_size) {
     if (dst_size < kStatMsgV3Size) return false;
 
-    std::memcpy(dst, src, 16);  // RecordHeader
-    UpdateHeaderLength(dst, kStatMsgV3Size);
-    std::memcpy(dst + 16, src + 16, 24);  // ts_recv, ts_ref, price
+    std::memset(dst, 0, dst_size);
+    const auto& v1 = *reinterpret_cast<const databento::v1::StatMsg*>(src);
+    auto& v3 = *reinterpret_cast<databento::StatMsg*>(dst);
 
-    // Sign-extend quantity from i32 to i64
-    std::int32_t quantity_i32;
-    std::memcpy(&quantity_i32, src + 40, 4);
-    std::int64_t quantity_i64 = quantity_i32;
-    std::memcpy(dst + 40, &quantity_i64, 8);
-
-    std::memcpy(dst + 48, src + 44, 14);  // sequence through stat_flags
+    v3.hd = databento::RecordHeader{
+        sizeof(databento::StatMsg) / databento::RecordHeader::kLengthMultiplier,
+        databento::RType::Statistics, v1.hd.publisher_id, v1.hd.instrument_id,
+        v1.hd.ts_event};
+    v3.ts_recv = v1.ts_recv;
+    v3.ts_ref = v1.ts_ref;
+    v3.price = v1.price;
+    // Sign-extend quantity from i32 to i64, handling undefined value
+    v3.quantity = (v1.quantity == databento::v1::kUndefStatQuantity)
+        ? databento::kUndefStatQuantity
+        : v1.quantity;
+    v3.sequence = v1.sequence;
+    v3.ts_in_delta = v1.ts_in_delta;
+    v3.stat_type = v1.stat_type;
+    v3.channel_id = v1.channel_id;
+    v3.update_action = v1.update_action;
+    v3.stat_flags = v1.stat_flags;
     return true;
 }
 
 // ErrorMsg v1 -> v3 (err: 64 -> 302 chars, added code/is_last)
+// Uses typed structs for correctness
 inline bool ConvertError(const std::byte* src, std::byte* dst, size_t dst_size) {
     if (dst_size < kErrorMsgV3Size) return false;
 
-    std::memcpy(dst, src, 16);  // RecordHeader
-    UpdateHeaderLength(dst, kErrorMsgV3Size);
-    std::memcpy(dst + 16, src + 16, 64);  // err string (zero-padded to 302)
-    dst[318] = std::byte{255};  // ErrorCode::Unset
-    dst[319] = std::byte{255};  // is_last unknown
+    std::memset(dst, 0, dst_size);
+    const auto& v1 = *reinterpret_cast<const databento::v1::ErrorMsg*>(src);
+    auto& v3 = *reinterpret_cast<databento::ErrorMsg*>(dst);
+
+    v3.hd = databento::RecordHeader{
+        sizeof(databento::ErrorMsg) / databento::RecordHeader::kLengthMultiplier,
+        databento::RType::Error, v1.hd.publisher_id, v1.hd.instrument_id,
+        v1.hd.ts_event};
+    std::copy(v1.err.begin(), v1.err.end(), v3.err.begin());
+    v3.code = databento::ErrorCode::Unset;
+    v3.is_last = 255;  // Unknown
     return true;
 }
 
 // SystemMsg v1 -> v3 (msg: 64 -> 303 chars, added code)
+// Uses typed structs for correctness
 inline bool ConvertSystem(const std::byte* src, std::byte* dst, size_t dst_size) {
     if (dst_size < kSystemMsgV3Size) return false;
 
-    std::memcpy(dst, src, 16);  // RecordHeader
-    UpdateHeaderLength(dst, kSystemMsgV3Size);
-    std::memcpy(dst + 16, src + 16, 64);  // msg string (zero-padded to 303)
-    dst[319] = std::byte{255};  // SystemCode::Unset
+    std::memset(dst, 0, dst_size);
+    const auto& v1 = *reinterpret_cast<const databento::v1::SystemMsg*>(src);
+    auto& v3 = *reinterpret_cast<databento::SystemMsg*>(dst);
+
+    v3.hd = databento::RecordHeader{
+        sizeof(databento::SystemMsg) / databento::RecordHeader::kLengthMultiplier,
+        databento::RType::System, v1.hd.publisher_id, v1.hd.instrument_id,
+        v1.hd.ts_event};
+    std::copy(v1.msg.begin(), v1.msg.end(), v3.msg.begin());
+    v3.code = databento::SystemCode::Unset;
     return true;
 }
 
 // SymbolMappingMsg v1 -> v3 (symbols: 22 -> 71 chars, added stype enums)
+// Uses typed structs for correctness
 inline bool ConvertSymbolMapping(const std::byte* src, std::byte* dst, size_t dst_size) {
     if (dst_size < kSymbolMappingMsgV3Size) return false;
 
-    std::memcpy(dst, src, 16);  // RecordHeader
-    UpdateHeaderLength(dst, kSymbolMappingMsgV3Size);
-    dst[16] = std::byte{255};  // stype_in invalid
-    std::memcpy(dst + 17, src + 16, 22);  // stype_in_symbol
-    dst[88] = std::byte{255};  // stype_out invalid
-    std::memcpy(dst + 89, src + 38, 22);  // stype_out_symbol
-    std::memcpy(dst + 160, src + 64, 16); // start_ts, end_ts
+    std::memset(dst, 0, dst_size);
+    const auto& v1 = *reinterpret_cast<const databento::v1::SymbolMappingMsg*>(src);
+    auto& v3 = *reinterpret_cast<databento::SymbolMappingMsg*>(dst);
+
+    v3.hd = databento::RecordHeader{
+        sizeof(databento::SymbolMappingMsg) / databento::RecordHeader::kLengthMultiplier,
+        databento::RType::SymbolMapping, v1.hd.publisher_id, v1.hd.instrument_id,
+        v1.hd.ts_event};
+    // Intentionally invalid stype values for V1 data
+    v3.stype_in = static_cast<databento::SType>(255);
+    std::copy(v1.stype_in_symbol.begin(), v1.stype_in_symbol.end(), v3.stype_in_symbol.begin());
+    v3.stype_out = static_cast<databento::SType>(255);
+    std::copy(v1.stype_out_symbol.begin(), v1.stype_out_symbol.end(), v3.stype_out_symbol.begin());
+    v3.start_ts = v1.start_ts;
+    v3.end_ts = v1.end_ts;
     return true;
 }
 
