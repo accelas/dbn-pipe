@@ -93,7 +93,8 @@ private:
     static_assert(sizeof(DbnHeader) == 8, "DbnHeader must be 8 bytes");
 
     // Maximum metadata size to prevent DoS
-    static constexpr size_t kMaxMetadataSize = 1024 * 1024;  // 1MB
+    // Large option chains (e.g., SPY.OPT) can have 10k+ contracts = 2-3MB metadata
+    static constexpr size_t kMaxMetadataSize = 8 * 1024 * 1024;  // 8MB
 };
 
 // Implementation
