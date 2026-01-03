@@ -21,6 +21,12 @@ namespace dbn_pipe {
 // Records larger than this are considered invalid
 constexpr size_t kMaxRecordSize = 64 * 1024;
 
+// InstrumentDefMsg v3 size for buffer allocation
+constexpr size_t kInstrumentDefMsgV3Size = sizeof(databento::InstrumentDefMsg);
+
+// DBN rtype for InstrumentDefMsg
+constexpr std::uint8_t kRTypeInstrumentDef = 0x13;
+
 // DbnParserComponent - Zero-copy parser that outputs RecordBatch.
 //
 // This component transforms raw bytes from BufferChain into batched records
@@ -67,9 +73,15 @@ private:
     // Returns true if ready to parse records, false if waiting for more data.
     bool SkipMetadataIfNeeded(BufferChain& chain);
 
+    // Convert v1/v2 InstrumentDefMsg to v3 format.
+    // Returns true if conversion happened, false if no conversion needed.
+    bool ConvertInstrumentDefToV3(const std::byte* src, std::uint8_t version,
+                                   std::byte* dst, size_t dst_size);
+
     S& sink_;                              // Reference to sink
     std::atomic<bool> error_state_{false}; // One-shot error guard
     bool metadata_parsed_ = false;         // Whether DBN header has been skipped
+    std::uint8_t dbn_version_ = 3;         // DBN version from metadata (default v3)
 
     // DBN file header structure (first 8 bytes of DBN stream)
     struct DbnHeader {
@@ -178,6 +190,26 @@ void DbnParserComponent<S>::OnData(BufferChain& chain) {
             ref.keepalive = scratch;
         }
 
+        // Convert InstrumentDefMsg from older DBN versions to v3
+        const auto* hdr = reinterpret_cast<const databento::RecordHeader*>(ref.data);
+        if (hdr->rtype == kRTypeInstrumentDef && dbn_version_ != 3) {
+            if (dbn_version_ > 3) {
+                ReportTerminalError("Unsupported DBN version " +
+                    std::to_string(dbn_version_) + " (max supported: 3)");
+                return;
+            }
+            auto scratch = std::shared_ptr<std::byte[]>(
+                new (std::align_val_t{8}) std::byte[kInstrumentDefMsgV3Size],
+                [](std::byte* p) { operator delete[](p, std::align_val_t{8}); }
+            );
+            if (ConvertInstrumentDefToV3(ref.data, dbn_version_,
+                                         scratch.get(), kInstrumentDefMsgV3Size)) {
+                ref.data = scratch.get();
+                ref.size = kInstrumentDefMsgV3Size;
+                ref.keepalive = scratch;
+            }
+        }
+
         batch.Add(std::move(ref));
         chain.Consume(record_size);
     }
@@ -270,10 +302,66 @@ bool DbnParserComponent<S>::SkipMetadataIfNeeded(BufferChain& chain) {
         return false;
     }
 
+    // Store the DBN version for record conversion
+    dbn_version_ = header.version;
+
     // Skip the entire metadata (header + content)
     chain.Consume(total_metadata_size);
     metadata_parsed_ = true;
     return true;
+}
+
+template <RecordSink S>
+bool DbnParserComponent<S>::ConvertInstrumentDefToV3(
+    const std::byte* src, std::uint8_t version,
+    std::byte* dst, size_t dst_size) {
+
+    if (dst_size < kInstrumentDefMsgV3Size) {
+        return false;
+    }
+
+    // Zero-initialize destination
+    std::memset(dst, 0, dst_size);
+
+    if (version == 1) {
+        // V1 -> V3 conversion
+        // V1 layout differs from V3: strike_price is at end (offset 328) instead of 112
+
+        // Copy RecordHeader with updated length
+        std::memcpy(dst, src, 8);
+        auto* hdr = reinterpret_cast<databento::RecordHeader*>(dst);
+        hdr->length = static_cast<std::uint8_t>(kInstrumentDefMsgV3Size / 4);
+
+        // Copy ts_recv through price_ratio (v1: 16-111, v3: 16-111, 96 bytes)
+        std::memcpy(dst + 16, src + 16, 96);
+
+        // Copy strike_price from v1 offset 328 to v3 offset 112 (8 bytes)
+        std::memcpy(dst + 112, src + 328, 8);
+
+        // Copy inst_attrib_value through underlying (v1: 112-320, v3: 120-328, 209 bytes)
+        std::memcpy(dst + 120, src + 112, 209);
+
+        // Copy strike_price_currency through end (v1: 321-359, v3: 329-367, 39 bytes)
+        std::memcpy(dst + 329, src + 321, 39);
+
+        return true;
+
+    } else if (version == 2) {
+        // V2 -> V3 conversion
+        // V2 has same field order as V3, just smaller (400 vs 520 bytes)
+
+        // Copy RecordHeader with updated length
+        std::memcpy(dst, src, 8);
+        auto* hdr = reinterpret_cast<databento::RecordHeader*>(dst);
+        hdr->length = static_cast<std::uint8_t>(kInstrumentDefMsgV3Size / 4);
+
+        // Copy remaining V2 content (offsets 8-399)
+        std::memcpy(dst + 8, src + 8, 392);
+
+        return true;
+    }
+
+    return false;
 }
 
 }  // namespace dbn_pipe
