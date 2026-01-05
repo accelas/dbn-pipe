@@ -130,8 +130,11 @@ private:
     // Pending input when suspended
     BufferChain pending_input_;
 
-    static constexpr size_t kMaxPendingInput = 16 * 1024 * 1024;   // 16MB
-    static constexpr size_t kMaxBufferedOutput = 16 * 1024 * 1024; // 16MB
+    // Buffer limits - must accommodate large DBN metadata blobs
+    // OPRA option chain definitions can exceed 200MB decompressed
+    // These limits prevent DoS but allow realistic data sizes
+    static constexpr size_t kMaxPendingInput = 256 * 1024 * 1024;   // 256MB
+    static constexpr size_t kMaxBufferedOutput = 256 * 1024 * 1024; // 256MB
 
     size_t last_decompress_result_ = 0;
 };
