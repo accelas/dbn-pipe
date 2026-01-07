@@ -111,8 +111,8 @@ public:
                 << static_cast<int>(digest[i]);
         }
 
-        // Append bucket_id (last 4 chars of API key)
-        static constexpr std::size_t kBucketIdLength = 4;
+        // Append bucket_id (last 5 chars of API key)
+        static constexpr std::size_t kBucketIdLength = 5;
         if (api_key.size() >= kBucketIdLength) {
             oss << '-' << api_key.substr(api_key.size() - kBucketIdLength);
         }
