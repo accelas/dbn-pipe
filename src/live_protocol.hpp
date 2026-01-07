@@ -99,8 +99,9 @@ struct LiveProtocol {
         void Resume() override { head_->Resume(); }
 
         // Protocol-specific - forward to CramAuth
-        void Subscribe(std::string dataset, std::string symbols, std::string schema) override {
-            cram_->Subscribe(std::move(dataset), std::move(symbols), std::move(schema));
+        // Note: dataset is no longer needed in subscription - it's sent during auth
+        void Subscribe(std::string /*dataset*/, std::string symbols, std::string schema) override {
+            cram_->Subscribe(std::move(symbols), std::move(schema));
         }
 
         void StartStreaming() override {

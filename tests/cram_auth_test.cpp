@@ -207,8 +207,8 @@ TEST_F(CramAuthTest, StreamingModePassesBinaryDataToDownstream) {
     SendData("success\n");
     EXPECT_EQ(handler_->GetState(), CramAuthState::Ready);
 
-    // Subscribe and start streaming
-    handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
+    // Subscribe and start streaming (new 2-arg signature: symbols, schema)
+    handler_->Subscribe("ESZ4", "mbp-1");
     handler_->StartStreaming();
     EXPECT_EQ(handler_->GetState(), CramAuthState::Streaming);
 
@@ -234,21 +234,24 @@ TEST_F(CramAuthTest, SubscribeSendsSubscriptionWhenReady) {
     sent_data_.clear();  // Clear auth message
     SendData("success\n");
 
-    // Subscribe
-    handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
+    // Subscribe (new format: symbols, schema)
+    handler_->Subscribe("ESZ4", "mbp-1");
 
     std::string sent = ToString(sent_data_);
-    EXPECT_TRUE(sent.find("subscription=") != std::string::npos);
-    EXPECT_TRUE(sent.find("GLBX.MDP3") != std::string::npos);
-    EXPECT_TRUE(sent.find("ESZ4") != std::string::npos);
-    EXPECT_TRUE(sent.find("mbp-1") != std::string::npos);
+    // New format: schema=<s>|stype_in=<t>|id=<n>|symbols=<syms>|snapshot=<b>|is_last=<b>
+    EXPECT_TRUE(sent.find("schema=mbp-1") != std::string::npos);
+    EXPECT_TRUE(sent.find("stype_in=raw_symbol") != std::string::npos);
+    EXPECT_TRUE(sent.find("id=1") != std::string::npos);
+    EXPECT_TRUE(sent.find("symbols=ESZ4") != std::string::npos);
+    EXPECT_TRUE(sent.find("snapshot=0") != std::string::npos);
+    EXPECT_TRUE(sent.find("is_last=1") != std::string::npos);
 }
 
 TEST_F(CramAuthTest, SubscribeQueuesIfNotReady) {
     SetupWriteCallback();
 
-    // Subscribe before ready
-    handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
+    // Subscribe before ready (new format: symbols, schema)
+    handler_->Subscribe("ESZ4", "mbp-1");
 
     // Should not have sent anything yet
     EXPECT_TRUE(sent_data_.empty());
@@ -259,9 +262,9 @@ TEST_F(CramAuthTest, SubscribeQueuesIfNotReady) {
     sent_data_.clear();
     SendData("success\n");
 
-    // Now subscription should be sent
+    // Now subscription should be sent with new format
     std::string sent = ToString(sent_data_);
-    EXPECT_TRUE(sent.find("subscription=") != std::string::npos);
+    EXPECT_TRUE(sent.find("schema=") != std::string::npos);
 }
 
 TEST_F(CramAuthTest, StartStreamingSendsStartSession) {
@@ -271,7 +274,7 @@ TEST_F(CramAuthTest, StartStreamingSendsStartSession) {
     SendData("session|v1\n");
     SendData("cram=challenge\n");
     SendData("success\n");
-    handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
+    handler_->Subscribe("ESZ4", "mbp-1");
     sent_data_.clear();
 
     // Start streaming
@@ -299,7 +302,7 @@ TEST_F(CramAuthTest, BinaryBufferOverflowEmitsError) {
     SendData("session|v1\n");
     SendData("cram=challenge\n");
     SendData("success\n");
-    handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
+    handler_->Subscribe("ESZ4", "mbp-1");
     handler_->StartStreaming();
 
     // Suspend to cause buffering
@@ -336,7 +339,7 @@ TEST_F(CramAuthTest, SuspendedBuffersDataAndResumeDrains) {
     SendData("session|v1\n");
     SendData("cram=challenge\n");
     SendData("success\n");
-    handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
+    handler_->Subscribe("ESZ4", "mbp-1");
     handler_->StartStreaming();
 
     // Suspend
@@ -372,7 +375,7 @@ TEST_F(CramAuthTest, OnDoneForwardsToDownstream) {
     SendData("session|v1\n");
     SendData("cram=challenge\n");
     SendData("success\n");
-    handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
+    handler_->Subscribe("ESZ4", "mbp-1");
     handler_->StartStreaming();
 
     handler_->OnDone();
@@ -441,7 +444,7 @@ TEST_F(CramAuthTest, RemainingDataAfterStreamingTransitionForwarded) {
     SendData("session|v1\n");
     SendData("cram=challenge\n");
     SendData("success\n");
-    handler_->Subscribe("GLBX.MDP3", "ESZ4", "mbp-1");
+    handler_->Subscribe("ESZ4", "mbp-1");
     handler_->StartStreaming();
 
     // Clear any received data

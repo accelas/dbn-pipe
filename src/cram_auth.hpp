@@ -197,9 +197,14 @@ public:
     // Set callback for sending data back through the socket
     void SetWriteCallback(WriteCallback cb) { write_callback_ = std::move(cb); }
 
-    // Subscribe to dataset/symbols/schema
+    // Subscribe to symbols/schema
     // If already Ready, sends immediately; otherwise queues for later
-    void Subscribe(std::string dataset, std::string symbols, std::string schema);
+    // Format matches official API: schema=<s>|stype_in=<t>|id=<n>|symbols=<syms>|snapshot=<b>|is_last=1
+    // Note: dataset is no longer needed in subscription - it's sent during auth
+    void Subscribe(std::string symbols, std::string schema,
+                   std::string stype_in = "raw_symbol",
+                   std::string start = {},
+                   bool snapshot = false);
 
     // Start streaming after subscription
     // Sends "start_session\n" and transitions to Streaming state
@@ -289,11 +294,14 @@ private:
     BufferChain pending_chain_;
 
     // Subscription parameters (queued until Ready)
-    std::optional<std::string> pending_dataset_;
     std::optional<std::string> pending_symbols_;
     std::optional<std::string> pending_schema_;
+    std::optional<std::string> pending_stype_in_;
+    std::optional<std::string> pending_start_;
+    bool pending_snapshot_ = false;
     bool subscription_sent_ = false;
     bool start_requested_ = false;
+    std::uint32_t sub_counter_ = 0;
 
     // PMR pool for output buffers (write path only)
     std::pmr::unsynchronized_pool_resource pool_;
@@ -625,11 +633,14 @@ void CramAuth<D>::HandleAuthResponse(std::string_view line) {
 }
 
 template <Downstream D>
-void CramAuth<D>::Subscribe(std::string dataset, std::string symbols,
-                            std::string schema) {
-    pending_dataset_ = std::move(dataset);
+void CramAuth<D>::Subscribe(std::string symbols, std::string schema,
+                            std::string stype_in, std::string start,
+                            bool snapshot) {
     pending_symbols_ = std::move(symbols);
     pending_schema_ = std::move(schema);
+    pending_stype_in_ = std::move(stype_in);
+    pending_start_ = start.empty() ? std::nullopt : std::optional{std::move(start)};
+    pending_snapshot_ = snapshot;
     subscription_sent_ = false;
 
     if (state_ == CramAuthState::Ready) {
@@ -639,16 +650,27 @@ void CramAuth<D>::Subscribe(std::string dataset, std::string symbols,
 
 template <Downstream D>
 void CramAuth<D>::SendPendingSubscription() {
-    if (subscription_sent_ || !pending_dataset_ || !pending_symbols_ ||
-        !pending_schema_) {
+    if (subscription_sent_ || !pending_symbols_ || !pending_schema_) {
         return;
     }
 
-    // Format: subscription=dataset|schema|stype_in|symbols
-    // Using 'raw_symbol' as stype_in for now
-    std::string sub_line = "subscription=" + *pending_dataset_ + "|" +
-                           *pending_schema_ + "|raw_symbol|" + *pending_symbols_;
-    SendLine(sub_line);
+    // Increment subscription ID
+    ++sub_counter_;
+
+    // Format matches official API:
+    // schema=<s>|stype_in=<t>|start=<ts>|id=<n>|symbols=<syms>|snapshot=<b>|is_last=<b>
+    std::ostringstream oss;
+    oss << "schema=" << *pending_schema_
+        << "|stype_in=" << pending_stype_in_.value_or("raw_symbol");
+    if (pending_start_) {
+        oss << "|start=" << *pending_start_;
+    }
+    oss << "|id=" << sub_counter_
+        << "|symbols=" << *pending_symbols_
+        << "|snapshot=" << (pending_snapshot_ ? "1" : "0")
+        << "|is_last=1";  // TODO: support chunking for large symbol lists
+
+    SendLine(oss.str());
     subscription_sent_ = true;
 
     // If start was requested before subscription was sent, send it now
