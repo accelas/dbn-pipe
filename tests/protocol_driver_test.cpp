@@ -36,7 +36,7 @@ struct ValidProtocol {
     using ChainType = MockChain;
 
     static std::shared_ptr<ChainType> BuildChain(
-        IEventLoop&, TestSink&, const std::string&
+        IEventLoop&, TestSink&, const std::string&, const std::string& /*dataset*/ = {}
     ) {
         return std::make_shared<ChainType>();
     }

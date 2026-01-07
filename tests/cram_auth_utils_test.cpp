@@ -24,10 +24,23 @@ TEST(CramAuthUtilsTest, ParseGreetingWithoutNewline) {
 }
 
 TEST(CramAuthUtilsTest, ParseGreetingMissingPipe) {
+    // New format: greetings without pipe are accepted (version only)
     std::string greeting = "lsg-test-20231015\n";
     auto result = CramAuthUtils::ParseGreeting(greeting);
 
-    ASSERT_FALSE(result.has_value());
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->session_id.empty());  // No session_id in new format
+    EXPECT_EQ(result->version, "lsg-test-20231015");  // Whole line stored as version
+}
+
+TEST(CramAuthUtilsTest, ParseGreetingNewFormat) {
+    // New LSG format: lsg_version=X.Y.Z (build)
+    std::string greeting = "lsg_version=0.7.2 (5)\n";
+    auto result = CramAuthUtils::ParseGreeting(greeting);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->session_id.empty());  // Session ID comes from auth response
+    EXPECT_EQ(result->version, "0.7.2");  // Parenthetical suffix stripped
 }
 
 TEST(CramAuthUtilsTest, ParseChallenge) {
@@ -56,12 +69,13 @@ TEST(CramAuthUtilsTest, ParseChallengeMissingPrefix) {
 TEST(CramAuthUtilsTest, ComputeResponse) {
     // Known test vector: echo -n "test_challenge|test_api_key" | sha256sum
     // = b769a86a50ffcaf90cfabf1189838ff2378f12e909075298cdb75ec91943b23f
+    // Plus bucket_id suffix: last 4 chars of api_key = "_key"
     std::string challenge = "test_challenge";
     std::string api_key = "test_api_key";
 
     std::string response = CramAuthUtils::ComputeResponse(challenge, api_key);
 
-    EXPECT_EQ(response, "b769a86a50ffcaf90cfabf1189838ff2378f12e909075298cdb75ec91943b23f");
+    EXPECT_EQ(response, "b769a86a50ffcaf90cfabf1189838ff2378f12e909075298cdb75ec91943b23f-_key");
 }
 
 TEST(CramAuthUtilsTest, ComputeResponseDeterministic) {
