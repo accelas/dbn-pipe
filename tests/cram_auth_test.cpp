@@ -133,11 +133,15 @@ TEST_F(CramAuthTest, ReceivesGreetingWithCRLF) {
     EXPECT_EQ(handler_->GetGreeting().version, "v2.0");
 }
 
-TEST_F(CramAuthTest, InvalidGreetingEmitsError) {
-    SendData("invalid_greeting_no_pipe\n");
+TEST_F(CramAuthTest, GreetingWithoutPipeIsAccepted) {
+    // New behavior: greetings without pipe are accepted (fallback format)
+    // This supports new LSG greeting formats like "lsg_version=0.7.2"
+    SendData("greeting_without_pipe\n");
 
-    EXPECT_TRUE(downstream_->error_called);
-    EXPECT_EQ(downstream_->last_error.code, ErrorCode::InvalidGreeting);
+    EXPECT_FALSE(downstream_->error_called);
+    EXPECT_EQ(handler_->GetState(), CramAuthState::WaitingChallenge);
+    EXPECT_TRUE(handler_->GetGreeting().session_id.empty());  // No session_id
+    EXPECT_EQ(handler_->GetGreeting().version, "greeting_without_pipe");
 }
 
 TEST_F(CramAuthTest, ReceivesChallengeAndSendsAuth) {

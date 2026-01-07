@@ -91,7 +91,8 @@ public:
         return std::string(data.substr(prefix.size(), newline - prefix.size()));
     }
 
-    // Compute SHA256(challenge + '|' + api_key) as hex
+    // Compute SHA256(challenge + '|' + api_key) as hex, with bucket_id suffix
+    // Format: "<sha256_hex>-<bucket_id>" where bucket_id is last 4 chars of api_key
     static std::string ComputeResponse(std::string_view challenge,
                                        std::string_view api_key) {
         std::string challenge_key;
@@ -109,6 +110,27 @@ public:
             oss << std::hex << std::setfill('0') << std::setw(2)
                 << static_cast<int>(digest[i]);
         }
+
+        // Append bucket_id (last 4 chars of API key)
+        static constexpr std::size_t kBucketIdLength = 4;
+        if (api_key.size() >= kBucketIdLength) {
+            oss << '-' << api_key.substr(api_key.size() - kBucketIdLength);
+        }
+
+        return oss.str();
+    }
+
+    // Format auth request with required fields
+    // Format: auth=<auth>|dataset=<dataset>|encoding=dbn|ts_out=0|client=<client>
+    static std::string FormatAuthRequest(std::string_view auth,
+                                         std::string_view dataset,
+                                         std::string_view client = "dbn-pipe/0.1") {
+        std::ostringstream oss;
+        oss << "auth=" << auth
+            << "|dataset=" << dataset
+            << "|encoding=dbn"
+            << "|ts_out=0"
+            << "|client=" << client;
         return oss.str();
     }
 };
@@ -157,10 +179,12 @@ public:
     static std::shared_ptr<CramAuth> Create(
         IEventLoop& loop,
         std::shared_ptr<D> downstream,
-        std::string api_key
+        std::string api_key,
+        std::string dataset = {}
     ) {
         return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream),
-                                                    std::move(api_key));
+                                                    std::move(api_key),
+                                                    std::move(dataset));
     }
 
     ~CramAuth() = default;
@@ -228,7 +252,7 @@ public:
 
 private:
     CramAuth(IEventLoop& loop, std::shared_ptr<D> downstream,
-             std::string api_key);
+             std::string api_key, std::string dataset);
 
     // Process accumulated line buffer for text mode
     void ProcessLineBuffer();
@@ -251,6 +275,7 @@ private:
     WriteCallback write_callback_ = [](BufferChain) {};
 
     std::string api_key_;
+    std::string dataset_;  // Dataset for auth request
     CramAuthState state_ = CramAuthState::WaitingGreeting;
     Greeting greeting_;
 
@@ -279,9 +304,9 @@ private:
 template <Downstream D>
 struct CramAuth<D>::MakeSharedEnabler : public CramAuth<D> {
     MakeSharedEnabler(IEventLoop& loop, std::shared_ptr<D> downstream,
-                      std::string api_key)
+                      std::string api_key, std::string dataset)
         : CramAuth<D>(loop, std::move(downstream),
-                      std::move(api_key)) {}
+                      std::move(api_key), std::move(dataset)) {}
 };
 
 // Implementation
@@ -289,10 +314,12 @@ struct CramAuth<D>::MakeSharedEnabler : public CramAuth<D> {
 template <Downstream D>
 CramAuth<D>::CramAuth(IEventLoop& loop,
                       std::shared_ptr<D> downstream,
-                      std::string api_key)
+                      std::string api_key,
+                      std::string dataset)
     : Base(loop)
     , downstream_(std::move(downstream))
     , api_key_(std::move(api_key))
+    , dataset_(std::move(dataset))
 {}
 
 template <Downstream D>
@@ -518,12 +545,12 @@ void CramAuth<D>::HandleChallenge(std::string_view line) {
         return;
     }
 
-    // Compute CRAM response
+    // Compute CRAM response (includes bucket_id from API key)
     std::string response = CramAuthUtils::ComputeResponse(*challenge, api_key_);
 
-    // Send auth: auth=response|bucket_id
-    // Using empty bucket_id for now - can be extended later
-    std::string auth_line = "auth=" + response + "|";
+    // Send auth request with dataset and required fields
+    // Format: auth=<auth>|dataset=<dataset>|encoding=dbn|ts_out=0|client=dbn-pipe/0.1
+    std::string auth_line = CramAuthUtils::FormatAuthRequest(response, dataset_);
     SendLine(auth_line);
 
     state_ = CramAuthState::Authenticating;

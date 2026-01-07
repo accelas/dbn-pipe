@@ -67,9 +67,10 @@ struct LiveProtocol {
         using CramType = CramAuth<ParserType>;
         using HeadType = TcpSocket<CramType>;
 
-        ChainImpl(IEventLoop& loop, Sink<Record>& sink, const std::string& api_key)
+        ChainImpl(IEventLoop& loop, Sink<Record>& sink, const std::string& api_key,
+                  const std::string& dataset)
             : parser_(std::make_shared<ParserType>(sink))
-            , cram_(CramType::Create(loop, parser_, api_key))
+            , cram_(CramType::Create(loop, parser_, api_key, dataset))
             , head_(HeadType::Create(loop, cram_))
         {
             // Wire connect callback for ready signal
@@ -118,9 +119,10 @@ struct LiveProtocol {
     static std::shared_ptr<ChainType> BuildChain(
         IEventLoop& loop,
         Sink<Record>& sink,
-        const std::string& api_key
+        const std::string& api_key,
+        const std::string& dataset
     ) {
-        return std::make_shared<ChainImpl<Record>>(loop, sink, api_key);
+        return std::make_shared<ChainImpl<Record>>(loop, sink, api_key, dataset);
     }
 
     // Send request - subscribe and start streaming
