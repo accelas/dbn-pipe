@@ -206,11 +206,14 @@ struct HistoricalProtocol {
     };
 
     // Build the component chain for historical protocol
+    // Note: dataset parameter is unused for historical protocol (auth is via HTTP basic auth)
+    // but included for API consistency with LiveProtocol
     template <typename Record>
     static std::shared_ptr<ChainType> BuildChain(
         IEventLoop& loop,
         Sink<Record>& sink,
-        const std::string& api_key
+        const std::string& api_key,
+        const std::string& /*dataset*/ = {}
     ) {
         return std::make_shared<ChainImpl<Record>>(loop, sink, api_key);
     }

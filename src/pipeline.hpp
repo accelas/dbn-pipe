@@ -284,7 +284,8 @@ private:
         sink_ = std::make_shared<Sink<Record>>(loop_, this);
 
         // Build protocol-specific chain (includes TcpSocket as head)
-        chain_ = P::BuildChain(loop_, *sink_, api_key_);
+        // Pass dataset for protocols that need it during auth (e.g., LiveProtocol)
+        chain_ = P::BuildChain(loop_, *sink_, api_key_, request_.dataset);
 
         // Set up ready callback for when protocol is ready to send request
         // (Live: on connect, Historical: after TLS handshake)

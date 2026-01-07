@@ -33,19 +33,48 @@ struct Greeting {
 // Utility class for CRAM authentication helpers
 class CramAuthUtils {
 public:
-    // Parse "session_id|version\n"
+    // Parse greeting line, supporting both formats:
+    // - Legacy: "session_id|version\n"
+    // - New LSG: "lsg_version=X.Y.Z (build)\n" or similar key=value format
     static std::optional<Greeting> ParseGreeting(std::string_view data) {
+        // Remove trailing newline/carriage return
+        auto newline = data.find('\n');
+        if (newline != std::string_view::npos) {
+            data = data.substr(0, newline);
+        }
+        if (!data.empty() && data.back() == '\r') {
+            data = data.substr(0, data.size() - 1);
+        }
+
+        // Try legacy format: "session_id|version"
         auto pipe = data.find('|');
-        if (pipe == std::string_view::npos) {
-            return std::nullopt;
+        if (pipe != std::string_view::npos) {
+            return Greeting{
+                .session_id = std::string(data.substr(0, pipe)),
+                .version = std::string(data.substr(pipe + 1)),
+            };
         }
-        auto newline = data.find('\n', pipe);
-        if (newline == std::string_view::npos) {
-            newline = data.size();
+
+        // Try new format: "lsg_version=X.Y.Z" or "key=value (extra)"
+        auto eq = data.find('=');
+        if (eq != std::string_view::npos) {
+            auto value = data.substr(eq + 1);
+            // Strip optional parenthetical suffix like " (5)"
+            auto paren = value.find(" (");
+            if (paren != std::string_view::npos) {
+                value = value.substr(0, paren);
+            }
+            return Greeting{
+                .session_id = {},  // Session ID comes in auth response for new format
+                .version = std::string(value),
+            };
         }
+
+        // Accept any greeting - just store the whole line as version
+        // This matches databento-cpp behavior which doesn't strictly validate
         return Greeting{
-            .session_id = std::string(data.substr(0, pipe)),
-            .version = std::string(data.substr(pipe + 1, newline - pipe - 1)),
+            .session_id = {},
+            .version = std::string(data),
         };
     }
 
@@ -62,7 +91,8 @@ public:
         return std::string(data.substr(prefix.size(), newline - prefix.size()));
     }
 
-    // Compute SHA256(challenge + '|' + api_key) as hex
+    // Compute SHA256(challenge + '|' + api_key) as hex, with bucket_id suffix
+    // Format: "<sha256_hex>-<bucket_id>" where bucket_id is last 4 chars of api_key
     static std::string ComputeResponse(std::string_view challenge,
                                        std::string_view api_key) {
         std::string challenge_key;
@@ -80,6 +110,27 @@ public:
             oss << std::hex << std::setfill('0') << std::setw(2)
                 << static_cast<int>(digest[i]);
         }
+
+        // Append bucket_id (last 4 chars of API key)
+        static constexpr std::size_t kBucketIdLength = 4;
+        if (api_key.size() >= kBucketIdLength) {
+            oss << '-' << api_key.substr(api_key.size() - kBucketIdLength);
+        }
+
+        return oss.str();
+    }
+
+    // Format auth request with required fields
+    // Format: auth=<auth>|dataset=<dataset>|encoding=dbn|ts_out=0|client=<client>
+    static std::string FormatAuthRequest(std::string_view auth,
+                                         std::string_view dataset,
+                                         std::string_view client = "dbn-pipe/0.1") {
+        std::ostringstream oss;
+        oss << "auth=" << auth
+            << "|dataset=" << dataset
+            << "|encoding=dbn"
+            << "|ts_out=0"
+            << "|client=" << client;
         return oss.str();
     }
 };
@@ -128,10 +179,12 @@ public:
     static std::shared_ptr<CramAuth> Create(
         IEventLoop& loop,
         std::shared_ptr<D> downstream,
-        std::string api_key
+        std::string api_key,
+        std::string dataset = {}
     ) {
         return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream),
-                                                    std::move(api_key));
+                                                    std::move(api_key),
+                                                    std::move(dataset));
     }
 
     ~CramAuth() = default;
@@ -144,9 +197,14 @@ public:
     // Set callback for sending data back through the socket
     void SetWriteCallback(WriteCallback cb) { write_callback_ = std::move(cb); }
 
-    // Subscribe to dataset/symbols/schema
+    // Subscribe to symbols/schema
     // If already Ready, sends immediately; otherwise queues for later
-    void Subscribe(std::string dataset, std::string symbols, std::string schema);
+    // Format matches official API: schema=<s>|stype_in=<t>|id=<n>|symbols=<syms>|snapshot=<b>|is_last=1
+    // Note: dataset is no longer needed in subscription - it's sent during auth
+    void Subscribe(std::string symbols, std::string schema,
+                   std::string stype_in = "raw_symbol",
+                   std::string start = {},
+                   bool snapshot = false);
 
     // Start streaming after subscription
     // Sends "start_session\n" and transitions to Streaming state
@@ -199,7 +257,7 @@ public:
 
 private:
     CramAuth(IEventLoop& loop, std::shared_ptr<D> downstream,
-             std::string api_key);
+             std::string api_key, std::string dataset);
 
     // Process accumulated line buffer for text mode
     void ProcessLineBuffer();
@@ -222,6 +280,7 @@ private:
     WriteCallback write_callback_ = [](BufferChain) {};
 
     std::string api_key_;
+    std::string dataset_;  // Dataset for auth request
     CramAuthState state_ = CramAuthState::WaitingGreeting;
     Greeting greeting_;
 
@@ -235,11 +294,14 @@ private:
     BufferChain pending_chain_;
 
     // Subscription parameters (queued until Ready)
-    std::optional<std::string> pending_dataset_;
     std::optional<std::string> pending_symbols_;
     std::optional<std::string> pending_schema_;
+    std::optional<std::string> pending_stype_in_;
+    std::optional<std::string> pending_start_;
+    bool pending_snapshot_ = false;
     bool subscription_sent_ = false;
     bool start_requested_ = false;
+    std::uint32_t sub_counter_ = 0;
 
     // PMR pool for output buffers (write path only)
     std::pmr::unsynchronized_pool_resource pool_;
@@ -250,9 +312,9 @@ private:
 template <Downstream D>
 struct CramAuth<D>::MakeSharedEnabler : public CramAuth<D> {
     MakeSharedEnabler(IEventLoop& loop, std::shared_ptr<D> downstream,
-                      std::string api_key)
+                      std::string api_key, std::string dataset)
         : CramAuth<D>(loop, std::move(downstream),
-                      std::move(api_key)) {}
+                      std::move(api_key), std::move(dataset)) {}
 };
 
 // Implementation
@@ -260,10 +322,12 @@ struct CramAuth<D>::MakeSharedEnabler : public CramAuth<D> {
 template <Downstream D>
 CramAuth<D>::CramAuth(IEventLoop& loop,
                       std::shared_ptr<D> downstream,
-                      std::string api_key)
+                      std::string api_key,
+                      std::string dataset)
     : Base(loop)
     , downstream_(std::move(downstream))
     , api_key_(std::move(api_key))
+    , dataset_(std::move(dataset))
 {}
 
 template <Downstream D>
@@ -489,12 +553,12 @@ void CramAuth<D>::HandleChallenge(std::string_view line) {
         return;
     }
 
-    // Compute CRAM response
+    // Compute CRAM response (includes bucket_id from API key)
     std::string response = CramAuthUtils::ComputeResponse(*challenge, api_key_);
 
-    // Send auth: auth=response|bucket_id
-    // Using empty bucket_id for now - can be extended later
-    std::string auth_line = "auth=" + response + "|";
+    // Send auth request with dataset and required fields
+    // Format: auth=<auth>|dataset=<dataset>|encoding=dbn|ts_out=0|client=dbn-pipe/0.1
+    std::string auth_line = CramAuthUtils::FormatAuthRequest(response, dataset_);
     SendLine(auth_line);
 
     state_ = CramAuthState::Authenticating;
@@ -569,11 +633,14 @@ void CramAuth<D>::HandleAuthResponse(std::string_view line) {
 }
 
 template <Downstream D>
-void CramAuth<D>::Subscribe(std::string dataset, std::string symbols,
-                            std::string schema) {
-    pending_dataset_ = std::move(dataset);
+void CramAuth<D>::Subscribe(std::string symbols, std::string schema,
+                            std::string stype_in, std::string start,
+                            bool snapshot) {
     pending_symbols_ = std::move(symbols);
     pending_schema_ = std::move(schema);
+    pending_stype_in_ = std::move(stype_in);
+    pending_start_ = start.empty() ? std::nullopt : std::optional{std::move(start)};
+    pending_snapshot_ = snapshot;
     subscription_sent_ = false;
 
     if (state_ == CramAuthState::Ready) {
@@ -583,16 +650,27 @@ void CramAuth<D>::Subscribe(std::string dataset, std::string symbols,
 
 template <Downstream D>
 void CramAuth<D>::SendPendingSubscription() {
-    if (subscription_sent_ || !pending_dataset_ || !pending_symbols_ ||
-        !pending_schema_) {
+    if (subscription_sent_ || !pending_symbols_ || !pending_schema_) {
         return;
     }
 
-    // Format: subscription=dataset|schema|stype_in|symbols
-    // Using 'raw_symbol' as stype_in for now
-    std::string sub_line = "subscription=" + *pending_dataset_ + "|" +
-                           *pending_schema_ + "|raw_symbol|" + *pending_symbols_;
-    SendLine(sub_line);
+    // Increment subscription ID
+    ++sub_counter_;
+
+    // Format matches official API:
+    // schema=<s>|stype_in=<t>|start=<ts>|id=<n>|symbols=<syms>|snapshot=<b>|is_last=<b>
+    std::ostringstream oss;
+    oss << "schema=" << *pending_schema_
+        << "|stype_in=" << pending_stype_in_.value_or("raw_symbol");
+    if (pending_start_) {
+        oss << "|start=" << *pending_start_;
+    }
+    oss << "|id=" << sub_counter_
+        << "|symbols=" << *pending_symbols_
+        << "|snapshot=" << (pending_snapshot_ ? "1" : "0")
+        << "|is_last=1";  // TODO: support chunking for large symbol lists
+
+    SendLine(oss.str());
     subscription_sent_ = true;
 
     // If start was requested before subscription was sent, send it now

@@ -39,11 +39,13 @@ concept ProtocolDriver = requires {
         IEventLoop& loop,
         Sink<Record>& sink,
         const std::string& api_key,
+        const std::string& dataset,
         std::shared_ptr<typename P::ChainType> chain,
         const typename P::Request& request
     ) {
         // Build component chain (including TcpSocket), returns entry point
-        { P::BuildChain(loop, sink, api_key) }
+        // Dataset is passed for protocols that need it during auth (e.g., LiveProtocol)
+        { P::BuildChain(loop, sink, api_key, dataset) }
             -> std::same_as<std::shared_ptr<typename P::ChainType>>;
 
         // Send the protocol-specific request

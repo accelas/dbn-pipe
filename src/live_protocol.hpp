@@ -67,9 +67,10 @@ struct LiveProtocol {
         using CramType = CramAuth<ParserType>;
         using HeadType = TcpSocket<CramType>;
 
-        ChainImpl(IEventLoop& loop, Sink<Record>& sink, const std::string& api_key)
+        ChainImpl(IEventLoop& loop, Sink<Record>& sink, const std::string& api_key,
+                  const std::string& dataset)
             : parser_(std::make_shared<ParserType>(sink))
-            , cram_(CramType::Create(loop, parser_, api_key))
+            , cram_(CramType::Create(loop, parser_, api_key, dataset))
             , head_(HeadType::Create(loop, cram_))
         {
             // Wire connect callback for ready signal
@@ -98,8 +99,9 @@ struct LiveProtocol {
         void Resume() override { head_->Resume(); }
 
         // Protocol-specific - forward to CramAuth
-        void Subscribe(std::string dataset, std::string symbols, std::string schema) override {
-            cram_->Subscribe(std::move(dataset), std::move(symbols), std::move(schema));
+        // Note: dataset is no longer needed in subscription - it's sent during auth
+        void Subscribe(std::string /*dataset*/, std::string symbols, std::string schema) override {
+            cram_->Subscribe(std::move(symbols), std::move(schema));
         }
 
         void StartStreaming() override {
@@ -118,9 +120,10 @@ struct LiveProtocol {
     static std::shared_ptr<ChainType> BuildChain(
         IEventLoop& loop,
         Sink<Record>& sink,
-        const std::string& api_key
+        const std::string& api_key,
+        const std::string& dataset
     ) {
-        return std::make_shared<ChainImpl<Record>>(loop, sink, api_key);
+        return std::make_shared<ChainImpl<Record>>(loop, sink, api_key, dataset);
     }
 
     // Send request - subscribe and start streaming
