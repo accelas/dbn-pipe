@@ -195,7 +195,8 @@ public:
     void OnDone();
 
     // Set callback for sending data back through the socket
-    void SetWriteCallback(WriteCallback cb) { write_callback_ = std::move(cb); }
+    // Name matches TcpSocket::WireDownstream() auto-wiring convention
+    void SetUpstreamWriteCallback(WriteCallback cb) { write_callback_ = std::move(cb); }
 
     // Subscribe to symbols/schema
     // If already Ready, sends immediately; otherwise queues for later
