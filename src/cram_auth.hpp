@@ -33,19 +33,48 @@ struct Greeting {
 // Utility class for CRAM authentication helpers
 class CramAuthUtils {
 public:
-    // Parse "session_id|version\n"
+    // Parse greeting line, supporting both formats:
+    // - Legacy: "session_id|version\n"
+    // - New LSG: "lsg_version=X.Y.Z (build)\n" or similar key=value format
     static std::optional<Greeting> ParseGreeting(std::string_view data) {
+        // Remove trailing newline/carriage return
+        auto newline = data.find('\n');
+        if (newline != std::string_view::npos) {
+            data = data.substr(0, newline);
+        }
+        if (!data.empty() && data.back() == '\r') {
+            data = data.substr(0, data.size() - 1);
+        }
+
+        // Try legacy format: "session_id|version"
         auto pipe = data.find('|');
-        if (pipe == std::string_view::npos) {
-            return std::nullopt;
+        if (pipe != std::string_view::npos) {
+            return Greeting{
+                .session_id = std::string(data.substr(0, pipe)),
+                .version = std::string(data.substr(pipe + 1)),
+            };
         }
-        auto newline = data.find('\n', pipe);
-        if (newline == std::string_view::npos) {
-            newline = data.size();
+
+        // Try new format: "lsg_version=X.Y.Z" or "key=value (extra)"
+        auto eq = data.find('=');
+        if (eq != std::string_view::npos) {
+            auto value = data.substr(eq + 1);
+            // Strip optional parenthetical suffix like " (5)"
+            auto paren = value.find(" (");
+            if (paren != std::string_view::npos) {
+                value = value.substr(0, paren);
+            }
+            return Greeting{
+                .session_id = {},  // Session ID comes in auth response for new format
+                .version = std::string(value),
+            };
         }
+
+        // Accept any greeting - just store the whole line as version
+        // This matches databento-cpp behavior which doesn't strictly validate
         return Greeting{
-            .session_id = std::string(data.substr(0, pipe)),
-            .version = std::string(data.substr(pipe + 1, newline - pipe - 1)),
+            .session_id = {},
+            .version = std::string(data),
         };
     }
 
