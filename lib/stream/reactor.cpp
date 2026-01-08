@@ -230,14 +230,18 @@ int Reactor::Poll(int timeout_ms) {
 }
 
 void Reactor::Run() {
-    running_.store(true, std::memory_order_relaxed);
-    while (running_.load(std::memory_order_relaxed)) {
+    // Only run if we're in Idle state (not already Stopped)
+    State expected = State::Idle;
+    if (!state_.compare_exchange_strong(expected, State::Running, std::memory_order_relaxed)) {
+        return;  // Already running or stopped
+    }
+    while (state_.load(std::memory_order_relaxed) == State::Running) {
         Poll(-1);
     }
 }
 
 void Reactor::Stop() {
-    running_.store(false, std::memory_order_relaxed);
+    state_.store(State::Stopped, std::memory_order_relaxed);
     Wake();  // Interrupt epoll_wait so Run() exits immediately
 }
 
