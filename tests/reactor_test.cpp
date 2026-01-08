@@ -331,3 +331,63 @@ TEST(ReactorTest, DeferThreadSafety) {
 
     EXPECT_EQ(total_calls.load(), kNumThreads * kCallsPerThread);
 }
+
+// Regression test for PR #46: Stop() called before Run() starts should not
+// cause Run() to run forever. Previously, Run() unconditionally set running_
+// to true, which would overwrite Stop()'s false value.
+TEST(ReactorTest, StopBeforeRunDoesNotHang) {
+    Reactor reactor;
+
+    // Call Stop() before Run() starts
+    reactor.Stop();
+
+    // Run() should return immediately (not block forever)
+    // This test will timeout if the bug is present
+    std::thread runner([&]() {
+        reactor.Run();
+    });
+
+    // If Run() hangs, this join will timeout
+    // Give it 100ms max - Run() should exit nearly instantly
+    auto start = std::chrono::steady_clock::now();
+    runner.join();
+    auto elapsed = std::chrono::steady_clock::now() - start;
+
+    // Run() should have exited nearly instantly (< 50ms)
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count(), 50);
+}
+
+// Regression test: Stop() called while Run() is starting up
+TEST(ReactorTest, StopDuringRunStartup) {
+    // Run this test multiple times to catch timing-dependent races
+    for (int i = 0; i < 10; ++i) {
+        Reactor reactor;
+
+        std::atomic<bool> run_started{false};
+        std::atomic<bool> run_exited{false};
+
+        std::thread runner([&]() {
+            run_started.store(true);
+            reactor.Run();
+            run_exited.store(true);
+        });
+
+        // Call Stop() as soon as possible - may race with Run()'s startup
+        while (!run_started.load()) {
+            std::this_thread::yield();
+        }
+        reactor.Stop();
+
+        // Wait for Run() to exit with timeout
+        auto start = std::chrono::steady_clock::now();
+        while (!run_exited.load()) {
+            auto elapsed = std::chrono::steady_clock::now() - start;
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() > 100) {
+                FAIL() << "Run() did not exit within 100ms after Stop()";
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        runner.join();
+    }
+}
