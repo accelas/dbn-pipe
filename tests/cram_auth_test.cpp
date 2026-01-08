@@ -98,7 +98,7 @@ protected:
     std::vector<std::byte> sent_data_;
 
     void SetupWriteCallback() {
-        handler_->SetWriteCallback([this](BufferChain chain) {
+        handler_->SetUpstreamWriteCallback([this](BufferChain chain) {
             while (!chain.Empty()) {
                 size_t chunk_size = chain.ContiguousSize();
                 const std::byte* ptr = chain.DataAt(0);

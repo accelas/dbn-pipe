@@ -111,8 +111,8 @@ public:
                 << static_cast<int>(digest[i]);
         }
 
-        // Append bucket_id (last 4 chars of API key)
-        static constexpr std::size_t kBucketIdLength = 4;
+        // Append bucket_id (last 5 chars of API key)
+        static constexpr std::size_t kBucketIdLength = 5;
         if (api_key.size() >= kBucketIdLength) {
             oss << '-' << api_key.substr(api_key.size() - kBucketIdLength);
         }
@@ -195,7 +195,8 @@ public:
     void OnDone();
 
     // Set callback for sending data back through the socket
-    void SetWriteCallback(WriteCallback cb) { write_callback_ = std::move(cb); }
+    // Name matches TcpSocket::WireDownstream() auto-wiring convention
+    void SetUpstreamWriteCallback(WriteCallback cb) { write_callback_ = std::move(cb); }
 
     // Subscribe to symbols/schema
     // If already Ready, sends immediately; otherwise queues for later

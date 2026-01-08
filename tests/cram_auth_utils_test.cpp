@@ -69,13 +69,13 @@ TEST(CramAuthUtilsTest, ParseChallengeMissingPrefix) {
 TEST(CramAuthUtilsTest, ComputeResponse) {
     // Known test vector: echo -n "test_challenge|test_api_key" | sha256sum
     // = b769a86a50ffcaf90cfabf1189838ff2378f12e909075298cdb75ec91943b23f
-    // Plus bucket_id suffix: last 4 chars of api_key = "_key"
+    // Plus bucket_id suffix: last 5 chars of api_key = "i_key"
     std::string challenge = "test_challenge";
     std::string api_key = "test_api_key";
 
     std::string response = CramAuthUtils::ComputeResponse(challenge, api_key);
 
-    EXPECT_EQ(response, "b769a86a50ffcaf90cfabf1189838ff2378f12e909075298cdb75ec91943b23f-_key");
+    EXPECT_EQ(response, "b769a86a50ffcaf90cfabf1189838ff2378f12e909075298cdb75ec91943b23f-i_key");
 }
 
 TEST(CramAuthUtilsTest, ComputeResponseDeterministic) {
