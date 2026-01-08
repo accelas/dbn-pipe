@@ -147,9 +147,11 @@ public:
     bool IsInReactorThread() const { return IsInEventLoopThread(); }
 
 private:
+    enum class State { Idle, Running, Stopped };
+
     int epoll_fd_;
     int wake_fd_;  // eventfd for cross-thread wakeup
-    std::atomic<bool> running_{false};
+    std::atomic<State> state_{State::Idle};
     std::vector<epoll_event> events_;
     mutable std::mutex deferred_mutex_;
     std::vector<std::function<void()>> deferred_;
