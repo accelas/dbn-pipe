@@ -55,7 +55,7 @@ constexpr size_t kSymbolCstrLenV3 = 71;
 
 // DBN rtype constants
 constexpr std::uint8_t kRTypeInstrumentDef = 0x13;
-constexpr std::uint8_t kRTypeStatistics = 0x11;
+constexpr std::uint8_t kRTypeStatistics = 0x18;
 constexpr std::uint8_t kRTypeError = 0x15;
 constexpr std::uint8_t kRTypeSymbolMapping = 0x16;
 constexpr std::uint8_t kRTypeSystem = 0x17;
