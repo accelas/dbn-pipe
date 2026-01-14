@@ -8,6 +8,7 @@
 #include <new>
 #include <string>
 
+#include <databento/enums.hpp>
 #include <databento/record.hpp>
 #include <databento/v1.hpp>
 #include <databento/v2.hpp>
@@ -53,12 +54,8 @@ static_assert(kSymbolMappingMsgV3Size == 176, "SymbolMappingMsg v3 must be 176 b
 constexpr size_t kSymbolCstrLenV1 = 22;
 constexpr size_t kSymbolCstrLenV3 = 71;
 
-// DBN rtype constants
-constexpr std::uint8_t kRTypeInstrumentDef = 0x13;
-constexpr std::uint8_t kRTypeStatistics = 0x18;
-constexpr std::uint8_t kRTypeError = 0x15;
-constexpr std::uint8_t kRTypeSymbolMapping = 0x16;
-constexpr std::uint8_t kRTypeSystem = 0x17;
+// Use official databento::RType enum for rtype comparisons
+// No custom constants - prevents them from getting out of sync with the API
 
 // DbnParserComponent - Zero-copy parser that outputs RecordBatch.
 //
@@ -389,13 +386,14 @@ bool DbnParserComponent<S>::SkipMetadataIfNeeded(BufferChain& chain) {
 
 template <RecordSink S>
 size_t DbnParserComponent<S>::GetV3SizeForConversion(std::uint8_t rtype) const {
-    switch (rtype) {
-        case kRTypeInstrumentDef: return kInstrumentDefMsgV3Size;
-        case kRTypeStatistics:    return kStatMsgV3Size;
-        case kRTypeError:         return kErrorMsgV3Size;
-        case kRTypeSystem:        return kSystemMsgV3Size;
-        case kRTypeSymbolMapping: return kSymbolMappingMsgV3Size;
-        default:                  return 0;  // No conversion needed
+    // Use official databento::RType enum to ensure values stay in sync with API
+    switch (static_cast<databento::RType>(rtype)) {
+        case databento::RType::InstrumentDef: return kInstrumentDefMsgV3Size;
+        case databento::RType::Statistics:    return kStatMsgV3Size;
+        case databento::RType::Error:         return kErrorMsgV3Size;
+        case databento::RType::System:        return kSystemMsgV3Size;
+        case databento::RType::SymbolMapping: return kSymbolMappingMsgV3Size;
+        default:                              return 0;  // No conversion needed
     }
 }
 
@@ -406,16 +404,17 @@ bool DbnParserComponent<S>::ConvertRecordToV3(
     // Zero-initialize destination
     std::memset(dst, 0, dst_size);
 
-    switch (rtype) {
-        case kRTypeInstrumentDef:
+    // Use official databento::RType enum to ensure values stay in sync with API
+    switch (static_cast<databento::RType>(rtype)) {
+        case databento::RType::InstrumentDef:
             return ConvertInstrumentDef(src, dst, dst_size);
-        case kRTypeStatistics:
+        case databento::RType::Statistics:
             return ConvertStat(src, dst, dst_size);
-        case kRTypeError:
+        case databento::RType::Error:
             return ConvertError(src, dst, dst_size);
-        case kRTypeSystem:
+        case databento::RType::System:
             return ConvertSystem(src, dst, dst_size);
-        case kRTypeSymbolMapping:
+        case databento::RType::SymbolMapping:
             return ConvertSymbolMapping(src, dst, dst_size);
         default:
             return false;
