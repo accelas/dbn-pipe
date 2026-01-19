@@ -1,6 +1,12 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 cc_library(
+    name = "trading_date",
+    hdrs = ["trading_date.hpp"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
     name = "tls_transport",
     hdrs = ["tls_transport.hpp"],
     visibility = ["//visibility:public"],
