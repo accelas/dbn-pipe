@@ -246,3 +246,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "instrument_map_test",
+    srcs = ["instrument_map_test.cpp"],
+    deps = [
+        "//src:instrument_map",
+        "//src:trading_date",
+        "@googletest//:gtest_main",
+    ],
+)
