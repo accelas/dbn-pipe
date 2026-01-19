@@ -284,3 +284,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "duckdb_storage_test",
+    srcs = ["duckdb_storage_test.cpp"],
+    deps = [
+        "//src:duckdb_storage",
+        "//src:trading_date",
+        "@googletest//:gtest_main",
+    ],
+)
