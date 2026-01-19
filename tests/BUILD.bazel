@@ -275,3 +275,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "stype_test",
+    srcs = ["stype_test.cpp"],
+    deps = [
+        "//src:stype",
+        "@googletest//:gtest_main",
+    ],
+)

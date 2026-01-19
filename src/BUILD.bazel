@@ -231,3 +231,9 @@ cc_library(
         "@databento_cpp//:databento_headers",
     ],
 )
+
+cc_library(
+    name = "stype",
+    hdrs = ["stype.hpp"],
+    visibility = ["//visibility:public"],
+)
