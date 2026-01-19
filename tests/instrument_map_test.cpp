@@ -1,5 +1,11 @@
 // tests/instrument_map_test.cpp
 #include <gtest/gtest.h>
+
+#include <cstring>
+#include <vector>
+
+#include <databento/record.hpp>
+
 #include "src/instrument_map.hpp"
 #include "src/trading_date.hpp"
 
@@ -68,4 +74,32 @@ TEST(InstrumentMapTest, HandlesMultipleIntervalsForSameId) {
     // Query gap between intervals
     auto jan17 = TradingDate::FromIsoString("2025-01-17");
     EXPECT_FALSE(map.Resolve(42, jan17).has_value());
+}
+
+TEST(InstrumentMapTest, OnSymbolMappingMsgPopulatesMap) {
+    InstrumentMap map;
+
+    // Create a SymbolMappingMsg record
+    std::vector<std::byte> record(sizeof(databento::SymbolMappingMsg));
+    std::memset(record.data(), 0, record.size());
+
+    auto* msg = reinterpret_cast<databento::SymbolMappingMsg*>(record.data());
+    msg->hd.length = sizeof(databento::SymbolMappingMsg) / databento::RecordHeader::kLengthMultiplier;
+    msg->hd.rtype = databento::RType::SymbolMapping;
+    msg->hd.instrument_id = 42;
+
+    // Use chrono duration for UnixNanos type
+    using NanosDuration = std::chrono::duration<uint64_t, std::nano>;
+    msg->start_ts = databento::UnixNanos{NanosDuration{1735689600000000000ULL}};  // 2025-01-01 00:00:00 UTC
+    msg->end_ts = databento::UnixNanos{NanosDuration{1738281600000000000ULL}};    // 2025-01-31 00:00:00 UTC
+
+    const char* symbol = "AAPL";
+    std::strncpy(msg->stype_out_symbol.data(), symbol, msg->stype_out_symbol.size());
+
+    map.OnSymbolMappingMsg(*msg);
+
+    auto jan15 = TradingDate::FromIsoString("2025-01-15");
+    auto result = map.Resolve(42, jan15);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "AAPL");
 }
