@@ -47,6 +47,12 @@ struct MappingInterval {
 // from the Databento API asynchronously, then retry after the map
 // is populated. This enables non-blocking async resolution patterns.
 //
+// Storage behavior: Storage is queried only when an instrument_id is
+// entirely absent from memory (cold-start). If an ID exists but the
+// requested date falls outside cached intervals, storage is NOT queried
+// and nullopt is returned. This is intentional - the caller handles
+// missing data via async API fetch. See issue #50 for timeout handling.
+//
 // Thread safety: Not thread-safe. Use external synchronization if
 // accessed from multiple threads.
 //
