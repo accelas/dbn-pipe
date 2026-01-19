@@ -236,3 +236,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "storage_test",
+    srcs = ["storage_test.cpp"],
+    deps = [
+        "//src:storage",
+        "//src:trading_date",
+        "@googletest//:gtest_main",
+    ],
+)
