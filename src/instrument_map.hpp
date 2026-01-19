@@ -2,6 +2,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -27,6 +28,10 @@ struct MappingInterval {
 //
 // Thread safety: Not thread-safe. Use external synchronization if
 // accessed from multiple threads.
+//
+// Overlapping intervals: Not supported. If intervals for the same
+// instrument_id overlap, Resolve() behavior is undefined. Callers
+// must ensure intervals are non-overlapping.
 class InstrumentMap {
 public:
     explicit InstrumentMap(std::shared_ptr<IStorage> storage = nullptr)
@@ -35,6 +40,7 @@ public:
     // Insert mapping with date range
     void Insert(uint32_t instrument_id, const std::string& symbol,
                 const TradingDate& start, const TradingDate& end) {
+        assert(start <= end && "Insert: start date must be <= end date");
         auto& intervals = mappings_[instrument_id];
         intervals.push_back({start, end, symbol});
 
@@ -75,12 +81,12 @@ public:
     }
 
     // Clear all mappings
-    void Clear() {
+    void Clear() noexcept {
         mappings_.clear();
     }
 
     // Get number of instrument_ids tracked
-    std::size_t Size() const {
+    std::size_t Size() const noexcept {
         return mappings_.size();
     }
 
