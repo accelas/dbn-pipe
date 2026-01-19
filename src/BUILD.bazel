@@ -216,3 +216,9 @@ cc_library(
         "//lib/stream:tcp_socket",
     ],
 )
+
+cc_library(
+    name = "retry_policy",
+    hdrs = ["retry_policy.hpp"],
+    visibility = ["//visibility:public"],
+)

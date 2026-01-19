@@ -257,3 +257,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "retry_policy_test",
+    srcs = ["retry_policy_test.cpp"],
+    deps = [
+        "//src:retry_policy",
+        "@googletest//:gtest_main",
+    ],
+)
