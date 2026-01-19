@@ -39,3 +39,17 @@ TEST(TradingDateTest, LessThanOrEqualComparison) {
     EXPECT_TRUE(earlier <= earlier);
     EXPECT_FALSE(later <= earlier);
 }
+
+TEST(TradingDateTest, FromNanosecondsConvertsToNewYorkDate) {
+    // 2025-01-15 12:00:00 UTC = 2025-01-15 07:00:00 EST (same day)
+    uint64_t noon_utc = 1736942400000000000ULL;  // 2025-01-15T12:00:00Z
+    auto date = TradingDate::FromNanoseconds(noon_utc);
+    EXPECT_EQ(date.ToIsoString(), "2025-01-15");
+}
+
+TEST(TradingDateTest, FromNanosecondsHandlesMidnightEdge) {
+    // 2025-01-15 04:00:00 UTC = 2025-01-14 23:00:00 EST (previous day!)
+    uint64_t early_utc = 1736913600000000000ULL;  // 2025-01-15T04:00:00Z
+    auto date = TradingDate::FromNanoseconds(early_utc);
+    EXPECT_EQ(date.ToIsoString(), "2025-01-14");
+}
