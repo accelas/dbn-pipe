@@ -16,6 +16,16 @@ cc_library(
 )
 
 cc_library(
+    name = "instrument_map",
+    hdrs = ["instrument_map.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":storage",
+        ":trading_date",
+    ],
+)
+
+cc_library(
     name = "tls_transport",
     hdrs = ["tls_transport.hpp"],
     visibility = ["//visibility:public"],
