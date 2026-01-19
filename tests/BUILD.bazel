@@ -1,6 +1,15 @@
 load("@rules_cc//cc:defs.bzl", "cc_test")
 
 cc_test(
+    name = "trading_date_test",
+    srcs = ["trading_date_test.cpp"],
+    deps = [
+        "//src:trading_date",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "error_test",
     srcs = ["error_test.cpp"],
     deps = [
