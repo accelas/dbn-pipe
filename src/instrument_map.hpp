@@ -3,9 +3,11 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -16,6 +18,18 @@
 #include "trading_date.hpp"
 
 namespace dbn_pipe {
+
+// Validate IANA timezone name. Throws std::runtime_error if invalid.
+inline void ValidateTimezone(const std::string& timezone) {
+    try {
+        // Attempt to locate the timezone in the system tzdb
+        std::chrono::locate_zone(timezone);
+    } catch (const std::runtime_error&) {
+        throw std::runtime_error(
+            "Invalid timezone: '" + timezone + "'. "
+            "Use IANA timezone names (e.g., 'America/New_York', 'UTC').");
+    }
+}
 
 // Single mapping interval
 struct MappingInterval {
@@ -38,11 +52,14 @@ class InstrumentMap {
 public:
     // Construct with optional storage and timezone for timestamp conversion.
     // Timezone uses IANA names: "America/New_York", "America/Chicago", "UTC", etc.
+    // Throws std::runtime_error if timezone is invalid.
     explicit InstrumentMap(
         std::shared_ptr<IStorage> storage = nullptr,
         std::string timezone = "America/New_York")
         : storage_(storage ? storage : std::make_shared<NoOpStorage>())
-        , timezone_(std::move(timezone)) {}
+        , timezone_(std::move(timezone)) {
+        ValidateTimezone(timezone_);
+    }
 
     // Insert mapping with date range
     void Insert(uint32_t instrument_id, const std::string& symbol,

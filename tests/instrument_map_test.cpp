@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <stdexcept>
 #include <vector>
 
 #include <databento/record.hpp>
@@ -116,4 +117,15 @@ TEST(InstrumentMapTest, TimezoneIsConfigurable) {
     // UTC timezone
     InstrumentMap utc_map(nullptr, "UTC");
     EXPECT_EQ(utc_map.Timezone(), "UTC");
+}
+
+TEST(InstrumentMapTest, InvalidTimezoneThrows) {
+    // Invalid timezone should throw at construction
+    EXPECT_THROW(
+        InstrumentMap(nullptr, "Invalid/Timezone"),
+        std::runtime_error);
+
+    EXPECT_THROW(
+        InstrumentMap(nullptr, ""),
+        std::runtime_error);
 }
