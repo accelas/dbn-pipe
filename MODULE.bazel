@@ -45,6 +45,10 @@ use_repo(openssl_sys, "openssl_sys")
 llhttp_ext = use_extension("//third_party/llhttp:llhttp.bzl", "llhttp_ext")
 use_repo(llhttp_ext, "llhttp")
 
+# DuckDB embedded database (for InstrumentMap cache)
+duckdb_ext = use_extension("//third_party/duckdb:duckdb.bzl", "duckdb")
+use_repo(duckdb_ext, "duckdb")
+
 # ============================================================================
 # C++ Toolchain
 # ============================================================================

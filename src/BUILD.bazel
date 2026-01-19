@@ -237,3 +237,14 @@ cc_library(
     hdrs = ["stype.hpp"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "duckdb_storage",
+    hdrs = ["duckdb_storage.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":storage",
+        ":trading_date",
+        "@duckdb",
+    ],
+)
