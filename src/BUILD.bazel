@@ -222,3 +222,12 @@ cc_library(
     hdrs = ["retry_policy.hpp"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "schema_utils",
+    hdrs = ["schema_utils.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@databento_cpp//:databento_headers",
+    ],
+)
