@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <databento/record.hpp>
+
 #include "storage.hpp"
 #include "trading_date.hpp"
 
@@ -78,6 +80,20 @@ public:
         }
 
         return std::nullopt;
+    }
+
+    // Populate from DBN stream records
+    void OnSymbolMappingMsg(const databento::SymbolMappingMsg& msg) {
+        uint32_t id = msg.hd.instrument_id;
+        std::string symbol(msg.STypeOutSymbol());
+
+        // Convert timestamps to TradingDates
+        auto start = TradingDate::FromNanoseconds(
+            static_cast<uint64_t>(msg.start_ts.time_since_epoch().count()));
+        auto end = TradingDate::FromNanoseconds(
+            static_cast<uint64_t>(msg.end_ts.time_since_epoch().count()));
+
+        Insert(id, symbol, start, end);
     }
 
     // Clear all mappings

@@ -22,6 +22,7 @@ cc_library(
     deps = [
         ":storage",
         ":trading_date",
+        "@databento_cpp//:databento_headers",
     ],
 )
 
