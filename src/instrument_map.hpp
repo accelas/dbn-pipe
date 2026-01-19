@@ -36,8 +36,13 @@ struct MappingInterval {
 // must ensure intervals are non-overlapping.
 class InstrumentMap {
 public:
-    explicit InstrumentMap(std::shared_ptr<IStorage> storage = nullptr)
-        : storage_(storage ? storage : std::make_shared<NoOpStorage>()) {}
+    // Construct with optional storage and timezone for timestamp conversion.
+    // Timezone uses IANA names: "America/New_York", "America/Chicago", "UTC", etc.
+    explicit InstrumentMap(
+        std::shared_ptr<IStorage> storage = nullptr,
+        std::string timezone = "America/New_York")
+        : storage_(storage ? storage : std::make_shared<NoOpStorage>())
+        , timezone_(std::move(timezone)) {}
 
     // Insert mapping with date range
     void Insert(uint32_t instrument_id, const std::string& symbol,
@@ -67,15 +72,20 @@ public:
 
         const auto& intervals = it->second;
 
-        // Binary search for interval containing date
-        auto interval_it = std::lower_bound(
+        // Binary search: find first interval where start_date > date
+        // Then check the preceding interval (if any) to see if it contains date
+        auto interval_it = std::upper_bound(
             intervals.begin(), intervals.end(), date,
-            [](const MappingInterval& interval, const TradingDate& d) {
-                return interval.end_date < d;
+            [](const TradingDate& d, const MappingInterval& interval) {
+                return d < interval.start_date;
             });
 
-        if (interval_it != intervals.end() &&
-            interval_it->start_date <= date && date <= interval_it->end_date) {
+        if (interval_it == intervals.begin()) {
+            return std::nullopt;
+        }
+        --interval_it;
+
+        if (interval_it->start_date <= date && date <= interval_it->end_date) {
             return interval_it->symbol;
         }
 
@@ -87,11 +97,13 @@ public:
         uint32_t id = msg.hd.instrument_id;
         std::string symbol(msg.STypeOutSymbol());
 
-        // Convert timestamps to TradingDates
+        // Convert timestamps to TradingDates using configured timezone
         auto start = TradingDate::FromNanoseconds(
-            static_cast<uint64_t>(msg.start_ts.time_since_epoch().count()));
+            static_cast<uint64_t>(msg.start_ts.time_since_epoch().count()),
+            timezone_);
         auto end = TradingDate::FromNanoseconds(
-            static_cast<uint64_t>(msg.end_ts.time_since_epoch().count()));
+            static_cast<uint64_t>(msg.end_ts.time_since_epoch().count()),
+            timezone_);
 
         Insert(id, symbol, start, end);
     }
@@ -106,9 +118,13 @@ public:
         return mappings_.size();
     }
 
+    // Get configured timezone
+    const std::string& Timezone() const noexcept { return timezone_; }
+
 private:
     std::unordered_map<uint32_t, std::vector<MappingInterval>> mappings_;
     std::shared_ptr<IStorage> storage_;
+    std::string timezone_;
 };
 
 }  // namespace dbn_pipe

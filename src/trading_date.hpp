@@ -1,6 +1,7 @@
 // src/trading_date.hpp
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -27,24 +28,27 @@ public:
         return TradingDate(year, month, day);
     }
 
-    // Convert nanoseconds since Unix epoch (UTC) to trading date in America/New_York.
-    // Note: Uses fixed EST offset (-5 hours). For production with DST handling,
-    // consider using Howard Hinnant's date library or system tzdb.
-    static TradingDate FromNanoseconds(uint64_t ns_since_epoch) {
-        // Convert to seconds
-        int64_t seconds = static_cast<int64_t>(ns_since_epoch / 1000000000ULL);
+    // Convert nanoseconds since Unix epoch (UTC) to trading date in specified timezone.
+    // Uses C++20 std::chrono::zoned_time for proper DST handling.
+    //
+    // Example timezones: "America/New_York", "America/Chicago", "UTC"
+    static TradingDate FromNanoseconds(uint64_t ns_since_epoch, std::string_view timezone) {
+        // Convert nanoseconds to sys_time (UTC)
+        auto sys_time = std::chrono::sys_time<std::chrono::nanoseconds>{
+            std::chrono::nanoseconds{ns_since_epoch}};
 
-        // Apply EST offset (-5 hours = -18000 seconds)
-        constexpr int64_t kEstOffsetSeconds = -5 * 3600;
-        seconds += kEstOffsetSeconds;
+        // Convert to local time in specified timezone
+        std::chrono::zoned_time zt{timezone, sys_time};
+        auto local_time = zt.get_local_time();
 
-        // Convert seconds since epoch to days (floor division)
-        int64_t days = seconds / 86400;
-        if (seconds < 0 && seconds % 86400 != 0) {
-            days--;  // Floor division for negative values
-        }
+        // Extract local days and convert to date
+        auto local_days = std::chrono::floor<std::chrono::days>(local_time);
+        std::chrono::year_month_day ymd{local_days};
 
-        return FromDaysSinceEpoch(static_cast<int32_t>(days));
+        return TradingDate(
+            static_cast<int>(ymd.year()),
+            static_cast<unsigned>(ymd.month()),
+            static_cast<unsigned>(ymd.day()));
     }
 
     int Year() const { return year_; }

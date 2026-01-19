@@ -103,3 +103,17 @@ TEST(InstrumentMapTest, OnSymbolMappingMsgPopulatesMap) {
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, "AAPL");
 }
+
+TEST(InstrumentMapTest, TimezoneIsConfigurable) {
+    // Default timezone
+    InstrumentMap default_map;
+    EXPECT_EQ(default_map.Timezone(), "America/New_York");
+
+    // Custom timezone
+    InstrumentMap chicago_map(nullptr, "America/Chicago");
+    EXPECT_EQ(chicago_map.Timezone(), "America/Chicago");
+
+    // UTC timezone
+    InstrumentMap utc_map(nullptr, "UTC");
+    EXPECT_EQ(utc_map.Timezone(), "UTC");
+}
