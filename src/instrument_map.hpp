@@ -42,6 +42,11 @@ struct MappingInterval {
 // Critical for OPRA options where instrument_ids can be recycled
 // across different trading days.
 //
+// Design: In-memory cache populated via OnSymbolMappingMsg(). When
+// Resolve() returns nullopt, the caller should fetch missing data
+// from the Databento API asynchronously, then retry after the map
+// is populated. This enables non-blocking async resolution patterns.
+//
 // Thread safety: Not thread-safe. Use external synchronization if
 // accessed from multiple threads.
 //
