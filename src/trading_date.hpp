@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <string_view>
 
@@ -29,6 +30,39 @@ public:
     int Year() const { return year_; }
     int Month() const { return month_; }
     int Day() const { return day_; }
+
+    std::string ToIsoString() const {
+        char buf[20];  // Worst case: "-YYYY-MM-DD" with negative values + null
+        std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",
+                      static_cast<int>(year_), static_cast<int>(month_), static_cast<int>(day_));
+        return std::string(buf);
+    }
+
+    bool operator<(const TradingDate& other) const {
+        if (year_ != other.year_) return year_ < other.year_;
+        if (month_ != other.month_) return month_ < other.month_;
+        return day_ < other.day_;
+    }
+
+    bool operator==(const TradingDate& other) const {
+        return year_ == other.year_ && month_ == other.month_ && day_ == other.day_;
+    }
+
+    bool operator<=(const TradingDate& other) const {
+        return *this < other || *this == other;
+    }
+
+    bool operator>(const TradingDate& other) const {
+        return other < *this;
+    }
+
+    bool operator>=(const TradingDate& other) const {
+        return other <= *this;
+    }
+
+    bool operator!=(const TradingDate& other) const {
+        return !(*this == other);
+    }
 
 private:
     TradingDate(int year, int month, int day)
