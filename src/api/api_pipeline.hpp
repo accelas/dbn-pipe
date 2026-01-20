@@ -1,6 +1,8 @@
 // src/api/api_pipeline.hpp
 #pragma once
 
+#include <algorithm>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <sstream>

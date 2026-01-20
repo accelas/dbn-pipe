@@ -217,11 +217,23 @@ private:
 // (ConnectionFailed, ServerError, TlsHandshakeFailed, RateLimited).
 //
 // Thread safety: Not thread-safe. All methods must be called from the event loop thread.
-class SymbologyClient {
+//
+// Lifetime: Must be managed via shared_ptr (use Create() factory method).
+// The client must outlive any in-flight requests.
+class SymbologyClient : public std::enable_shared_from_this<SymbologyClient> {
 public:
-    SymbologyClient(IEventLoop& loop, std::string api_key,
-                    RetryConfig retry_config = RetryConfig::ApiDefaults())
+    static std::shared_ptr<SymbologyClient> Create(
+        IEventLoop& loop, std::string api_key,
+        RetryConfig retry_config = RetryConfig::ApiDefaults()) {
+        return std::shared_ptr<SymbologyClient>(
+            new SymbologyClient(loop, std::move(api_key), retry_config));
+    }
+
+private:
+    SymbologyClient(IEventLoop& loop, std::string api_key, RetryConfig retry_config)
         : loop_(loop), api_key_(std::move(api_key)), retry_config_(retry_config) {}
+
+public:
 
     void Resolve(
         const std::string& dataset,
@@ -272,11 +284,14 @@ private:
                 ErrorCode::DnsResolutionFailed,
                 std::string("Failed to resolve ") + kHostname};
             if (retry_state->ShouldRetry(error)) {
-                retry_state->RecordAttempt();
+                // Get delay before recording attempt (so first retry uses initial_delay)
                 auto delay = retry_state->GetNextDelay(error);
+                retry_state->RecordAttempt();
                 // Schedule retry via event loop timer (non-blocking)
-                loop_.Schedule(delay, [this, req, callback, retry_state]() {
-                    CallApiWithRetry(req, callback, retry_state);
+                // Capture shared_from_this to prevent use-after-free if client is destroyed
+                auto self = this->shared_from_this();
+                loop_.Schedule(delay, [self, req, callback, retry_state]() {
+                    self->CallApiWithRetry(req, callback, retry_state);
                 });
                 return;
             }
@@ -288,15 +303,21 @@ private:
         auto api_key = api_key_;
         std::string http_request = req.BuildHttpRequest(kHostname, api_key);
 
-        auto self = this;
-        auto pipeline = ApiPipeline<SymbologyBuilder>::Create(
+        // Capture shared_from_this to prevent use-after-free
+        auto self = this->shared_from_this();
+
+        // Use a shared_ptr holder to keep the pipeline alive until completion.
+        auto pipeline_holder = std::make_shared<std::shared_ptr<ApiPipeline<SymbologyBuilder>>>();
+
+        *pipeline_holder = ApiPipeline<SymbologyBuilder>::Create(
             loop_,
             kHostname,
             *builder,
-            [self, req, callback, retry_state, builder](auto result) {
+            [self, req, callback, retry_state, builder, pipeline_holder](auto result) {
                 if (!result && retry_state->ShouldRetry(result.error())) {
-                    retry_state->RecordAttempt();
+                    // Get delay before recording attempt
                     auto delay = retry_state->GetNextDelay(result.error());
+                    retry_state->RecordAttempt();
                     // Schedule retry via event loop timer (non-blocking)
                     self->loop_.Schedule(delay, [self, req, callback, retry_state]() {
                         self->CallApiWithRetry(req, callback, retry_state);
@@ -304,17 +325,19 @@ private:
                 } else {
                     callback(std::move(result));
                 }
+                // Release pipeline reference to allow cleanup
+                pipeline_holder->reset();
             });
 
         // Use weak_ptr to avoid cycle in ready callback
-        std::weak_ptr<ApiPipeline<SymbologyBuilder>> weak_pipeline = pipeline;
-        pipeline->SetReadyCallback([weak_pipeline, http_request]() {
+        std::weak_ptr<ApiPipeline<SymbologyBuilder>> weak_pipeline = *pipeline_holder;
+        (*pipeline_holder)->SetReadyCallback([weak_pipeline, http_request]() {
             if (auto p = weak_pipeline.lock()) {
                 p->SendRequest(http_request);
             }
         });
 
-        pipeline->Connect(*addr);
+        (*pipeline_holder)->Connect(*addr);
     }
 
     IEventLoop& loop_;
