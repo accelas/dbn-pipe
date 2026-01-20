@@ -6,6 +6,7 @@
 #include <sys/epoll.h>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -52,6 +53,13 @@ private:
     IEventLoop::ErrorCallback on_error_;
 };
 
+// Timer entry for scheduled callbacks
+struct TimerEntry {
+    int fd;                             // timerfd file descriptor
+    std::function<void()> callback;
+    std::unique_ptr<IEventHandle> handle;
+};
+
 // Epoll-based implementation of IEventLoop
 class EpollEventLoop : public IEventLoop {
 public:
@@ -74,6 +82,7 @@ public:
         ErrorCallback on_error) override;
 
     void Defer(std::function<void()> fn) override;
+    void Schedule(std::chrono::milliseconds delay, TimerCallback fn) override;
     bool IsInEventLoopThread() const override;
 
     // Event loop control
@@ -86,6 +95,7 @@ public:
 
 private:
     void ProcessDeferredCallbacks();
+    void HandleTimerExpired(int timer_fd);
 
     int epoll_fd_;
     std::atomic<bool> running_{false};
@@ -93,6 +103,9 @@ private:
 
     std::mutex deferred_mutex_;
     std::vector<std::function<void()>> deferred_callbacks_;
+
+    // Active timers (protected by deferred_mutex_)
+    std::vector<std::unique_ptr<TimerEntry>> timers_;
 
     static constexpr int kMaxEvents = 64;
 };

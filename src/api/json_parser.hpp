@@ -70,17 +70,41 @@ public:
         }
     }
 
-    // Handle connection error - try best-effort Build() first
+    // Handle upstream error
     void OnError(const Error& error) {
         if (completed_) return;
 
-        // Try to build with whatever data we have
+        // For HTTP errors (server responded with error status), propagate immediately.
+        // These are definitive failures - the server rejected the request.
+        // Only attempt best-effort parsing for connection-level errors where
+        // we might have received partial valid data before the connection dropped.
+        if (IsHttpError(error.code)) {
+            Complete(std::unexpected(error));
+            return;
+        }
+
+        // Connection-level error - try to build with whatever data we have
         auto result = TryParse();
         if (result) {
             Complete(std::move(*result));
         } else {
             // Build failed, propagate original error
             Complete(std::unexpected(error));
+        }
+    }
+
+    // Check if error code represents an HTTP-level error (server responded)
+    static bool IsHttpError(ErrorCode code) {
+        switch (code) {
+            case ErrorCode::Unauthorized:
+            case ErrorCode::NotFound:
+            case ErrorCode::ValidationError:
+            case ErrorCode::RateLimited:
+            case ErrorCode::ServerError:
+            case ErrorCode::HttpError:
+                return true;
+            default:
+                return false;
         }
     }
 

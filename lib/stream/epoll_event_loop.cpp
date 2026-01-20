@@ -4,8 +4,10 @@
 #include "lib/stream/epoll_event_loop.hpp"
 
 #include <sys/socket.h>
+#include <sys/timerfd.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 #include <stdexcept>
@@ -99,6 +101,14 @@ EpollEventLoop::EpollEventLoop() {
 }
 
 EpollEventLoop::~EpollEventLoop() {
+    // Clean up any pending timers
+    for (auto& entry : timers_) {
+        if (entry && entry->fd >= 0) {
+            close(entry->fd);
+        }
+    }
+    timers_.clear();
+
     if (epoll_fd_ >= 0) {
         close(epoll_fd_);
     }
@@ -119,6 +129,75 @@ std::unique_ptr<IEventHandle> EpollEventLoop::Register(
 void EpollEventLoop::Defer(std::function<void()> fn) {
     std::lock_guard<std::mutex> lock(deferred_mutex_);
     deferred_callbacks_.push_back(std::move(fn));
+}
+
+void EpollEventLoop::Schedule(std::chrono::milliseconds delay, TimerCallback fn) {
+    // Create timerfd for one-shot timer
+    int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (tfd < 0) {
+        throw std::runtime_error(std::string("timerfd_create failed: ") +
+                                 std::strerror(errno));
+    }
+
+    // Set the timer expiration
+    itimerspec ts{};
+    ts.it_value.tv_sec = delay.count() / 1000;
+    ts.it_value.tv_nsec = (delay.count() % 1000) * 1000000;
+    // it_interval is zero for one-shot timer
+
+    if (timerfd_settime(tfd, 0, &ts, nullptr) < 0) {
+        close(tfd);
+        throw std::runtime_error(std::string("timerfd_settime failed: ") +
+                                 std::strerror(errno));
+    }
+
+    // Create timer entry
+    auto entry = std::make_unique<TimerEntry>();
+    entry->fd = tfd;
+    entry->callback = std::move(fn);
+
+    // Capture raw pointer for lambda (entry will be moved)
+    int timer_fd = tfd;
+
+    // Register with epoll for read events
+    entry->handle = Register(
+        tfd,
+        true,   // want_read
+        false,  // want_write
+        [this, timer_fd]() { HandleTimerExpired(timer_fd); },
+        nullptr,
+        nullptr);
+
+    // Store the timer entry
+    {
+        std::lock_guard<std::mutex> lock(deferred_mutex_);
+        timers_.push_back(std::move(entry));
+    }
+}
+
+void EpollEventLoop::HandleTimerExpired(int timer_fd) {
+    // Read the timer to clear it (required for timerfd)
+    uint64_t expirations = 0;
+    [[maybe_unused]] ssize_t n = read(timer_fd, &expirations, sizeof(expirations));
+
+    // Find and execute the callback
+    std::function<void()> callback;
+    {
+        std::lock_guard<std::mutex> lock(deferred_mutex_);
+        auto it = std::find_if(timers_.begin(), timers_.end(),
+            [timer_fd](const auto& e) { return e->fd == timer_fd; });
+        if (it != timers_.end()) {
+            callback = std::move((*it)->callback);
+            // Handle will be destroyed, which removes from epoll
+            close(timer_fd);
+            timers_.erase(it);
+        }
+    }
+
+    // Execute callback outside the lock
+    if (callback) {
+        callback();
+    }
 }
 
 bool EpollEventLoop::IsInEventLoopThread() const {

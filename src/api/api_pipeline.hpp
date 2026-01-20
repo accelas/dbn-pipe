@@ -191,7 +191,8 @@ private:
 
     // Two-phase initialization: create components after shared_ptr is valid
     void Init() {
-        auto self = this->shared_from_this();
+        // Use weak_ptr in callbacks to avoid reference cycles
+        std::weak_ptr<ApiPipeline> weak_self = this->shared_from_this();
 
         // Build the pipeline bottom-up (from sink to source):
         // JsonParser <- HttpClient <- TlsTransport <- TcpSocket
@@ -199,8 +200,10 @@ private:
         // Create JsonParser (sink)
         json_parser_ = JsonParser<Builder>::Create(
             builder_,
-            [self](std::expected<Result, Error> result) {
-                self->Complete(std::move(result));
+            [weak_self](std::expected<Result, Error> result) {
+                if (auto self = weak_self.lock()) {
+                    self->Complete(std::move(result));
+                }
             });
 
         // Create HttpClient with JsonParser as downstream
@@ -214,13 +217,19 @@ private:
         socket_ = TcpSocket<TlsTransport<HttpClient<JsonParser<Builder>>>>::Create(loop_, tls_);
 
         // Set up connect callback to start TLS handshake
-        socket_->OnConnect([self]() {
-            self->tls_->SetHandshakeCompleteCallback([self]() {
-                if (self->ready_cb_) {
-                    self->ready_cb_();
-                }
-            });
-            self->tls_->StartHandshake();
+        socket_->OnConnect([weak_self]() {
+            if (auto self = weak_self.lock()) {
+                // Capture another weak_ptr for the inner callback
+                std::weak_ptr<ApiPipeline> weak_inner = self;
+                self->tls_->SetHandshakeCompleteCallback([weak_inner]() {
+                    if (auto inner = weak_inner.lock()) {
+                        if (inner->ready_cb_) {
+                            inner->ready_cb_();
+                        }
+                    }
+                });
+                self->tls_->StartHandshake();
+            }
         });
     }
 
@@ -228,8 +237,13 @@ private:
         if (complete_) return;
         complete_ = true;
 
+        // Clear callbacks to break any remaining reference cycles
+        ready_cb_ = nullptr;
+
         if (on_complete_) {
-            on_complete_(std::move(result));
+            auto cb = std::move(on_complete_);
+            on_complete_ = nullptr;
+            cb(std::move(result));
         }
     }
 

@@ -7,7 +7,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <thread>
 
 #include "src/api/api_pipeline.hpp"
 #include "src/dns_resolver.hpp"
@@ -262,8 +261,10 @@ private:
             if (retry_state->ShouldRetry(error)) {
                 retry_state->RecordAttempt();
                 auto delay = retry_state->GetNextDelay(error);
-                std::this_thread::sleep_for(delay);
-                CallApiWithRetry<Builder>(req, std::move(callback), retry_state);
+                // Schedule retry via event loop timer (non-blocking)
+                loop_.Schedule(delay, [this, req, callback, retry_state]() {
+                    CallApiWithRetry<Builder>(req, callback, retry_state);
+                });
                 return;
             }
             callback(std::unexpected(std::move(error)));
@@ -286,8 +287,10 @@ private:
                 if (!result && retry_state->ShouldRetry(result.error())) {
                     retry_state->RecordAttempt();
                     auto delay = retry_state->GetNextDelay(result.error());
-                    std::this_thread::sleep_for(delay);
-                    self->CallApiWithRetry<Builder>(req, callback, retry_state);
+                    // Schedule retry via event loop timer (non-blocking)
+                    self->loop_.Schedule(delay, [self, req, callback, retry_state]() {
+                        self->CallApiWithRetry<Builder>(req, callback, retry_state);
+                    });
                 } else {
                     callback(std::move(result));
                 }

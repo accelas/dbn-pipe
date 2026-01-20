@@ -90,14 +90,15 @@ public:
     // Classify whether an error code is retryable
     static bool IsRetryable(ErrorCode code) {
         switch (code) {
-            // Retryable errors
+            // Retryable errors (transient failures)
             case ErrorCode::ConnectionFailed:
+            case ErrorCode::DnsResolutionFailed:  // DNS can be temporarily unavailable
             case ErrorCode::ServerError:
             case ErrorCode::TlsHandshakeFailed:
             case ErrorCode::RateLimited:
                 return true;
 
-            // Non-retryable errors
+            // Non-retryable errors (permanent failures)
             case ErrorCode::Unauthorized:
             case ErrorCode::NotFound:
             case ErrorCode::ValidationError:

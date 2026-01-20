@@ -227,9 +227,27 @@ private:
     int status_code_ = 0;
     bool message_complete_ = false;
 
-    // Header parsing for Retry-After
+    // Header parsing state for Retry-After
+    // llhttp may split headers across multiple callbacks, so we accumulate
+    enum class HeaderState { None, Field, Value };
+    HeaderState header_state_ = HeaderState::None;
     std::string current_header_field_;
+    std::string current_header_value_;
     std::optional<std::chrono::milliseconds> retry_after_;
+
+    // Process accumulated header field/value pair
+    void ProcessHeader() {
+        if (current_header_field_ == "retry-after") {
+            try {
+                int seconds = std::stoi(current_header_value_);
+                retry_after_ = std::chrono::seconds(seconds);
+            } catch (...) {
+                // Ignore invalid Retry-After values
+            }
+        }
+        current_header_field_.clear();
+        current_header_value_.clear();
+    }
 
     // Map HTTP status code to ErrorCode
     static ErrorCode StatusToErrorCode(int status) {
@@ -303,7 +321,9 @@ void HttpClient<D>::ResetMessageState() {
     status_code_ = 0;
     message_complete_ = false;
     error_body_.clear();
+    header_state_ = HeaderState::None;
     current_header_field_.clear();
+    current_header_value_.clear();
     retry_after_.reset();
     pending_chain_.Clear();
     current_segment_.reset();
@@ -460,8 +480,24 @@ int HttpClient<D>::OnStatus(llhttp_t* parser, const char*, size_t) {
 template <Downstream D>
 int HttpClient<D>::OnHeaderField(llhttp_t* parser, const char* at, size_t len) {
     auto* self = static_cast<HttpClient*>(parser->data);
-    self->current_header_field_.assign(at, len);
+
+    // If we were accumulating a value, we've started a new header - process the previous one
+    if (self->header_state_ == HeaderState::Value) {
+        self->ProcessHeader();
+    }
+
+    // Start or continue accumulating the field name
+    if (self->header_state_ == HeaderState::Field) {
+        // Continue accumulating (llhttp split the field)
+        self->current_header_field_.append(at, len);
+    } else {
+        // Start a new field
+        self->current_header_field_.assign(at, len);
+    }
+    self->header_state_ = HeaderState::Field;
+
     // Convert to lowercase for case-insensitive comparison
+    // Note: we lowercase the entire accumulated field each time (simpler than tracking offset)
     for (char& c : self->current_header_field_) {
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     }
@@ -471,22 +507,29 @@ int HttpClient<D>::OnHeaderField(llhttp_t* parser, const char* at, size_t len) {
 template <Downstream D>
 int HttpClient<D>::OnHeaderValue(llhttp_t* parser, const char* at, size_t len) {
     auto* self = static_cast<HttpClient*>(parser->data);
-    if (self->current_header_field_ == "retry-after") {
-        // Parse Retry-After value (seconds)
-        std::string value(at, len);
-        try {
-            int seconds = std::stoi(value);
-            self->retry_after_ = std::chrono::seconds(seconds);
-        } catch (...) {
-            // Ignore invalid Retry-After values
-        }
+
+    // Start or continue accumulating the value
+    if (self->header_state_ == HeaderState::Value) {
+        // Continue accumulating (llhttp split the value)
+        self->current_header_value_.append(at, len);
+    } else {
+        // Start a new value
+        self->current_header_value_.assign(at, len);
     }
+    self->header_state_ = HeaderState::Value;
     return 0;
 }
 
 template <Downstream D>
 int HttpClient<D>::OnHeadersComplete(llhttp_t* parser) {
     auto* self = static_cast<HttpClient*>(parser->data);
+
+    // Process the last header if we were accumulating one
+    if (self->header_state_ == HeaderState::Value) {
+        self->ProcessHeader();
+    }
+    self->header_state_ = HeaderState::None;
+
     // If status >= 300, we'll capture the body for error message
     if (self->status_code_ >= 300) {
         self->error_body_.clear();
