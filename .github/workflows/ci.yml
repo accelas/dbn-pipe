@@ -11,20 +11,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Extend swap BEFORE container starts (runs on host)
-      # DuckDB compilation is extremely memory-intensive
-      - name: Extend swap
-        run: |
-          echo "=== Current memory/swap ==="
-          free -h
-          # GitHub runners have some swap, extend with additional swap file
-          sudo fallocate -l 8G /mnt/swapfile2 || sudo dd if=/dev/zero of=/mnt/swapfile2 bs=1M count=8192
-          sudo chmod 600 /mnt/swapfile2
-          sudo mkswap /mnt/swapfile2
-          sudo swapon /mnt/swapfile2
-          echo "=== After adding swap ==="
-          free -h
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -66,7 +52,7 @@ jobs:
             # Install dependencies
             apt-get update
             apt-get install -y --no-install-recommends \
-              git wget ca-certificates build-essential python3 libssl-dev libzstd-dev procps
+              git wget ca-certificates build-essential python3 libssl-dev libzstd-dev
 
             # Install Bazelisk
             mkdir -p /tmp/bazelisk
@@ -77,11 +63,9 @@ jobs:
             # Configure Bazel caching
             echo 'build --disk_cache=/tmp/bazel-cache' >> ~/.bazelrc
             echo 'build --repository_cache=/tmp/bazel-repo-cache' >> ~/.bazelrc
-            echo 'build --jobs=2' >> ~/.bazelrc
             cat ~/.bazelrc
 
-            # Show memory and cache status
-            free -h
+            # Show cache status
             echo "=== Cache status ==="
             du -sh /tmp/bazel-cache 2>/dev/null || echo "disk_cache empty"
             du -sh /tmp/bazel-repo-cache 2>/dev/null || echo "repo_cache empty"
