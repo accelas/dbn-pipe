@@ -165,6 +165,7 @@ cc_library(
         "//lib/stream:component",
         "//lib/stream:event_loop",
         "//lib/stream:tcp_socket",
+        "//src/api:url_encode",
         ":dbn_parser_component",
         ":http_client",
         ":pipeline_sink",
