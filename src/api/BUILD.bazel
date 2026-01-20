@@ -29,3 +29,12 @@ cc_library(
         "//src:tls_transport",
     ],
 )
+
+cc_library(
+    name = "metadata_client",
+    hdrs = ["metadata_client.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":api_pipeline",
+    ],
+)

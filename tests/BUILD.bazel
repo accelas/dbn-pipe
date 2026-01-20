@@ -343,3 +343,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "metadata_client_test",
+    srcs = ["metadata_client_test.cpp"],
+    deps = [
+        "//src/api:metadata_client",
+        "@googletest//:gtest_main",
+    ],
+)
