@@ -49,6 +49,10 @@ use_repo(llhttp_ext, "llhttp")
 duckdb_ext = use_extension("//third_party/duckdb:duckdb.bzl", "duckdb")
 use_repo(duckdb_ext, "duckdb")
 
+# RapidJSON header-only JSON parser
+rapidjson_ext = use_extension("//third_party/rapidjson:rapidjson.bzl", "rapidjson_ext")
+use_repo(rapidjson_ext, "rapidjson")
+
 # ============================================================================
 # C++ Toolchain
 # ============================================================================
