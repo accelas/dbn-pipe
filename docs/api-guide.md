@@ -118,29 +118,125 @@ When the cache reaches `max_mappings`, the storage evicts the oldest 10% by acce
 
 ## RetryPolicy
 
-Exponential backoff with jitter for HTTP retries.
+Exponential backoff with jitter for HTTP retries. Supports error-aware retry decisions.
 
 ```cpp
 #include "src/retry_policy.hpp"
 using namespace dbn_pipe;
 
-// Default: 3 retries, 1s base, 30s max, 0.5 jitter
+// Default: 3 retries, 1s initial delay, 30s max, 2x backoff, 0.1 jitter
 RetryPolicy policy;
 
-// Custom
-RetryPolicy policy(
-    5,       // max_retries
-    2000,    // base_delay_ms
-    60000,   // max_delay_ms
-    0.25     // jitter_factor (0.0-1.0)
-);
+// Custom config
+RetryConfig config{
+    .max_retries = 5,
+    .initial_delay = std::chrono::milliseconds(2000),
+    .max_delay = std::chrono::milliseconds(60000),
+    .backoff_multiplier = 2.0,
+    .jitter_factor = 0.1
+};
+RetryPolicy policy(config);
+```
 
-// Use in retry loop
-for (int attempt = 0; policy.ShouldRetry(attempt); ++attempt) {
-    auto result = MakeRequest();
-    if (result.ok()) return result;
-    std::this_thread::sleep_for(policy.GetDelay(attempt));
+### Error-Aware Retry
+
+The policy classifies errors as retryable or non-retryable:
+
+```cpp
+void OnApiResult(std::expected<uint64_t, Error> result) {
+    if (result) {
+        // Success
+        std::cout << "Count: " << *result << "\n";
+    } else if (policy.ShouldRetry(result.error())) {
+        // Retryable error (ConnectionFailed, ServerError, RateLimited, TlsHandshakeFailed)
+        policy.RecordAttempt();
+        auto delay = policy.GetNextDelay(result.error());  // Respects retry_after header
+        ScheduleRetry(delay);
+    } else {
+        // Non-retryable error (Unauthorized, ValidationError, NotFound, ParseError)
+        std::cerr << "Error: " << result.error().message << "\n";
+    }
 }
+```
+
+**Retryable errors:** `ConnectionFailed`, `ServerError`, `RateLimited`, `TlsHandshakeFailed`
+
+**Non-retryable errors:** `Unauthorized`, `ValidationError`, `NotFound`, `ParseError`
+
+---
+
+## Metadata API Client
+
+Query data availability and cost before downloading:
+
+```cpp
+#include "src/api/metadata_client.hpp"
+
+// Create client
+MetadataClient client(loop, "db-your-api-key");
+
+// Get record count
+client.GetRecordCount(
+    "GLBX.MDP3",      // dataset
+    "ESM4",           // symbols
+    "trades",         // schema
+    "2025-01-01",     // start
+    "2025-01-02",     // end
+    "raw_symbol",     // stype_in
+    [](auto result) {
+        if (result) {
+            std::cout << "Record count: " << *result << "\n";
+        }
+    });
+
+// Get cost estimate
+client.GetCost(
+    "GLBX.MDP3", "ESM4", "trades",
+    "2025-01-01", "2025-01-02", "raw_symbol",
+    [](auto result) {
+        if (result) {
+            std::cout << "Cost: $" << *result << "\n";
+        }
+    });
+
+// Get dataset date range
+client.GetDatasetRange("GLBX.MDP3", [](auto result) {
+    if (result) {
+        std::cout << "Available: " << result->start
+                  << " to " << result->end << "\n";
+    }
+});
+```
+
+---
+
+## Symbology API Client
+
+Resolve symbols to instrument IDs with date ranges:
+
+```cpp
+#include "src/api/symbology_client.hpp"
+
+SymbologyClient client(loop, "db-your-api-key");
+
+client.Resolve(
+    "GLBX.MDP3",                          // dataset
+    {"ESM4", "ESU4"},                      // symbols
+    SType::RawSymbol,                      // stype_in
+    SType::InstrumentId,                   // stype_out
+    "2025-01-01",                          // start_date
+    "2025-12-31",                          // end_date
+    [](auto result) {
+        if (result) {
+            for (const auto& [symbol, mappings] : result->result) {
+                for (const auto& m : mappings) {
+                    std::cout << symbol << " -> " << m.symbol
+                              << " (" << m.start_date << " to "
+                              << m.end_date << ")\n";
+                }
+            }
+        }
+    });
 ```
 
 ---

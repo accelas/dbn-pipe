@@ -250,4 +250,55 @@ void Reactor::Wake() {
     write(wake_fd_, &val, sizeof(val));
 }
 
+void Reactor::Schedule(std::chrono::milliseconds delay, TimerCallback fn) {
+    // Create one-shot timerfd
+    int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (tfd < 0) {
+        throw std::system_error(errno, std::system_category(), "timerfd_create");
+    }
+
+    // Set timer expiration (one-shot: it_interval is zero)
+    itimerspec spec{};
+    spec.it_value.tv_sec = delay.count() / 1000;
+    spec.it_value.tv_nsec = (delay.count() % 1000) * 1000000L;
+
+    if (timerfd_settime(tfd, 0, &spec, nullptr) < 0) {
+        close(tfd);
+        throw std::system_error(errno, std::system_category(), "timerfd_settime");
+    }
+
+    // Register with epoll - use raw Event to handle the timer
+    // Store callback and event handle in a shared structure
+    struct ScheduledTimer {
+        int fd;
+        TimerCallback callback;
+        std::unique_ptr<IEventHandle> handle;
+    };
+
+    auto timer = std::make_shared<ScheduledTimer>();
+    timer->fd = tfd;
+    timer->callback = std::move(fn);
+
+    // Capture timer by shared_ptr so it stays alive until callback runs
+    timer->handle = Register(
+        tfd,
+        true,   // want_read
+        false,  // want_write
+        [timer]() {
+            // Read to clear the timer
+            uint64_t expirations;
+            [[maybe_unused]] ssize_t n = read(timer->fd, &expirations, sizeof(expirations));
+            // Execute callback
+            if (timer->callback) {
+                timer->callback();
+            }
+            // Close the timerfd
+            close(timer->fd);
+            timer->fd = -1;
+            // handle will be destroyed when timer goes out of scope
+        },
+        nullptr,
+        nullptr);
+}
+
 }  // namespace dbn_pipe

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -27,6 +28,7 @@ public:
     using ReadCallback = std::function<void()>;
     using WriteCallback = std::function<void()>;
     using ErrorCallback = std::function<void(int error_code)>;
+    using TimerCallback = std::function<void()>;
 
     virtual ~IEventLoop() = default;
 
@@ -43,6 +45,9 @@ public:
 
     // Schedule callback for next event loop iteration
     virtual void Defer(std::function<void()> fn) = 0;
+
+    // Schedule callback after delay (non-blocking timer)
+    virtual void Schedule(std::chrono::milliseconds delay, TimerCallback fn) = 0;
 
     // Check if current thread is the event loop thread
     virtual bool IsInEventLoopThread() const = 0;

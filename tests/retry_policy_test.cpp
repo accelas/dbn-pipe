@@ -1,5 +1,6 @@
 // tests/retry_policy_test.cpp
 #include <gtest/gtest.h>
+#include "lib/stream/error.hpp"
 #include "src/retry_policy.hpp"
 
 using namespace dbn_pipe;
@@ -79,4 +80,84 @@ TEST(RetryPolicyTest, GetNextDelayCapsAtMaxDelay) {
 
     auto delay = policy.GetNextDelay();
     EXPECT_EQ(delay.count(), 5000);  // Capped at max
+}
+
+// Error-aware RetryPolicy tests
+
+TEST(RetryPolicyTest, ShouldNotRetryUnauthorized) {
+    RetryPolicy policy;
+    Error e{ErrorCode::Unauthorized, "Invalid API key"};
+    EXPECT_FALSE(policy.ShouldRetry(e));
+}
+
+TEST(RetryPolicyTest, ShouldNotRetryValidationError) {
+    RetryPolicy policy;
+    Error e{ErrorCode::ValidationError, "Invalid parameters"};
+    EXPECT_FALSE(policy.ShouldRetry(e));
+}
+
+TEST(RetryPolicyTest, ShouldNotRetryNotFound) {
+    RetryPolicy policy;
+    Error e{ErrorCode::NotFound, "Resource not found"};
+    EXPECT_FALSE(policy.ShouldRetry(e));
+}
+
+TEST(RetryPolicyTest, ShouldRetryServerError) {
+    RetryPolicy policy;
+    Error e{ErrorCode::ServerError, "Internal server error"};
+    EXPECT_TRUE(policy.ShouldRetry(e));
+}
+
+TEST(RetryPolicyTest, ShouldRetryConnectionFailed) {
+    RetryPolicy policy;
+    Error e{ErrorCode::ConnectionFailed, "Connection reset"};
+    EXPECT_TRUE(policy.ShouldRetry(e));
+}
+
+TEST(RetryPolicyTest, ShouldRetryRateLimited) {
+    RetryPolicy policy;
+    Error e{ErrorCode::RateLimited, "Too many requests"};
+    EXPECT_TRUE(policy.ShouldRetry(e));
+}
+
+TEST(RetryPolicyTest, ShouldRetryTlsHandshakeFailed) {
+    RetryPolicy policy;
+    Error e{ErrorCode::TlsHandshakeFailed, "TLS error"};
+    EXPECT_TRUE(policy.ShouldRetry(e));
+}
+
+TEST(RetryPolicyTest, ShouldNotRetryParseError) {
+    RetryPolicy policy;
+    Error e{ErrorCode::ParseError, "Invalid response"};
+    EXPECT_FALSE(policy.ShouldRetry(e));
+}
+
+TEST(RetryPolicyTest, RespectsMaxRetries) {
+    RetryConfig config{.max_retries = 2};
+    RetryPolicy policy(config);
+    Error e{ErrorCode::ServerError, "Internal server error"};
+
+    EXPECT_TRUE(policy.ShouldRetry(e));
+    policy.RecordAttempt();
+    EXPECT_TRUE(policy.ShouldRetry(e));
+    policy.RecordAttempt();
+    EXPECT_FALSE(policy.ShouldRetry(e));  // Max reached
+}
+
+TEST(RetryPolicyTest, GetNextDelayRespectsRetryAfter) {
+    RetryPolicy policy;
+    Error e{ErrorCode::RateLimited, "Too many requests"};
+    e.retry_after = std::chrono::milliseconds{5000};
+
+    auto delay = policy.GetNextDelay(e);
+    EXPECT_EQ(delay.count(), 5000);
+}
+
+TEST(RetryPolicyTest, GetNextDelayUsesBackoffWithoutRetryAfter) {
+    RetryPolicy policy;
+    Error e{ErrorCode::ServerError, "Internal server error"};
+
+    auto delay = policy.GetNextDelay(e);
+    EXPECT_GE(delay.count(), 900);   // initial_delay * (1 - jitter)
+    EXPECT_LE(delay.count(), 1100);  // initial_delay * (1 + jitter)
 }
