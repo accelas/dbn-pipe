@@ -1,6 +1,8 @@
 // lib/stream/error.hpp
 #pragma once
 
+#include <chrono>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -40,12 +42,20 @@ enum class ErrorCode {
 
     // Decompression (Historical)
     DecompressionError,
+
+    // API errors
+    Unauthorized,      // HTTP 401/403
+    RateLimited,       // HTTP 429
+    NotFound,          // HTTP 404
+    ValidationError,   // HTTP 422
+    ServerError,       // HTTP 5xx
 };
 
 struct Error {
     ErrorCode code;
     std::string message;
     int os_errno = 0;
+    std::optional<std::chrono::milliseconds> retry_after = {};  // For rate limiting
 };
 
 constexpr std::string_view error_category(ErrorCode code) {
@@ -76,6 +86,12 @@ constexpr std::string_view error_category(ErrorCode code) {
             return "http";
         case ErrorCode::DecompressionError:
             return "decompression";
+        case ErrorCode::Unauthorized:
+        case ErrorCode::RateLimited:
+        case ErrorCode::NotFound:
+        case ErrorCode::ValidationError:
+        case ErrorCode::ServerError:
+            return "api";
     }
     return "unknown";
 }

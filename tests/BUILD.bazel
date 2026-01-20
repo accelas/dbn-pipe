@@ -28,6 +28,15 @@ cc_test(
 )
 
 cc_test(
+    name = "api_error_test",
+    srcs = ["api_error_test.cpp"],
+    deps = [
+        "//lib/stream:error",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "reactor_test",
     srcs = ["reactor_test.cpp"],
     deps = [
