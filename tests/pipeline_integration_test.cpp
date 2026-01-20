@@ -51,7 +51,8 @@ TEST_F(PipelineIntegrationTest, HistoricalClientLifecycle) {
         "mbp-1",
         1704067200000000000ULL,
         1704153600000000000ULL,
-        ""  // stype_in (empty = default raw_symbol)
+        "",  // stype_in (empty = default raw_symbol)
+        ""   // stype_out (empty = no symbol mappings)
     };
     client->SetRequest(req);
 
@@ -119,7 +120,8 @@ TEST_F(ReactorPipelineTest, HistoricalClientWithReactor) {
         "mbp-1",
         1704067200000000000ULL,
         1704153600000000000ULL,
-        ""  // stype_in (empty = default raw_symbol)
+        "",  // stype_in (empty = default raw_symbol)
+        ""   // stype_out (empty = no symbol mappings)
     };
     client->SetRequest(req);
 

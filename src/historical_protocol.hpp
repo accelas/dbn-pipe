@@ -29,6 +29,7 @@ struct HistoricalRequest {
     uint64_t start;        // Start time in nanoseconds since Unix epoch
     uint64_t end;          // End time in nanoseconds since Unix epoch
     std::string stype_in;  // Input symbology type: "raw_symbol" (default), "parent", etc.
+    std::string stype_out; // Output symbology type: triggers SymbolMappingMsg when set
 };
 
 // Historical gateway constants
@@ -188,6 +189,11 @@ struct HistoricalProtocol {
         if (!request.stype_in.empty()) {
             out << "&stype_in=";
             UrlEncode(out, request.stype_in);
+        }
+        // Add stype_out if specified (triggers SymbolMappingMsg in response)
+        if (!request.stype_out.empty()) {
+            out << "&stype_out=";
+            UrlEncode(out, request.stype_out);
         }
         out << " HTTP/1.1\r\n"
             << "Host: hist.databento.com\r\n"
