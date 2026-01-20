@@ -340,8 +340,11 @@ private:
                 } else {
                     callback(std::move(result));
                 }
-                // Release pipeline reference to allow cleanup
-                pipeline_holder->reset();
+                // Defer pipeline cleanup to avoid destroying it while still on its
+                // component's call stack (callback is invoked from TlsTransport::ProcessPendingReads)
+                self->loop_.Defer([pipeline_holder]() {
+                    pipeline_holder->reset();
+                });
             });
 
         // Use weak_ptr to avoid cycle in ready callback
