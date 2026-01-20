@@ -134,6 +134,35 @@
         ]
       }
     },
+    "//third_party/duckdb:duckdb.bzl%duckdb": {
+      "general": {
+        "bzlTransitiveDigest": "uX+c5ECyuXMSl9W0V0wNz48KZU/cjw44nq/w/HP5xMU=",
+        "usagesDigest": "rxkLdqvfbZl6MqMHyhJRpMho/fMLa5zZimV2VRxmkCQ=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "duckdb": {
+            "bzlFile": "@@bazel_tools//tools/build_defs/repo:http.bzl",
+            "ruleClassName": "http_archive",
+            "attributes": {
+              "urls": [
+                "https://github.com/duckdb/duckdb/releases/download/v1.4.3/libduckdb-src.zip"
+              ],
+              "sha256": "a9d834d07524f483aa1132ee183169767008468cc485c25b2170b9e6eee47ef6",
+              "build_file": "@@//third_party/duckdb:BUILD.duckdb.bazel"
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "",
+            "bazel_tools",
+            "bazel_tools"
+          ]
+        ]
+      }
+    },
     "//third_party/llhttp:llhttp.bzl%llhttp_ext": {
       "general": {
         "bzlTransitiveDigest": "WIHfiHlSnpp7b+DThRofkkvRKePY47SehC/Hb4sMyq8=",

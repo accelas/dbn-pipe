@@ -1,6 +1,15 @@
 load("@rules_cc//cc:defs.bzl", "cc_test")
 
 cc_test(
+    name = "trading_date_test",
+    srcs = ["trading_date_test.cpp"],
+    deps = [
+        "//src:trading_date",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "error_test",
     srcs = ["error_test.cpp"],
     deps = [
@@ -224,6 +233,64 @@ cc_test(
     deps = [
         "//lib/stream:epoll_event_loop",
         "//lib/stream:event_loop",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "storage_test",
+    srcs = ["storage_test.cpp"],
+    deps = [
+        "//src:storage",
+        "//src:trading_date",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "instrument_map_test",
+    srcs = ["instrument_map_test.cpp"],
+    deps = [
+        "//src:instrument_map",
+        "//src:trading_date",
+        "@databento_cpp//:databento_with_impl",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "retry_policy_test",
+    srcs = ["retry_policy_test.cpp"],
+    deps = [
+        "//src:retry_policy",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "schema_utils_test",
+    srcs = ["schema_utils_test.cpp"],
+    deps = [
+        "//src:schema_utils",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "stype_test",
+    srcs = ["stype_test.cpp"],
+    deps = [
+        "//src:stype",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "duckdb_storage_test",
+    srcs = ["duckdb_storage_test.cpp"],
+    deps = [
+        "//src:duckdb_storage",
+        "//src:trading_date",
         "@googletest//:gtest_main",
     ],
 )
