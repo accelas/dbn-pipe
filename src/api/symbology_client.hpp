@@ -114,8 +114,18 @@ public:
         }
     }
 
-    void OnInt(int64_t) {}
-    void OnUint(uint64_t) {}
+    void OnInt(int64_t v) {
+        // Handle numeric "s" field (instrument_id as integer)
+        if (state_ == State::InInterval && current_key_ == "s") {
+            current_interval_.symbol = std::to_string(v);
+        }
+    }
+    void OnUint(uint64_t v) {
+        // Handle numeric "s" field (instrument_id as integer)
+        if (state_ == State::InInterval && current_key_ == "s") {
+            current_interval_.symbol = std::to_string(v);
+        }
+    }
     void OnDouble(double) {}
     void OnBool(bool) {}
     void OnNull() {}

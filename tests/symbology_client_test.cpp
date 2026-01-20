@@ -333,5 +333,62 @@ TEST(SymbologyBuilderTest, HandlesFieldsInAnyOrder) {
     EXPECT_EQ(result->result.at("SPY")[0].symbol, "15144");
 }
 
+TEST(SymbologyBuilderTest, HandlesNumericInstrumentId) {
+    SymbologyBuilder builder;
+
+    // When stype_out=instrument_id, the "s" field is a numeric value
+    // {"result": {"SPY": [{"d0": "2025-01-01", "d1": "2025-12-31", "s": 15144}]}}
+    builder.OnStartObject();
+    builder.OnKey("result");
+    builder.OnStartObject();
+    builder.OnKey("SPY");
+    builder.OnStartArray();
+    builder.OnStartObject();
+    builder.OnKey("d0");
+    builder.OnString("2025-01-01");
+    builder.OnKey("d1");
+    builder.OnString("2025-12-31");
+    builder.OnKey("s");
+    builder.OnUint(15144);  // Numeric instrument_id
+    builder.OnEndObject();
+    builder.OnEndArray();
+    builder.OnEndObject();
+    builder.OnEndObject();
+
+    auto result = builder.Build();
+    ASSERT_TRUE(result.has_value());
+    ASSERT_EQ(result->result.size(), 1);
+    ASSERT_EQ(result->result.at("SPY").size(), 1);
+    EXPECT_EQ(result->result.at("SPY")[0].start_date, "2025-01-01");
+    EXPECT_EQ(result->result.at("SPY")[0].end_date, "2025-12-31");
+    EXPECT_EQ(result->result.at("SPY")[0].symbol, "15144");
+}
+
+TEST(SymbologyBuilderTest, HandlesNegativeInstrumentId) {
+    SymbologyBuilder builder;
+
+    // Edge case: negative instrument_id (unlikely but should handle)
+    builder.OnStartObject();
+    builder.OnKey("result");
+    builder.OnStartObject();
+    builder.OnKey("TEST");
+    builder.OnStartArray();
+    builder.OnStartObject();
+    builder.OnKey("d0");
+    builder.OnString("2025-01-01");
+    builder.OnKey("d1");
+    builder.OnString("2025-12-31");
+    builder.OnKey("s");
+    builder.OnInt(-1);  // Negative value via OnInt
+    builder.OnEndObject();
+    builder.OnEndArray();
+    builder.OnEndObject();
+    builder.OnEndObject();
+
+    auto result = builder.Build();
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->result.at("TEST")[0].symbol, "-1");
+}
+
 }  // namespace
 }  // namespace dbn_pipe
