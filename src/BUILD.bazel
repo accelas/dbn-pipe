@@ -1,6 +1,32 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
 cc_library(
+    name = "trading_date",
+    hdrs = ["trading_date.hpp"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "storage",
+    hdrs = ["storage.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":trading_date",
+    ],
+)
+
+cc_library(
+    name = "instrument_map",
+    hdrs = ["instrument_map.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":storage",
+        ":trading_date",
+        "@databento_cpp//:databento_headers",
+    ],
+)
+
+cc_library(
     name = "tls_transport",
     hdrs = ["tls_transport.hpp"],
     visibility = ["//visibility:public"],
@@ -188,5 +214,37 @@ cc_library(
         "//lib/stream:event_loop",
         "//lib/stream:reactor",
         "//lib/stream:tcp_socket",
+    ],
+)
+
+cc_library(
+    name = "retry_policy",
+    hdrs = ["retry_policy.hpp"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "schema_utils",
+    hdrs = ["schema_utils.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@databento_cpp//:databento_headers",
+    ],
+)
+
+cc_library(
+    name = "stype",
+    hdrs = ["stype.hpp"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "duckdb_storage",
+    hdrs = ["duckdb_storage.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":storage",
+        ":trading_date",
+        "@duckdb",
     ],
 )
