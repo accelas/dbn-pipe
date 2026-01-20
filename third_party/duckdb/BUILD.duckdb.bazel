@@ -1,21 +1,16 @@
-# DuckDB amalgamation build
-# This builds DuckDB from the single-file amalgamation (duckdb.hpp + duckdb.cpp)
+# DuckDB pre-built binary distribution
+# Uses pre-compiled shared library to avoid memory-intensive compilation
+
+cc_import(
+    name = "duckdb_lib",
+    shared_library = "libduckdb.so",
+)
 
 cc_library(
     name = "duckdb",
-    srcs = ["duckdb.cpp"],
-    hdrs = ["duckdb.hpp"],
+    hdrs = ["duckdb.hpp", "duckdb.h"],
     includes = ["."],
-    # DuckDB requires C++17 minimum
-    copts = [
-        "-std=c++17",
-        "-DDUCKDB_BUILD_LIBRARY",
-        # Disable extensions we don't need for simple storage
-        "-DDUCKDB_NO_THREADS",
-        # Reduce compiler memory usage (critical for CI with limited RAM)
-        "-fno-var-tracking",
-        "-fno-var-tracking-assignments",
-    ],
+    deps = [":duckdb_lib"],
     linkopts = [
         "-lpthread",
         "-ldl",
