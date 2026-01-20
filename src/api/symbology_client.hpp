@@ -9,10 +9,12 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "src/api/api_pipeline.hpp"
 #include "src/dns_resolver.hpp"
+#include "src/retry_policy.hpp"
 #include "src/stype.hpp"
 
 namespace dbn_pipe {
@@ -212,11 +214,15 @@ private:
 // Provides methods to resolve symbol mappings:
 // - resolve: Convert symbols between different stype formats
 //
+// Automatic retry with exponential backoff on transient errors
+// (ConnectionFailed, ServerError, TlsHandshakeFailed, RateLimited).
+//
 // Thread safety: Not thread-safe. All methods must be called from the event loop thread.
 class SymbologyClient {
 public:
-    SymbologyClient(IEventLoop& loop, std::string api_key)
-        : loop_(loop), api_key_(std::move(api_key)) {}
+    SymbologyClient(IEventLoop& loop, std::string api_key,
+                    RetryConfig retry_config = RetryConfig::ApiDefaults())
+        : loop_(loop), api_key_(std::move(api_key)), retry_config_(retry_config) {}
 
     void Resolve(
         const std::string& dataset,
@@ -249,38 +255,68 @@ public:
             },
         };
 
-        auto addr = ResolveHostname(kHostname, kPort);
-        if (!addr) {
-            callback(std::unexpected(Error{
-                ErrorCode::DnsResolutionFailed,
-                std::string("Failed to resolve ") + kHostname}));
-            return;
-        }
-
-        auto builder = std::make_shared<SymbologyBuilder>();
-        auto pipeline = ApiPipeline<SymbologyBuilder>::Create(
-            loop_,
-            kHostname,
-            *builder,
-            [callback, builder](auto result) {
-                callback(std::move(result));
-            });
-
-        std::string http_request = req.BuildHttpRequest(kHostname, api_key_);
-
-        pipeline->SetReadyCallback([pipeline, http_request]() {
-            pipeline->SendRequest(http_request);
-        });
-
-        pipeline->Connect(*addr);
+        auto retry_state = std::make_shared<RetryPolicy>(retry_config_);
+        CallApiWithRetry(req, std::move(callback), retry_state);
     }
 
 private:
     static constexpr const char* kHostname = "hist.databento.com";
     static constexpr uint16_t kPort = 443;
 
+    void CallApiWithRetry(
+        const ApiRequest& req,
+        std::function<void(std::expected<SymbologyResponse, Error>)> callback,
+        std::shared_ptr<RetryPolicy> retry_state) {
+        auto addr = ResolveHostname(kHostname, kPort);
+        if (!addr) {
+            auto error = Error{
+                ErrorCode::DnsResolutionFailed,
+                std::string("Failed to resolve ") + kHostname};
+            if (retry_state->ShouldRetry(error)) {
+                retry_state->RecordAttempt();
+                auto delay = retry_state->GetNextDelay(error);
+                std::this_thread::sleep_for(delay);
+                CallApiWithRetry(req, std::move(callback), retry_state);
+                return;
+            }
+            callback(std::unexpected(std::move(error)));
+            return;
+        }
+
+        auto builder = std::make_shared<SymbologyBuilder>();
+        auto api_key = api_key_;
+        std::string http_request = req.BuildHttpRequest(kHostname, api_key);
+
+        auto self = this;
+        auto pipeline = ApiPipeline<SymbologyBuilder>::Create(
+            loop_,
+            kHostname,
+            *builder,
+            [self, req, callback, retry_state, builder](auto result) {
+                if (!result && retry_state->ShouldRetry(result.error())) {
+                    retry_state->RecordAttempt();
+                    auto delay = retry_state->GetNextDelay(result.error());
+                    std::this_thread::sleep_for(delay);
+                    self->CallApiWithRetry(req, callback, retry_state);
+                } else {
+                    callback(std::move(result));
+                }
+            });
+
+        // Use weak_ptr to avoid cycle in ready callback
+        std::weak_ptr<ApiPipeline<SymbologyBuilder>> weak_pipeline = pipeline;
+        pipeline->SetReadyCallback([weak_pipeline, http_request]() {
+            if (auto p = weak_pipeline.lock()) {
+                p->SendRequest(http_request);
+            }
+        });
+
+        pipeline->Connect(*addr);
+    }
+
     IEventLoop& loop_;
     std::string api_key_;
+    RetryConfig retry_config_;
 };
 
 }  // namespace dbn_pipe

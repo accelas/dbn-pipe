@@ -37,6 +37,7 @@ cc_library(
     deps = [
         ":api_pipeline",
         "//src:dns_resolver",
+        "//src:retry_policy",
     ],
 )
 
@@ -47,6 +48,7 @@ cc_library(
     deps = [
         ":api_pipeline",
         "//src:dns_resolver",
+        "//src:retry_policy",
         "//src:stype",
     ],
 )

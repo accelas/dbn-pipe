@@ -7,9 +7,11 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 
 #include "src/api/api_pipeline.hpp"
 #include "src/dns_resolver.hpp"
+#include "src/retry_policy.hpp"
 
 namespace dbn_pipe {
 
@@ -140,11 +142,15 @@ struct DatasetRangeBuilder {
 // - get_cost: Cost estimate for a query
 // - get_dataset_range: Available date range for a dataset
 //
+// Automatic retry with exponential backoff on transient errors
+// (ConnectionFailed, ServerError, TlsHandshakeFailed, RateLimited).
+//
 // Thread safety: Not thread-safe. All methods must be called from the event loop thread.
 class MetadataClient {
 public:
-    MetadataClient(IEventLoop& loop, std::string api_key)
-        : loop_(loop), api_key_(std::move(api_key)) {}
+    MetadataClient(IEventLoop& loop, std::string api_key,
+                   RetryConfig retry_config = RetryConfig::ApiDefaults())
+        : loop_(loop), api_key_(std::move(api_key)), retry_config_(retry_config) {}
 
     void GetRecordCount(
         const std::string& dataset,
@@ -238,27 +244,61 @@ private:
     void CallApi(
         const ApiRequest& req,
         std::function<void(std::expected<typename Builder::Result, Error>)> callback) {
+        // Create retry state that persists across attempts
+        auto retry_state = std::make_shared<RetryPolicy>(retry_config_);
+        CallApiWithRetry<Builder>(req, std::move(callback), retry_state);
+    }
+
+    template <typename Builder>
+    void CallApiWithRetry(
+        const ApiRequest& req,
+        std::function<void(std::expected<typename Builder::Result, Error>)> callback,
+        std::shared_ptr<RetryPolicy> retry_state) {
         auto addr = ResolveHostname(kHostname, kPort);
         if (!addr) {
-            callback(std::unexpected(Error{
+            auto error = Error{
                 ErrorCode::DnsResolutionFailed,
-                std::string("Failed to resolve ") + kHostname}));
+                std::string("Failed to resolve ") + kHostname};
+            if (retry_state->ShouldRetry(error)) {
+                retry_state->RecordAttempt();
+                auto delay = retry_state->GetNextDelay(error);
+                std::this_thread::sleep_for(delay);
+                CallApiWithRetry<Builder>(req, std::move(callback), retry_state);
+                return;
+            }
+            callback(std::unexpected(std::move(error)));
             return;
         }
 
         auto builder = std::make_shared<Builder>();
+
+        // Prevent reference capture issues by copying what we need
+        auto api_key = api_key_;
+        std::string http_request = req.BuildHttpRequest(kHostname, api_key);
+
+        // Capture retry context for potential retry on failure
+        auto self = this;
         auto pipeline = ApiPipeline<Builder>::Create(
             loop_,
             kHostname,
             *builder,
-            [callback, builder](auto result) {
-                callback(std::move(result));
+            [self, req, callback, retry_state, builder](auto result) {
+                if (!result && retry_state->ShouldRetry(result.error())) {
+                    retry_state->RecordAttempt();
+                    auto delay = retry_state->GetNextDelay(result.error());
+                    std::this_thread::sleep_for(delay);
+                    self->CallApiWithRetry<Builder>(req, callback, retry_state);
+                } else {
+                    callback(std::move(result));
+                }
             });
 
-        std::string http_request = req.BuildHttpRequest(kHostname, api_key_);
-
-        pipeline->SetReadyCallback([pipeline, http_request]() {
-            pipeline->SendRequest(http_request);
+        // Use weak_ptr to avoid cycle in ready callback
+        std::weak_ptr<ApiPipeline<Builder>> weak_pipeline = pipeline;
+        pipeline->SetReadyCallback([weak_pipeline, http_request]() {
+            if (auto p = weak_pipeline.lock()) {
+                p->SendRequest(http_request);
+            }
         });
 
         pipeline->Connect(*addr);
@@ -266,6 +306,7 @@ private:
 
     IEventLoop& loop_;
     std::string api_key_;
+    RetryConfig retry_config_;
 };
 
 }  // namespace dbn_pipe

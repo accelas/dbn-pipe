@@ -3,6 +3,8 @@
 
 #include <llhttp.h>
 
+#include <cctype>
+#include <chrono>
 #include <cstring>
 #include <memory>
 #include <memory_resource>
@@ -149,7 +151,7 @@ public:
             if (!error_body_.empty()) {
                 msg += ": " + error_body_;
             }
-            this->EmitError(*downstream_, Error{ErrorCode::HttpError, std::move(msg)});
+            this->EmitError(*downstream_, MakeHttpError(std::move(msg)));
             this->RequestClose();
             return;
         }
@@ -225,6 +227,25 @@ private:
     int status_code_ = 0;
     bool message_complete_ = false;
 
+    // Header parsing for Retry-After
+    std::string current_header_field_;
+    std::optional<std::chrono::milliseconds> retry_after_;
+
+    // Map HTTP status code to ErrorCode
+    static ErrorCode StatusToErrorCode(int status) {
+        if (status == 401 || status == 403) return ErrorCode::Unauthorized;
+        if (status == 404) return ErrorCode::NotFound;
+        if (status == 422) return ErrorCode::ValidationError;
+        if (status == 429) return ErrorCode::RateLimited;
+        if (status >= 500) return ErrorCode::ServerError;
+        return ErrorCode::HttpError;
+    }
+
+    // Create error with proper code and retry_after
+    Error MakeHttpError(const std::string& msg) {
+        return Error{StatusToErrorCode(status_code_), msg, 0, retry_after_};
+    }
+
     // Segment pool for body output
     SegmentPool segment_pool_{4};
 
@@ -282,6 +303,8 @@ void HttpClient<D>::ResetMessageState() {
     status_code_ = 0;
     message_complete_ = false;
     error_body_.clear();
+    current_header_field_.clear();
+    retry_after_.reset();
     pending_chain_.Clear();
     current_segment_.reset();
     this->ResetFinalized();
@@ -403,7 +426,7 @@ void HttpClient<D>::OnDone() {
         if (!error_body_.empty()) {
             msg += ": " + error_body_;
         }
-        this->EmitError(*downstream_, Error{ErrorCode::HttpError, std::move(msg)});
+        this->EmitError(*downstream_, MakeHttpError(std::move(msg)));
         this->RequestClose();
         return;
     }
@@ -435,14 +458,29 @@ int HttpClient<D>::OnStatus(llhttp_t* parser, const char*, size_t) {
 }
 
 template <Downstream D>
-int HttpClient<D>::OnHeaderField(llhttp_t*, const char*, size_t) {
-    // We don't currently track header fields, but could add if needed
+int HttpClient<D>::OnHeaderField(llhttp_t* parser, const char* at, size_t len) {
+    auto* self = static_cast<HttpClient*>(parser->data);
+    self->current_header_field_.assign(at, len);
+    // Convert to lowercase for case-insensitive comparison
+    for (char& c : self->current_header_field_) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
     return 0;
 }
 
 template <Downstream D>
-int HttpClient<D>::OnHeaderValue(llhttp_t*, const char*, size_t) {
-    // We don't currently track header values, but could add if needed
+int HttpClient<D>::OnHeaderValue(llhttp_t* parser, const char* at, size_t len) {
+    auto* self = static_cast<HttpClient*>(parser->data);
+    if (self->current_header_field_ == "retry-after") {
+        // Parse Retry-After value (seconds)
+        std::string value(at, len);
+        try {
+            int seconds = std::stoi(value);
+            self->retry_after_ = std::chrono::seconds(seconds);
+        } catch (...) {
+            // Ignore invalid Retry-After values
+        }
+    }
     return 0;
 }
 
@@ -507,7 +545,7 @@ int HttpClient<D>::OnMessageComplete(llhttp_t* parser) {
         if (!self->error_body_.empty()) {
             msg += ": " + self->error_body_;
         }
-        self->EmitError(*self->downstream_, Error{ErrorCode::HttpError, std::move(msg)});
+        self->EmitError(*self->downstream_, self->MakeHttpError(std::move(msg)));
         self->RequestClose();
         return HPE_USER;  // Stop parsing immediately after error
     } else {

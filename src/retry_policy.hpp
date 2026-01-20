@@ -11,11 +11,35 @@
 namespace dbn_pipe {
 
 struct RetryConfig {
-    uint32_t max_retries = 5;
+    uint32_t max_retries = 3;
     std::chrono::milliseconds initial_delay{1000};
-    std::chrono::milliseconds max_delay{60000};
+    std::chrono::milliseconds max_delay{30000};
     double backoff_multiplier = 2.0;
     double jitter_factor = 0.1;  // +/- 10%
+
+    // Default config for API calls (metadata, symbology)
+    // Quick queries - fast retry, fewer attempts
+    static RetryConfig ApiDefaults() {
+        return RetryConfig{
+            .max_retries = 3,
+            .initial_delay = std::chrono::milliseconds{1000},
+            .max_delay = std::chrono::milliseconds{10000},
+            .backoff_multiplier = 2.0,
+            .jitter_factor = 0.1,
+        };
+    }
+
+    // Default config for downloads (historical data)
+    // Long-running - more patience, more retries
+    static RetryConfig DownloadDefaults() {
+        return RetryConfig{
+            .max_retries = 5,
+            .initial_delay = std::chrono::milliseconds{2000},
+            .max_delay = std::chrono::milliseconds{60000},
+            .backoff_multiplier = 2.0,
+            .jitter_factor = 0.1,
+        };
+    }
 };
 
 class RetryPolicy {

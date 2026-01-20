@@ -133,7 +133,7 @@ TEST(HttpClientTest, HandlesHttpError500) {
     http->OnData(chain);
 
     EXPECT_TRUE(downstream->error_called);
-    EXPECT_EQ(downstream->last_error.code, ErrorCode::HttpError);
+    EXPECT_EQ(downstream->last_error.code, ErrorCode::ServerError);  // 5xx -> ServerError
     EXPECT_TRUE(downstream->last_error.message.find("500") != std::string::npos);
 }
 
