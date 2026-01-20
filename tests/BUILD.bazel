@@ -334,3 +334,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "api_pipeline_test",
+    srcs = ["api_pipeline_test.cpp"],
+    deps = [
+        "//src/api:api_pipeline",
+        "@googletest//:gtest_main",
+    ],
+)

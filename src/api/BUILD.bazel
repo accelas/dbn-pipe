@@ -15,3 +15,17 @@ cc_library(
         "@rapidjson",
     ],
 )
+
+cc_library(
+    name = "api_pipeline",
+    hdrs = ["api_pipeline.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":json_parser",
+        ":url_encode",
+        "//lib/stream:buffer_chain",
+        "//lib/stream:tcp_socket",
+        "//src:http_client",
+        "//src:tls_transport",
+    ],
+)
