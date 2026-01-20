@@ -46,6 +46,30 @@ TEST(InstrumentMapTest, ResolveReturnsNulloptOutsideDateRange) {
     EXPECT_FALSE(map.Resolve(42, after).has_value());
 }
 
+TEST(InstrumentMapTest, EndDateIsExclusive) {
+    // Per databento-python MappingInterval semantics, end_date is exclusive.
+    // A query on exactly end_date should return nullopt.
+    InstrumentMap map;
+    auto start = TradingDate::FromIsoString("2025-01-01");
+    auto end = TradingDate::FromIsoString("2025-01-17");
+
+    map.Insert(42, "AAPL", start, end);
+
+    // start_date is inclusive
+    auto result_start = map.Resolve(42, start);
+    ASSERT_TRUE(result_start.has_value());
+    EXPECT_EQ(*result_start, "AAPL");
+
+    // Day before end_date should resolve
+    auto day_before_end = TradingDate::FromIsoString("2025-01-16");
+    auto result_before = map.Resolve(42, day_before_end);
+    ASSERT_TRUE(result_before.has_value());
+    EXPECT_EQ(*result_before, "AAPL");
+
+    // end_date itself is exclusive - should NOT resolve
+    EXPECT_FALSE(map.Resolve(42, end).has_value());
+}
+
 TEST(InstrumentMapTest, HandlesMultipleIntervalsForSameId) {
     // OPRA recycling: same instrument_id used for different contracts on different days
     InstrumentMap map;
