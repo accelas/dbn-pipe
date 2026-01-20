@@ -113,7 +113,7 @@ public:
         }
         --interval_it;
 
-        if (interval_it->start_date <= date && date <= interval_it->end_date) {
+        if (interval_it->start_date <= date && date < interval_it->end_date) {
             return interval_it->symbol;
         }
 
