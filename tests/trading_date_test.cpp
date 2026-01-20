@@ -74,3 +74,38 @@ TEST(TradingDateTest, FromNanosecondsWithDifferentTimezones) {
     EXPECT_EQ(utc_date.ToIsoString(), "2025-01-15");     // 12:00 UTC
     EXPECT_EQ(chicago_date.ToIsoString(), "2025-01-15"); // 06:00 CST
 }
+
+TEST(TradingDateTest, FromIsoStringThrowsOnInvalidFormat) {
+    // Wrong length
+    EXPECT_THROW(TradingDate::FromIsoString("2025-1-15"), std::invalid_argument);
+    EXPECT_THROW(TradingDate::FromIsoString("25-01-15"), std::invalid_argument);
+    EXPECT_THROW(TradingDate::FromIsoString(""), std::invalid_argument);
+
+    // Wrong separators
+    EXPECT_THROW(TradingDate::FromIsoString("2025/01/15"), std::invalid_argument);
+    EXPECT_THROW(TradingDate::FromIsoString("2025.01.15"), std::invalid_argument);
+    EXPECT_THROW(TradingDate::FromIsoString("20250115"), std::invalid_argument);
+
+    // Non-digit characters
+    EXPECT_THROW(TradingDate::FromIsoString("202X-01-15"), std::invalid_argument);
+    EXPECT_THROW(TradingDate::FromIsoString("2025-0a-15"), std::invalid_argument);
+    EXPECT_THROW(TradingDate::FromIsoString("abcd-ef-gh"), std::invalid_argument);
+}
+
+TEST(TradingDateTest, FromIsoStringThrowsOnInvalidCalendarDate) {
+    // Invalid month
+    EXPECT_THROW(TradingDate::FromIsoString("2025-00-15"), std::invalid_argument);
+    EXPECT_THROW(TradingDate::FromIsoString("2025-13-15"), std::invalid_argument);
+
+    // Invalid day
+    EXPECT_THROW(TradingDate::FromIsoString("2025-01-00"), std::invalid_argument);
+    EXPECT_THROW(TradingDate::FromIsoString("2025-01-32"), std::invalid_argument);
+
+    // Invalid day for month
+    EXPECT_THROW(TradingDate::FromIsoString("2025-02-30"), std::invalid_argument);
+    EXPECT_THROW(TradingDate::FromIsoString("2025-04-31"), std::invalid_argument);
+
+    // Leap year edge case
+    EXPECT_THROW(TradingDate::FromIsoString("2025-02-29"), std::invalid_argument);  // Not a leap year
+    EXPECT_NO_THROW(TradingDate::FromIsoString("2024-02-29"));  // Leap year - valid
+}
