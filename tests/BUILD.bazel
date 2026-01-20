@@ -352,3 +352,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "symbology_client_test",
+    srcs = ["symbology_client_test.cpp"],
+    deps = [
+        "//src/api:symbology_client",
+        "@googletest//:gtest_main",
+    ],
+)
