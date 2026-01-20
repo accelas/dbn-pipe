@@ -424,5 +424,6 @@ int main() {
 
 ## Next Steps
 
+- [api-guide.md](api-guide.md) — symbol resolution, storage, retry policy
 - [libuv-integration.md](libuv-integration.md) — libuv adapter
 - [Databento Docs](https://docs.databento.com/) — API reference
