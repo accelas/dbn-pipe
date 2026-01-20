@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -57,6 +58,19 @@ public:
         }
         InitSchema();
         ValidateSchemaVersion();
+    }
+
+    // Factory method returning expected (no exceptions).
+    // Returns unique_ptr on success, error message on failure.
+    static std::expected<std::unique_ptr<DuckDbStorage>, std::string>
+    Create(const std::string& db_path = "", size_t max_mappings = kDefaultMaxMappings) {
+        try {
+            auto storage = std::unique_ptr<DuckDbStorage>(
+                new DuckDbStorage(db_path, max_mappings));
+            return storage;
+        } catch (const std::exception& e) {
+            return std::unexpected(std::string(e.what()));
+        }
     }
 
     void StoreMapping(uint32_t instrument_id, const std::string& symbol,

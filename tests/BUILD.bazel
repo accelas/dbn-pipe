@@ -294,3 +294,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "duckdb_storage_factory_test",
+    srcs = ["duckdb_storage_factory_test.cpp"],
+    deps = [
+        "//src:duckdb_storage",
+        "@googletest//:gtest_main",
+    ],
+)
