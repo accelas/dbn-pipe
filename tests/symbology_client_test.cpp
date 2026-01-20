@@ -390,5 +390,79 @@ TEST(SymbologyBuilderTest, HandlesNegativeInstrumentId) {
     EXPECT_EQ(result->result.at("TEST")[0].symbol, "-1");
 }
 
+TEST(SymbologyBuilderTest, SkipsIncompleteIntervals) {
+    SymbologyBuilder builder;
+
+    // Interval missing "s" field should be skipped
+    builder.OnStartObject();
+    builder.OnKey("result");
+    builder.OnStartObject();
+    builder.OnKey("SPY");
+    builder.OnStartArray();
+
+    // First interval: missing "s" - should be skipped
+    builder.OnStartObject();
+    builder.OnKey("d0");
+    builder.OnString("2025-01-01");
+    builder.OnKey("d1");
+    builder.OnString("2025-06-30");
+    // No "s" field
+    builder.OnEndObject();
+
+    // Second interval: complete - should be kept
+    builder.OnStartObject();
+    builder.OnKey("d0");
+    builder.OnString("2025-07-01");
+    builder.OnKey("d1");
+    builder.OnString("2025-12-31");
+    builder.OnKey("s");
+    builder.OnString("15144");
+    builder.OnEndObject();
+
+    // Third interval: missing "d0" - should be skipped
+    builder.OnStartObject();
+    builder.OnKey("d1");
+    builder.OnString("2026-06-30");
+    builder.OnKey("s");
+    builder.OnString("15144");
+    builder.OnEndObject();
+
+    builder.OnEndArray();
+    builder.OnEndObject();
+    builder.OnEndObject();
+
+    auto result = builder.Build();
+    ASSERT_TRUE(result.has_value());
+    // Only the complete interval should be present
+    ASSERT_EQ(result->result.at("SPY").size(), 1);
+    EXPECT_EQ(result->result.at("SPY")[0].start_date, "2025-07-01");
+    EXPECT_EQ(result->result.at("SPY")[0].end_date, "2025-12-31");
+    EXPECT_EQ(result->result.at("SPY")[0].symbol, "15144");
+}
+
+TEST(SymbologyBuilderTest, SkipsCompletelyEmptyIntervals) {
+    SymbologyBuilder builder;
+
+    // Completely empty interval object should be skipped
+    builder.OnStartObject();
+    builder.OnKey("result");
+    builder.OnStartObject();
+    builder.OnKey("SPY");
+    builder.OnStartArray();
+
+    // Empty interval object
+    builder.OnStartObject();
+    builder.OnEndObject();
+
+    builder.OnEndArray();
+    builder.OnEndObject();
+    builder.OnEndObject();
+
+    auto result = builder.Build();
+    ASSERT_TRUE(result.has_value());
+    // SPY should have no intervals (key may not exist or have empty vector)
+    EXPECT_EQ(result->result.count("SPY"), 0);
+}
+
 }  // namespace
 }  // namespace dbn_pipe

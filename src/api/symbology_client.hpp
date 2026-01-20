@@ -152,8 +152,13 @@ public:
     void OnEndObject() {
         switch (state_) {
             case State::InInterval:
-                // Save the interval and return to array state
-                response_.result[current_symbol_].push_back(std::move(current_interval_));
+                // Only save interval if all required fields are present
+                // Skip incomplete intervals to avoid silent invalid mappings
+                if (!current_interval_.start_date.empty() &&
+                    !current_interval_.end_date.empty() &&
+                    !current_interval_.symbol.empty()) {
+                    response_.result[current_symbol_].push_back(std::move(current_interval_));
+                }
                 state_ = State::InSymbolArray;
                 break;
 

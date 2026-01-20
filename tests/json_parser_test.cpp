@@ -286,5 +286,81 @@ TEST(JsonParserTest, ParsesNestedObject) {
     EXPECT_EQ(result->second, 5);
 }
 
+TEST(JsonParserTest, RejectsOversizedResponse) {
+    IntBuilder builder;
+    std::expected<int64_t, Error> result;
+    bool called = false;
+
+    auto parser = JsonParser<IntBuilder>::Create(
+        builder, [&](auto r) {
+            result = std::move(r);
+            called = true;
+        });
+
+    // Try to feed more data than the 16MB buffer limit
+    // We'll simulate by feeding many chunks
+    const size_t chunk_size = Segment::kSize;  // 4KB per segment
+    const size_t total_to_exceed = 17 * 1024 * 1024;  // 17MB > 16MB limit
+
+    for (size_t fed = 0; fed < total_to_exceed && !called; fed += chunk_size) {
+        BufferChain chain;
+        auto seg = std::make_shared<Segment>();
+        std::memset(seg->data.data(), 'x', chunk_size);
+        seg->size = chunk_size;
+        chain.Append(std::move(seg));
+        parser->OnData(chain);
+    }
+
+    ASSERT_TRUE(called);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, ErrorCode::BufferOverflow);
+}
+
+TEST(JsonParserTest, PropagatesHttpErrorImmediately) {
+    IntBuilder builder;
+    std::expected<int64_t, Error> result;
+    bool called = false;
+
+    auto parser = JsonParser<IntBuilder>::Create(
+        builder, [&](auto r) {
+            result = std::move(r);
+            called = true;
+        });
+
+    // Feed some valid JSON data
+    FeedJson(*parser, R"({"value": 42})");
+
+    // But server returned an error status - propagate immediately
+    parser->OnError(Error{ErrorCode::Unauthorized, "Invalid API key"});
+
+    ASSERT_TRUE(called);
+    ASSERT_FALSE(result.has_value());
+    // HTTP errors should be propagated without attempting best-effort parse
+    EXPECT_EQ(result.error().code, ErrorCode::Unauthorized);
+}
+
+TEST(JsonParserTest, PropagatesRateLimitError) {
+    IntBuilder builder;
+    std::expected<int64_t, Error> result;
+    bool called = false;
+
+    auto parser = JsonParser<IntBuilder>::Create(
+        builder, [&](auto r) {
+            result = std::move(r);
+            called = true;
+        });
+
+    // Rate limit error with retry_after should be propagated
+    Error rate_limit_error{ErrorCode::RateLimited, "Too many requests"};
+    rate_limit_error.retry_after = std::chrono::milliseconds{5000};
+    parser->OnError(rate_limit_error);
+
+    ASSERT_TRUE(called);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_EQ(result.error().code, ErrorCode::RateLimited);
+    EXPECT_TRUE(result.error().retry_after.has_value());
+    EXPECT_EQ(result.error().retry_after->count(), 5000);
+}
+
 }  // namespace
 }  // namespace dbn_pipe

@@ -62,6 +62,16 @@ public:
         // JSON parsing requires contiguous data for simplicity with rapidjson
         while (!chain.Empty()) {
             size_t chunk_size = chain.ContiguousSize();
+
+            // Check buffer limit before appending
+            if (buffer_.size() + chunk_size > kMaxBufferSize) {
+                Complete(std::unexpected(Error{
+                    ErrorCode::BufferOverflow,
+                    "JSON response exceeds maximum buffer size (" +
+                        std::to_string(kMaxBufferSize / (1024 * 1024)) + "MB)"}));
+                return;
+            }
+
             const auto* data = chain.DataAt(0);
             buffer_.insert(buffer_.end(),
                            reinterpret_cast<const char*>(data),
@@ -221,6 +231,9 @@ private:
             on_complete_(std::move(result));
         }
     }
+
+    // Maximum buffer size for JSON responses (matches HttpClient limits)
+    static constexpr size_t kMaxBufferSize = 16 * 1024 * 1024;  // 16MB
 
     Builder& builder_;
     Callback on_complete_;
