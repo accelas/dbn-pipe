@@ -210,6 +210,36 @@
         "recordedRepoMappingEntries": []
       }
     },
+    "//third_party/rapidjson:rapidjson.bzl%rapidjson_ext": {
+      "general": {
+        "bzlTransitiveDigest": "KxZ9H+fXObd6bEBrV8goQvGYvz5dS/7zvdCOhUXCkZ8=",
+        "usagesDigest": "qTV/awvsShcCi7S2JmmV+bQP/dJICxYvn3kChC4Gghg=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "rapidjson": {
+            "bzlFile": "@@bazel_tools//tools/build_defs/repo:http.bzl",
+            "ruleClassName": "http_archive",
+            "attributes": {
+              "urls": [
+                "https://github.com/Tencent/rapidjson/archive/refs/tags/v1.1.0.tar.gz"
+              ],
+              "strip_prefix": "rapidjson-1.1.0",
+              "sha256": "bf7ced29704a1e696fbccf2a2b4ea068e7774fa37f6d7dd4039d0787f8bed98e",
+              "build_file": "@@//third_party/rapidjson:BUILD.rapidjson.bazel"
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "",
+            "bazel_tools",
+            "bazel_tools"
+          ]
+        ]
+      }
+    },
     "@@apple_support~//crosstool:setup.bzl%apple_cc_configure_extension": {
       "general": {
         "bzlTransitiveDigest": "ltCGFbl/LQQZXn/LEMXfKX7pGwyqNiOCHcmiQW0tmjM=",

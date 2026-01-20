@@ -132,6 +132,9 @@ public:
         return reactor_thread_id_.load(std::memory_order_acquire) == std::this_thread::get_id();
     }
 
+    // Schedule a one-shot callback after delay
+    void Schedule(std::chrono::milliseconds delay, TimerCallback fn) override;
+
     // Poll for events, returns number handled
     int Poll(int timeout_ms = -1);
 
