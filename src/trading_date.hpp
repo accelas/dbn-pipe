@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -19,31 +20,25 @@ class TradingDate {
 public:
     // Parse ISO-8601 date string "YYYY-MM-DD"
     static TradingDate FromIsoString(std::string_view iso_date) {
-        auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
-        if (iso_date.size() != 10 || iso_date[4] != '-' || iso_date[7] != '-') {
+        // Validate exact format: 10 chars, YYYY-MM-DD
+        if (iso_date.size() != 10) {
             throw std::invalid_argument(
-                "Invalid ISO date format (expected YYYY-MM-DD): " + std::string(iso_date));
-        }
-        for (size_t i : {0U, 1U, 2U, 3U, 5U, 6U, 8U, 9U}) {
-            if (!is_digit(iso_date[i])) {
-                throw std::invalid_argument(
-                    "Invalid ISO date format (expected YYYY-MM-DD): " + std::string(iso_date));
-            }
+                "Invalid ISO date (expected YYYY-MM-DD): " + std::string(iso_date));
         }
 
-        int year = (iso_date[0] - '0') * 1000 + (iso_date[1] - '0') * 100 +
-                   (iso_date[2] - '0') * 10 + (iso_date[3] - '0');
-        int month = (iso_date[5] - '0') * 10 + (iso_date[6] - '0');
-        int day = (iso_date[8] - '0') * 10 + (iso_date[9] - '0');
+        std::chrono::year_month_day ymd;
+        std::istringstream ss{std::string(iso_date)};
+        ss >> std::chrono::parse("%F", ymd);  // %F = YYYY-MM-DD
 
-        std::chrono::year_month_day ymd{
-            std::chrono::year{year}, std::chrono::month{static_cast<unsigned>(month)},
-            std::chrono::day{static_cast<unsigned>(day)}};
-        if (!ymd.ok()) {
-            throw std::invalid_argument("Invalid calendar date: " + std::string(iso_date));
+        if (ss.fail() || !ymd.ok()) {
+            throw std::invalid_argument(
+                "Invalid ISO date (expected YYYY-MM-DD): " + std::string(iso_date));
         }
 
-        return TradingDate(year, month, day);
+        return TradingDate(
+            static_cast<int>(ymd.year()),
+            static_cast<unsigned>(ymd.month()),
+            static_cast<unsigned>(ymd.day()));
     }
 
     // Convert nanoseconds since Unix epoch (UTC) to trading date in specified timezone.
