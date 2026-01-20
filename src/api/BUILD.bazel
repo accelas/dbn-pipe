@@ -4,3 +4,14 @@ cc_library(
     name = "url_encode",
     hdrs = ["url_encode.hpp"],
 )
+
+cc_library(
+    name = "json_parser",
+    hdrs = ["json_parser.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//lib/stream:buffer_chain",
+        "//lib/stream:error",
+        "@rapidjson",
+    ],
+)
