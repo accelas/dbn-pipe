@@ -17,3 +17,26 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
 )
+
+# Runtime shared library that consumers must bundle with their binaries.
+# Usage in consumer's BUILD.bazel:
+#
+#   pkg_tar(
+#       name = "myapp_tar",
+#       srcs = [...],
+#       deps = ["@duckdb//:duckdb_runtime_tar"],
+#   )
+filegroup(
+    name = "duckdb_runtime",
+    srcs = ["libduckdb.so"],
+    visibility = ["//visibility:public"],
+)
+
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+
+# Tarball with libduckdb.so at root - consumers should add their own package_dir
+pkg_tar(
+    name = "duckdb_runtime_tar",
+    srcs = [":duckdb_runtime"],
+    visibility = ["//visibility:public"],
+)
