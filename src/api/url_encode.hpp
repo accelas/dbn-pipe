@@ -13,7 +13,7 @@ namespace dbn_pipe {
 // Encodes all characters except alphanumeric and -_.~
 inline void UrlEncode(std::ostream& out, std::string_view value) {
     auto flags = out.flags();
-    out.fill('0');
+    auto fill = out.fill('0');  // fill() returns previous fill character
     out << std::hex;
 
     for (char c : value) {
@@ -28,7 +28,8 @@ inline void UrlEncode(std::ostream& out, std::string_view value) {
         }
     }
 
-    out.flags(flags);  // Restore flags for subsequent output
+    out.flags(flags);  // Restore flags
+    out.fill(fill);    // Restore fill character
 }
 
 // Base64 encode - writes directly to output stream

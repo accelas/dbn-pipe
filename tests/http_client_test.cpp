@@ -236,3 +236,136 @@ TEST(HttpClientTest, ImplementsUpstreamConcept) {
     static_assert(Upstream<HttpClient<MockHttpDownstream>>);
     SUCCEED();
 }
+
+// Tests for HTTP status code to ErrorCode mapping
+
+TEST(HttpClientTest, Maps401ToUnauthorized) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockHttpDownstream>();
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+
+    std::string response =
+        "HTTP/1.1 401 Unauthorized\r\n"
+        "Content-Length: 11\r\n"
+        "\r\n"
+        "Invalid key";
+
+    auto chain = ToChain(response);
+    http->OnData(chain);
+
+    EXPECT_TRUE(downstream->error_called);
+    EXPECT_EQ(downstream->last_error.code, ErrorCode::Unauthorized);
+}
+
+TEST(HttpClientTest, Maps403ToUnauthorized) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockHttpDownstream>();
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+
+    std::string response =
+        "HTTP/1.1 403 Forbidden\r\n"
+        "Content-Length: 9\r\n"
+        "\r\n"
+        "Forbidden";
+
+    auto chain = ToChain(response);
+    http->OnData(chain);
+
+    EXPECT_TRUE(downstream->error_called);
+    EXPECT_EQ(downstream->last_error.code, ErrorCode::Unauthorized);
+}
+
+TEST(HttpClientTest, Maps404ToNotFound) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockHttpDownstream>();
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+
+    std::string response =
+        "HTTP/1.1 404 Not Found\r\n"
+        "Content-Length: 9\r\n"
+        "\r\n"
+        "Not found";
+
+    auto chain = ToChain(response);
+    http->OnData(chain);
+
+    EXPECT_TRUE(downstream->error_called);
+    EXPECT_EQ(downstream->last_error.code, ErrorCode::NotFound);
+}
+
+TEST(HttpClientTest, Maps422ToValidationError) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockHttpDownstream>();
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+
+    std::string response =
+        "HTTP/1.1 422 Unprocessable Entity\r\n"
+        "Content-Length: 14\r\n"
+        "\r\n"
+        "Invalid params";
+
+    auto chain = ToChain(response);
+    http->OnData(chain);
+
+    EXPECT_TRUE(downstream->error_called);
+    EXPECT_EQ(downstream->last_error.code, ErrorCode::ValidationError);
+}
+
+TEST(HttpClientTest, Maps429ToRateLimited) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockHttpDownstream>();
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+
+    std::string response =
+        "HTTP/1.1 429 Too Many Requests\r\n"
+        "Content-Length: 12\r\n"
+        "\r\n"
+        "Rate limited";
+
+    auto chain = ToChain(response);
+    http->OnData(chain);
+
+    EXPECT_TRUE(downstream->error_called);
+    EXPECT_EQ(downstream->last_error.code, ErrorCode::RateLimited);
+}
+
+TEST(HttpClientTest, ParsesRetryAfterHeader) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockHttpDownstream>();
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+
+    std::string response =
+        "HTTP/1.1 429 Too Many Requests\r\n"
+        "Retry-After: 30\r\n"
+        "Content-Length: 12\r\n"
+        "\r\n"
+        "Rate limited";
+
+    auto chain = ToChain(response);
+    http->OnData(chain);
+
+    EXPECT_TRUE(downstream->error_called);
+    EXPECT_EQ(downstream->last_error.code, ErrorCode::RateLimited);
+    ASSERT_TRUE(downstream->last_error.retry_after.has_value());
+    EXPECT_EQ(downstream->last_error.retry_after->count(), 30000);  // 30 seconds in ms
+}
+
+TEST(HttpClientTest, ParsesRetryAfterHeaderCaseInsensitive) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockHttpDownstream>();
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+
+    std::string response =
+        "HTTP/1.1 429 Too Many Requests\r\n"
+        "retry-after: 60\r\n"
+        "Content-Length: 12\r\n"
+        "\r\n"
+        "Rate limited";
+
+    auto chain = ToChain(response);
+    http->OnData(chain);
+
+    EXPECT_TRUE(downstream->error_called);
+    ASSERT_TRUE(downstream->last_error.retry_after.has_value());
+    EXPECT_EQ(downstream->last_error.retry_after->count(), 60000);  // 60 seconds in ms
+}
