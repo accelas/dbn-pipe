@@ -12,6 +12,9 @@ cc_library(
         "-DDUCKDB_BUILD_LIBRARY",
         # Disable extensions we don't need for simple storage
         "-DDUCKDB_NO_THREADS",
+        # Reduce compiler memory usage (critical for CI with limited RAM)
+        "-fno-var-tracking",
+        "-fno-var-tracking-assignments",
     ],
     linkopts = [
         "-lpthread",

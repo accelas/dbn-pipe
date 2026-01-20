@@ -9,51 +9,83 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    container: debian:trixie
 
     steps:
-      - name: Install system dependencies
+      # Extend swap BEFORE container starts (runs on host)
+      # DuckDB compilation is extremely memory-intensive
+      - name: Extend swap
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            git \
-            wget \
-            ca-certificates \
-            build-essential \
-            python3 \
-            libssl-dev \
-            libzstd-dev
+          echo "=== Current memory/swap ==="
+          free -h
+          # GitHub runners have some swap, extend with additional swap file
+          sudo fallocate -l 8G /mnt/swapfile2 || sudo dd if=/dev/zero of=/mnt/swapfile2 bs=1M count=8192
+          sudo chmod 600 /mnt/swapfile2
+          sudo mkswap /mnt/swapfile2
+          sudo swapon /mnt/swapfile2
+          echo "=== After adding swap ==="
+          free -h
 
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Cache Bazelisk
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/bazelisk
-          key: bazelisk-${{ runner.os }}
+      # Create cache directories on host (will be mounted into container)
+      - name: Setup cache directories
+        run: |
+          mkdir -p /tmp/bazel-cache /tmp/bazel-repo-cache
 
-      - name: Cache Bazel versions
+      - name: Cache Bazel build artifacts
         uses: actions/cache@v4
         with:
-          path: ~/.bazel
-          key: bazel-version-${{ hashFiles('.bazelversion') }}
-
-      - name: Cache Bazel build
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/bazel
-          key: bazel-build-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel') }}
+          path: /tmp/bazel-cache
+          key: bazel-build-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', '.bazelversion') }}-${{ github.sha }}
           restore-keys: |
+            bazel-build-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock', '.bazelversion') }}-
             bazel-build-${{ runner.os }}-
 
-      - name: Install Bazelisk
-        run: |
-          wget -q https://github.com/bazelbuild/bazelisk/releases/download/v1.20.0/bazelisk-linux-amd64 -O /usr/local/bin/bazel
-          chmod +x /usr/local/bin/bazel
+      - name: Cache Bazel repository cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/bazel-repo-cache
+          key: bazel-repo-${{ runner.os }}-${{ hashFiles('MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            bazel-repo-${{ runner.os }}-
 
-      - name: Build all targets
-        run: bazel build //...
+      # Build in Debian Trixie container for GCC 14 + C++23 support
+      # Mount cache directories from host
+      - name: Build and Test in Container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: debian:trixie
+          options: >-
+            -v ${{ github.workspace }}:/workspace
+            -v /tmp/bazel-cache:/tmp/bazel-cache
+            -v /tmp/bazel-repo-cache:/tmp/bazel-repo-cache
+            -w /workspace
+          run: |
+            set -e
+            # Install dependencies
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              git wget ca-certificates build-essential python3 libssl-dev libzstd-dev procps
 
-      - name: Run tests
-        run: bazel test //... --test_output=errors
+            # Install Bazelisk
+            mkdir -p /tmp/bazelisk
+            wget -q https://github.com/bazelbuild/bazelisk/releases/download/v1.20.0/bazelisk-linux-amd64 -O /tmp/bazelisk/bazel
+            chmod +x /tmp/bazelisk/bazel
+            ln -sf /tmp/bazelisk/bazel /usr/local/bin/bazel
+
+            # Configure Bazel caching
+            echo 'build --disk_cache=/tmp/bazel-cache' >> ~/.bazelrc
+            echo 'build --repository_cache=/tmp/bazel-repo-cache' >> ~/.bazelrc
+            echo 'build --jobs=2' >> ~/.bazelrc
+            cat ~/.bazelrc
+
+            # Show memory and cache status
+            free -h
+            echo "=== Cache status ==="
+            du -sh /tmp/bazel-cache 2>/dev/null || echo "disk_cache empty"
+            du -sh /tmp/bazel-repo-cache 2>/dev/null || echo "repo_cache empty"
+
+            # Build and test
+            bazel build //...
+            bazel test //... --test_output=errors

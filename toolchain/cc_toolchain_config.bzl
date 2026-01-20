@@ -264,10 +264,17 @@ def _impl(ctx):
             preprocessor_defines_feature,
         ],
         cxx_builtin_include_directories = [
+            # GCC 14 paths (Debian Trixie)
             "/usr/include/c++/14",
             "/usr/include/x86_64-linux-gnu/c++/14",
             "/usr/include/c++/14/backward",
             "/usr/lib/gcc/x86_64-linux-gnu/14/include",
+            # GCC 13 paths (Ubuntu 24.04)
+            "/usr/include/c++/13",
+            "/usr/include/x86_64-linux-gnu/c++/13",
+            "/usr/include/c++/13/backward",
+            "/usr/lib/gcc/x86_64-linux-gnu/13/include",
+            # Common paths
             "/usr/local/include",
             "/usr/include/x86_64-linux-gnu",
             "/usr/include",
