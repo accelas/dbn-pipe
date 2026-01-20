@@ -2,13 +2,18 @@
 #pragma once
 
 #include <expected>
+#include <functional>
 #include <map>
+#include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "src/api/api_pipeline.hpp"
+#include "src/dns_resolver.hpp"
+#include "src/stype.hpp"
 
 namespace dbn_pipe {
 
@@ -207,12 +212,75 @@ private:
 // Provides methods to resolve symbol mappings:
 // - resolve: Convert symbols between different stype formats
 //
-// Note: This is a placeholder class. Full implementation requires
-// DNS resolution and retry policy infrastructure from future tasks.
+// Thread safety: Not thread-safe. All methods must be called from the event loop thread.
 class SymbologyClient {
 public:
-    // Placeholder - full implementation in future tasks
-    SymbologyClient() = default;
+    SymbologyClient(IEventLoop& loop, std::string api_key)
+        : loop_(loop), api_key_(std::move(api_key)) {}
+
+    void Resolve(
+        const std::string& dataset,
+        const std::vector<std::string>& symbols,
+        SType stype_in,
+        SType stype_out,
+        const std::string& start_date,
+        const std::string& end_date,
+        std::function<void(std::expected<SymbologyResponse, Error>)> callback) {
+        // Build comma-separated symbols string
+        std::ostringstream symbols_ss;
+        bool first = true;
+        for (const auto& sym : symbols) {
+            if (!first) symbols_ss << ",";
+            first = false;
+            symbols_ss << sym;
+        }
+
+        ApiRequest req{
+            .method = "POST",
+            .path = "/v0/symbology.resolve",
+            .query_params = {},
+            .form_params = {
+                {"dataset", dataset},
+                {"symbols", symbols_ss.str()},
+                {"stype_in", std::string(STypeToString(stype_in))},
+                {"stype_out", std::string(STypeToString(stype_out))},
+                {"start_date", start_date},
+                {"end_date", end_date},
+            },
+        };
+
+        auto addr = ResolveHostname(kHostname, kPort);
+        if (!addr) {
+            callback(std::unexpected(Error{
+                ErrorCode::DnsResolutionFailed,
+                std::string("Failed to resolve ") + kHostname}));
+            return;
+        }
+
+        auto builder = std::make_shared<SymbologyBuilder>();
+        auto pipeline = ApiPipeline<SymbologyBuilder>::Create(
+            loop_,
+            kHostname,
+            *builder,
+            [callback, builder](auto result) {
+                callback(std::move(result));
+            });
+
+        std::string http_request = req.BuildHttpRequest(kHostname, api_key_);
+
+        pipeline->SetReadyCallback([pipeline, http_request]() {
+            pipeline->SendRequest(http_request);
+        });
+
+        pipeline->Connect(*addr);
+    }
+
+private:
+    static constexpr const char* kHostname = "hist.databento.com";
+    static constexpr uint16_t kPort = 443;
+
+    IEventLoop& loop_;
+    std::string api_key_;
 };
 
 }  // namespace dbn_pipe

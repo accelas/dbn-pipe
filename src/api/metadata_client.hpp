@@ -2,11 +2,14 @@
 #pragma once
 
 #include <expected>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 
 #include "src/api/api_pipeline.hpp"
+#include "src/dns_resolver.hpp"
 
 namespace dbn_pipe {
 
@@ -137,12 +140,132 @@ struct DatasetRangeBuilder {
 // - get_cost: Cost estimate for a query
 // - get_dataset_range: Available date range for a dataset
 //
-// Note: This is a placeholder class. Full implementation requires
-// DNS resolution and retry policy infrastructure from future tasks.
+// Thread safety: Not thread-safe. All methods must be called from the event loop thread.
 class MetadataClient {
 public:
-    // Placeholder - full implementation in future tasks
-    MetadataClient() = default;
+    MetadataClient(IEventLoop& loop, std::string api_key)
+        : loop_(loop), api_key_(std::move(api_key)) {}
+
+    void GetRecordCount(
+        const std::string& dataset,
+        const std::string& symbols,
+        const std::string& schema,
+        const std::string& start,
+        const std::string& end,
+        const std::string& stype_in,
+        std::function<void(std::expected<uint64_t, Error>)> callback) {
+        ApiRequest req{
+            .method = "POST",
+            .path = "/v0/metadata.get_record_count",
+            .query_params = {},
+            .form_params = {
+                {"dataset", dataset},
+                {"symbols", symbols},
+                {"schema", schema},
+                {"start", start},
+                {"end", end},
+                {"stype_in", stype_in},
+            },
+        };
+        CallApi<RecordCountBuilder>(req, std::move(callback));
+    }
+
+    void GetBillableSize(
+        const std::string& dataset,
+        const std::string& symbols,
+        const std::string& schema,
+        const std::string& start,
+        const std::string& end,
+        const std::string& stype_in,
+        std::function<void(std::expected<uint64_t, Error>)> callback) {
+        ApiRequest req{
+            .method = "POST",
+            .path = "/v0/metadata.get_billable_size",
+            .query_params = {},
+            .form_params = {
+                {"dataset", dataset},
+                {"symbols", symbols},
+                {"schema", schema},
+                {"start", start},
+                {"end", end},
+                {"stype_in", stype_in},
+            },
+        };
+        CallApi<BillableSizeBuilder>(req, std::move(callback));
+    }
+
+    void GetCost(
+        const std::string& dataset,
+        const std::string& symbols,
+        const std::string& schema,
+        const std::string& start,
+        const std::string& end,
+        const std::string& stype_in,
+        std::function<void(std::expected<double, Error>)> callback) {
+        ApiRequest req{
+            .method = "POST",
+            .path = "/v0/metadata.get_cost",
+            .query_params = {},
+            .form_params = {
+                {"dataset", dataset},
+                {"symbols", symbols},
+                {"schema", schema},
+                {"start", start},
+                {"end", end},
+                {"stype_in", stype_in},
+            },
+        };
+        CallApi<CostBuilder>(req, std::move(callback));
+    }
+
+    void GetDatasetRange(
+        const std::string& dataset,
+        std::function<void(std::expected<DatasetRange, Error>)> callback) {
+        ApiRequest req{
+            .method = "GET",
+            .path = "/v0/metadata.get_dataset_range",
+            .query_params = {{"dataset", dataset}},
+            .form_params = {},
+        };
+        CallApi<DatasetRangeBuilder>(req, std::move(callback));
+    }
+
+private:
+    static constexpr const char* kHostname = "hist.databento.com";
+    static constexpr uint16_t kPort = 443;
+
+    template <typename Builder>
+    void CallApi(
+        const ApiRequest& req,
+        std::function<void(std::expected<typename Builder::Result, Error>)> callback) {
+        auto addr = ResolveHostname(kHostname, kPort);
+        if (!addr) {
+            callback(std::unexpected(Error{
+                ErrorCode::DnsResolutionFailed,
+                std::string("Failed to resolve ") + kHostname}));
+            return;
+        }
+
+        auto builder = std::make_shared<Builder>();
+        auto pipeline = ApiPipeline<Builder>::Create(
+            loop_,
+            kHostname,
+            *builder,
+            [callback, builder](auto result) {
+                callback(std::move(result));
+            });
+
+        std::string http_request = req.BuildHttpRequest(kHostname, api_key_);
+
+        pipeline->SetReadyCallback([pipeline, http_request]() {
+            pipeline->SendRequest(http_request);
+        });
+
+        pipeline->Connect(*addr);
+    }
+
+    IEventLoop& loop_;
+    std::string api_key_;
 };
 
 }  // namespace dbn_pipe
