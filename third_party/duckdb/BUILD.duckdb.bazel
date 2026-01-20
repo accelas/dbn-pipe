@@ -1,9 +1,9 @@
 # DuckDB pre-built binary distribution
-# Uses pre-compiled shared library to avoid memory-intensive compilation
+# Uses pre-compiled static library so consumers don't need libduckdb.so at runtime
 
 cc_import(
     name = "duckdb_lib",
-    shared_library = "libduckdb.so",
+    static_library = "libduckdb_static.a",
 )
 
 cc_library(
