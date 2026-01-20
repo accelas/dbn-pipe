@@ -6,6 +6,8 @@
 #include <optional>
 #include <random>
 
+#include "lib/stream/error.hpp"
+
 namespace dbn_pipe {
 
 struct RetryConfig {
@@ -42,6 +44,50 @@ public:
             return std::chrono::duration_cast<std::chrono::milliseconds>(*retry_after);
         }
 
+        return CalculateBackoff();
+    }
+
+    // Error-aware: classify error and check retry budget
+    bool ShouldRetry(const Error& e) const {
+        if (!IsRetryable(e.code)) {
+            return false;
+        }
+        return attempts_ < config_.max_retries;
+    }
+
+    // Error-aware: use retry_after from error if present
+    std::chrono::milliseconds GetNextDelay(const Error& e) const {
+        if (e.retry_after.has_value()) {
+            return *e.retry_after;
+        }
+        return CalculateBackoff();
+    }
+
+    // Classify whether an error code is retryable
+    static bool IsRetryable(ErrorCode code) {
+        switch (code) {
+            // Retryable errors
+            case ErrorCode::ConnectionFailed:
+            case ErrorCode::ServerError:
+            case ErrorCode::TlsHandshakeFailed:
+            case ErrorCode::RateLimited:
+                return true;
+
+            // Non-retryable errors
+            case ErrorCode::Unauthorized:
+            case ErrorCode::NotFound:
+            case ErrorCode::ValidationError:
+            case ErrorCode::ParseError:
+            default:
+                return false;
+        }
+    }
+
+    uint32_t Attempts() const { return attempts_; }
+
+private:
+    // Calculate delay using exponential backoff with jitter
+    std::chrono::milliseconds CalculateBackoff() const {
         // Exponential backoff: initial * multiplier^attempts
         double delay_ms = static_cast<double>(config_.initial_delay.count());
         for (uint32_t i = 0; i < attempts_; ++i) {
@@ -62,9 +108,6 @@ public:
         return std::chrono::milliseconds(static_cast<int64_t>(delay_ms));
     }
 
-    uint32_t Attempts() const { return attempts_; }
-
-private:
     RetryConfig config_;
     uint32_t attempts_;
 };
