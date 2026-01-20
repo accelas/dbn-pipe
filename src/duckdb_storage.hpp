@@ -327,10 +327,15 @@ private:
                 size_t comma = str.find(',', pos);
                 size_t end_bracket = str.find(']', pos);
                 if (comma != std::string::npos && end_bracket != std::string::npos) {
-                    uint64_t start = std::stoull(str.substr(pos + 1, comma - pos - 1));
-                    uint64_t end = std::stoull(str.substr(comma + 1, end_bracket - comma - 1));
-                    ranges.emplace_back(start, end);
-                    pos = end_bracket + 1;
+                    try {
+                        uint64_t start = std::stoull(str.substr(pos + 1, comma - pos - 1));
+                        uint64_t end = std::stoull(str.substr(comma + 1, end_bracket - comma - 1));
+                        ranges.emplace_back(start, end);
+                        pos = end_bracket + 1;
+                    } catch (const std::exception&) {
+                        ranges.clear();
+                        return;
+                    }
                 } else {
                     break;
                 }
