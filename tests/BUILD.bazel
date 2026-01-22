@@ -399,3 +399,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "api_client_test",
+    srcs = ["api_client_test.cpp"],
+    deps = [
+        "//lib/stream:json_parser",
+        "//src:api_client",
+        "@googletest//:gtest_main",
+    ],
+)
