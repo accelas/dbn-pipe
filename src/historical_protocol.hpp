@@ -16,7 +16,7 @@
 #include "lib/stream/component.hpp"
 #include "pipeline_sink.hpp"
 #include "lib/stream/tcp_socket.hpp"
-#include "tls_transport.hpp"
+#include "lib/stream/tls_transport.hpp"
 #include "zstd_decompressor.hpp"
 
 namespace dbn_pipe {

@@ -96,7 +96,7 @@ cc_test(
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
-        "//src:tls_transport",
+        "//lib/stream:tls_transport",
         "@googletest//:gtest_main",
     ],
 )

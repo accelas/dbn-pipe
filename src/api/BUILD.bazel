@@ -19,9 +19,9 @@ cc_library(
         ":json_parser",
         "//lib/stream:buffer_chain",
         "//lib/stream:tcp_socket",
+        "//lib/stream:tls_transport",
         "//lib/stream:url_encode",
         "//src:http_client",
-        "//src:tls_transport",
     ],
 )
 

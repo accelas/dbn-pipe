@@ -16,7 +16,7 @@
 #include "src/api/json_parser.hpp"
 #include "lib/stream/url_encode.hpp"
 #include "src/http_client.hpp"
-#include "src/tls_transport.hpp"
+#include "lib/stream/tls_transport.hpp"
 
 namespace dbn_pipe {
 

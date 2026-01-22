@@ -20,7 +20,7 @@
 #include "lib/stream/error.hpp"
 #include "lib/stream/event_loop.hpp"
 #include "lib/stream/component.hpp"
-#include "tls_transport.hpp"  // For Suspendable
+#include "lib/stream/tls_transport.hpp"  // For Suspendable
 
 namespace dbn_pipe {
 

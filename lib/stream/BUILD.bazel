@@ -104,3 +104,16 @@ cc_library(
     name = "url_encode",
     hdrs = ["url_encode.hpp"],
 )
+
+cc_library(
+    name = "tls_transport",
+    hdrs = ["tls_transport.hpp"],
+    deps = [
+        ":buffer_chain",
+        ":component",
+        ":error",
+        ":event_loop",
+        "@openssl_sys//:crypto",
+        "@openssl_sys//:ssl",
+    ],
+)

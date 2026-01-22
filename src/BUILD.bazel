@@ -27,20 +27,6 @@ cc_library(
 )
 
 cc_library(
-    name = "tls_transport",
-    hdrs = ["tls_transport.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//lib/stream:buffer_chain",
-        "//lib/stream:component",
-        "//lib/stream:error",
-        "//lib/stream:event_loop",
-        "@openssl_sys//:ssl",
-        "@openssl_sys//:crypto",
-    ],
-)
-
-cc_library(
     name = "http_client",
     hdrs = ["http_client.hpp"],
     visibility = ["//visibility:public"],
@@ -48,7 +34,7 @@ cc_library(
         "//lib/stream:component",
         "//lib/stream:error",
         "//lib/stream:event_loop",
-        ":tls_transport",
+        "//lib/stream:tls_transport",
         "@llhttp",
     ],
 )
@@ -90,7 +76,7 @@ cc_library(
         "//lib/stream:component",
         "//lib/stream:error",
         "//lib/stream:event_loop",
-        ":tls_transport",
+        "//lib/stream:tls_transport",
         "@openssl_sys//:crypto",
     ],
 )
@@ -165,12 +151,12 @@ cc_library(
         "//lib/stream:component",
         "//lib/stream:event_loop",
         "//lib/stream:tcp_socket",
+        "//lib/stream:tls_transport",
         "//lib/stream:url_encode",
         ":dbn_parser_component",
         ":http_client",
         ":pipeline_sink",
         ":protocol_driver",
-        ":tls_transport",
         ":zstd_decompressor",
     ],
     visibility = ["//visibility:public"],
