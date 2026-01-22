@@ -1,4 +1,4 @@
-// src/http_client.hpp
+// lib/stream/http_client.hpp
 #pragma once
 
 #include <llhttp.h>
@@ -13,9 +13,9 @@
 #include <vector>
 
 #include "lib/stream/buffer_chain.hpp"
+#include "lib/stream/component.hpp"
 #include "lib/stream/error.hpp"
 #include "lib/stream/event_loop.hpp"
-#include "lib/stream/component.hpp"
 #include "lib/stream/tls_transport.hpp"
 
 namespace dbn_pipe {

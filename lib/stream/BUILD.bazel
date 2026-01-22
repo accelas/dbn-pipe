@@ -117,3 +117,15 @@ cc_library(
         "@openssl_sys//:ssl",
     ],
 )
+
+cc_library(
+    name = "http_client",
+    hdrs = ["http_client.hpp"],
+    deps = [
+        ":component",
+        ":error",
+        ":event_loop",
+        ":tls_transport",
+        "@llhttp",
+    ],
+)

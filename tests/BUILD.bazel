@@ -107,7 +107,7 @@ cc_test(
     deps = [
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
-        "//src:http_client",
+        "//lib/stream:http_client",
         "@googletest//:gtest_main",
     ],
 )

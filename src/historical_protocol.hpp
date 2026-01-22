@@ -12,7 +12,7 @@
 #include "lib/stream/buffer_chain.hpp"
 #include "dbn_parser_component.hpp"
 #include "lib/stream/event_loop.hpp"
-#include "http_client.hpp"
+#include "lib/stream/http_client.hpp"
 #include "lib/stream/component.hpp"
 #include "pipeline_sink.hpp"
 #include "lib/stream/tcp_socket.hpp"

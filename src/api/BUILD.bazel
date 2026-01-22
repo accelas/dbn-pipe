@@ -18,10 +18,10 @@ cc_library(
     deps = [
         ":json_parser",
         "//lib/stream:buffer_chain",
+        "//lib/stream:http_client",
         "//lib/stream:tcp_socket",
         "//lib/stream:tls_transport",
         "//lib/stream:url_encode",
-        "//src:http_client",
     ],
 )
 

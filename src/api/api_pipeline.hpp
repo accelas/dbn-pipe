@@ -15,7 +15,7 @@
 #include "lib/stream/tcp_socket.hpp"
 #include "src/api/json_parser.hpp"
 #include "lib/stream/url_encode.hpp"
-#include "src/http_client.hpp"
+#include "lib/stream/http_client.hpp"
 #include "lib/stream/tls_transport.hpp"
 
 namespace dbn_pipe {
