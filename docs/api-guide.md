@@ -172,11 +172,11 @@ Query data availability and cost before downloading:
 ```cpp
 #include "src/api/metadata_client.hpp"
 
-// Create client
-MetadataClient client(loop, "db-your-api-key");
+// Create client (returns shared_ptr, must outlive requests)
+auto client = dbn_pipe::MetadataClient::Create(loop, "db-your-api-key");
 
 // Get record count
-client.GetRecordCount(
+client->GetRecordCount(
     "GLBX.MDP3",      // dataset
     "ESM4",           // symbols
     "trades",         // schema
@@ -190,7 +190,7 @@ client.GetRecordCount(
     });
 
 // Get cost estimate
-client.GetCost(
+client->GetCost(
     "GLBX.MDP3", "ESM4", "trades",
     "2025-01-01", "2025-01-02", "raw_symbol",
     [](auto result) {
@@ -200,13 +200,15 @@ client.GetCost(
     });
 
 // Get dataset date range
-client.GetDatasetRange("GLBX.MDP3", [](auto result) {
+client->GetDatasetRange("GLBX.MDP3", [](auto result) {
     if (result) {
         std::cout << "Available: " << result->start
                   << " to " << result->end << "\n";
     }
 });
 ```
+
+The client uses automatic retry with exponential backoff for transient errors (connection failures, rate limiting, server errors).
 
 ---
 
@@ -217,9 +219,10 @@ Resolve symbols to instrument IDs with date ranges:
 ```cpp
 #include "src/api/symbology_client.hpp"
 
-SymbologyClient client(loop, "db-your-api-key");
+// Create client (returns shared_ptr, must outlive requests)
+auto client = dbn_pipe::SymbologyClient::Create(loop, "db-your-api-key");
 
-client.Resolve(
+client->Resolve(
     "GLBX.MDP3",                          // dataset
     {"ESM4", "ESU4"},                      // symbols
     SType::RawSymbol,                      // stype_in
@@ -238,6 +241,8 @@ client.Resolve(
         }
     });
 ```
+
+The client automatically retries on transient errors with exponential backoff.
 
 ---
 

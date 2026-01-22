@@ -190,20 +190,34 @@ void on_queue_drained() {
 
 ## Pipeline State
 
+The pipeline uses a state machine to enforce correct sequencing:
+
 ```cpp
 auto state = client->GetState();
 
 switch (state) {
-    case dbn_pipe::PipelineState::Disconnected:  // Initial or stopped
-    case dbn_pipe::PipelineState::Connecting:    // TCP connecting
-    case dbn_pipe::PipelineState::Connected:     // Ready for Start()
-    case dbn_pipe::PipelineState::Streaming:     // Active
-    case dbn_pipe::PipelineState::Stopping:      // Tearing down
-    case dbn_pipe::PipelineState::Done:          // Completed
-    case dbn_pipe::PipelineState::Error:         // Terminal error
+    case dbn_pipe::Pipeline::State::Created:     // Initial state
+    case dbn_pipe::Pipeline::State::Connecting:  // Connect() called, awaiting handshake
+    case dbn_pipe::Pipeline::State::Ready:       // Handshake complete, can call Start()
+    case dbn_pipe::Pipeline::State::Started:     // Streaming active
+    case dbn_pipe::Pipeline::State::TornDown:    // Stopped or error
         break;
 }
+
+// Check if ready to start
+if (client->IsReady()) {
+    client->Start();
+}
 ```
+
+State transitions:
+```
+Created -> Connecting -> Ready -> Started -> TornDown
+              |            |         |
+              +------------+---------+-> TornDown (on error or Stop)
+```
+
+`Start()` can only be called in the `Ready` state—typically from the ready callback after the TLS handshake completes.
 
 ## Timers
 
