@@ -69,3 +69,8 @@ cc_library(
         "//src:record_batch",
     ],
 )
+
+cc_library(
+    name = "pipeline_fwd",
+    hdrs = ["pipeline_fwd.hpp"],
+)
