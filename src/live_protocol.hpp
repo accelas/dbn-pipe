@@ -9,7 +9,7 @@
 #include "dbn_parser_component.hpp"
 #include "lib/stream/event_loop.hpp"
 #include "lib/stream/component.hpp"
-#include "pipeline_sink.hpp"
+#include "lib/stream/sink.hpp"
 #include "lib/stream/tcp_socket.hpp"
 
 namespace dbn_pipe {
@@ -26,7 +26,7 @@ constexpr uint16_t kLivePort = 13000;
 
 // LiveProtocol - ProtocolDriver implementation for live streaming
 //
-// Satisfies the ProtocolDriver concept. Uses CramAuth for authentication
+// Satisfies the Protocol concept. Uses CramAuth for authentication
 // and subscription management.
 //
 // Chain: TcpSocket -> CramAuth -> DbnParserComponent -> Sink
@@ -35,6 +35,7 @@ constexpr uint16_t kLivePort = 13000;
 // SendRequest subscribes to the dataset/symbols/schema and starts streaming.
 struct LiveProtocol {
     using Request = LiveRequest;
+    using SinkType = StreamRecordSink;
 
     // ChainType wraps the full pipeline including TcpSocket
     // Type-erased wrapper to avoid exposing template parameters
@@ -48,29 +49,30 @@ struct LiveProtocol {
         // Ready callback - fires when chain is ready to send request
         virtual void SetReadyCallback(std::function<void()> cb) = 0;
 
+        // Dataset - required for CRAM authentication
+        virtual void SetDataset(const std::string& dataset) = 0;
+
         // Backpressure
         virtual void Suspend() = 0;
         virtual void Resume() = 0;
+        virtual bool IsSuspended() const = 0;
 
         // Protocol-specific
-        virtual void Subscribe(std::string dataset, std::string symbols, std::string schema) = 0;
+        virtual void Subscribe(std::string symbols, std::string schema) = 0;
         virtual void StartStreaming() = 0;
     };
 
-    // Concrete implementation of ChainType for a specific Record type
+    // Concrete implementation of ChainType
     // TcpSocket is the head, wrapping the rest of the chain
     // Static dispatch within chain via template parameters
-    template <typename Record>
     struct ChainImpl : ChainType {
-        using SinkType = Sink<Record>;
-        using ParserType = DbnParserComponent<SinkType>;
+        using ParserType = DbnParserComponent<StreamRecordSink>;
         using CramType = CramAuth<ParserType>;
         using HeadType = TcpSocket<CramType>;
 
-        ChainImpl(IEventLoop& loop, Sink<Record>& sink, const std::string& api_key,
-                  const std::string& dataset)
+        ChainImpl(IEventLoop& loop, StreamRecordSink& sink, const std::string& api_key)
             : parser_(std::make_shared<ParserType>(sink))
-            , cram_(CramType::Create(loop, parser_, api_key, dataset))
+            , cram_(CramType::Create(loop, parser_, api_key))
             , head_(HeadType::Create(loop, cram_))
         {
             // Wire connect callback for ready signal
@@ -94,13 +96,18 @@ struct LiveProtocol {
             ready_cb_ = std::move(cb);
         }
 
+        // Dataset - pass to CramAuth for CRAM authentication
+        void SetDataset(const std::string& dataset) override {
+            cram_->SetDataset(dataset);
+        }
+
         // Backpressure - forward to head (TcpSocket)
         void Suspend() override { head_->Suspend(); }
         void Resume() override { head_->Resume(); }
+        bool IsSuspended() const override { return head_->IsSuspended(); }
 
         // Protocol-specific - forward to CramAuth
-        // Note: dataset is no longer needed in subscription - it's sent during auth
-        void Subscribe(std::string /*dataset*/, std::string symbols, std::string schema) override {
+        void Subscribe(std::string symbols, std::string schema) override {
             cram_->Subscribe(std::move(symbols), std::move(schema));
         }
 
@@ -116,20 +123,19 @@ struct LiveProtocol {
     };
 
     // Build the component chain for live protocol
-    template <typename Record>
     static std::shared_ptr<ChainType> BuildChain(
         IEventLoop& loop,
-        Sink<Record>& sink,
-        const std::string& api_key,
-        const std::string& dataset
+        StreamRecordSink& sink,
+        const std::string& api_key
     ) {
-        return std::make_shared<ChainImpl<Record>>(loop, sink, api_key, dataset);
+        return std::make_shared<ChainImpl>(loop, sink, api_key);
     }
 
     // Send request - subscribe and start streaming
+    // Note: SetDataset must be called before Connect to set the dataset for CRAM auth
     static void SendRequest(std::shared_ptr<ChainType>& chain, const Request& request) {
         if (chain) {
-            chain->Subscribe(request.dataset, request.symbols, request.schema);
+            chain->Subscribe(request.symbols, request.schema);
             chain->StartStreaming();
         }
     }

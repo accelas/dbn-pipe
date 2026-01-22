@@ -20,7 +20,7 @@
 #include "lib/stream/error.hpp"
 #include "lib/stream/event_loop.hpp"
 #include "lib/stream/component.hpp"
-#include "tls_transport.hpp"  // For Suspendable
+#include "lib/stream/tls_transport.hpp"  // For Suspendable
 
 namespace dbn_pipe {
 
@@ -214,6 +214,9 @@ public:
     // State accessors
     CramAuthState GetState() const { return state_; }
     const Greeting& GetGreeting() const { return greeting_; }
+
+    // Set dataset for authentication (must be called before auth completes)
+    void SetDataset(const std::string& dataset) { dataset_ = dataset; }
 
     // PipelineComponent requirements
     void DisableWatchers() {}

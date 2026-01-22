@@ -1,4 +1,4 @@
-// src/tls_transport.hpp
+// lib/stream/tls_transport.hpp
 #pragma once
 
 #include <openssl/bio.h>
@@ -14,9 +14,9 @@
 #include <vector>
 
 #include "lib/stream/buffer_chain.hpp"
+#include "lib/stream/component.hpp"
 #include "lib/stream/error.hpp"
 #include "lib/stream/event_loop.hpp"
-#include "lib/stream/component.hpp"
 
 namespace dbn_pipe {
 

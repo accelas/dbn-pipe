@@ -2,18 +2,15 @@
 #include <gtest/gtest.h>
 #include <sstream>
 
-#include "src/api/url_encode.hpp"
+#include "lib/stream/protocol.hpp"
+#include "lib/stream/url_encode.hpp"
 #include "src/historical_protocol.hpp"
-#include "src/protocol_driver.hpp"
-#include "src/pipeline_sink.hpp"
 #include "src/record_batch.hpp"
 
 using namespace dbn_pipe;
 
-using HistoricalSink = Sink<RecordRef>;
-
-TEST(HistoricalProtocolTest, SatisfiesProtocolDriverConcept) {
-    static_assert(ProtocolDriver<HistoricalProtocol, RecordRef>);
+TEST(HistoricalProtocolTest, SatisfiesProtocolConcept) {
+    static_assert(Protocol<HistoricalProtocol>);
     SUCCEED();
 }
 

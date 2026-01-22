@@ -42,11 +42,17 @@ cc_library(
 )
 
 cc_library(
+    name = "suspendable",
+    hdrs = ["suspendable.hpp"],
+)
+
+cc_library(
     name = "component",
     hdrs = ["component.hpp"],
     deps = [
         ":error",
         ":event_loop",
+        ":suspendable",
     ],
 )
 
@@ -58,5 +64,91 @@ cc_library(
         ":component",
         ":error",
         ":event_loop",
+    ],
+)
+
+cc_library(
+    name = "sink",
+    hdrs = ["sink.hpp"],
+    deps = [
+        ":error",
+        "//src:record_batch",
+    ],
+)
+
+cc_library(
+    name = "pipeline_fwd",
+    hdrs = ["pipeline_fwd.hpp"],
+)
+
+cc_library(
+    name = "protocol",
+    hdrs = ["protocol.hpp"],
+    deps = [
+        ":event_loop",
+        ":sink",
+    ],
+)
+
+cc_library(
+    name = "pipeline",
+    hdrs = ["pipeline.hpp"],
+    deps = [
+        ":event_loop",
+        ":protocol",
+        ":suspendable",
+        "//src:dns_resolver",
+    ],
+)
+
+cc_library(
+    name = "url_encode",
+    hdrs = ["url_encode.hpp"],
+)
+
+cc_library(
+    name = "tls_transport",
+    hdrs = ["tls_transport.hpp"],
+    deps = [
+        ":buffer_chain",
+        ":component",
+        ":error",
+        ":event_loop",
+        "@openssl_sys//:crypto",
+        "@openssl_sys//:ssl",
+    ],
+)
+
+cc_library(
+    name = "http_client",
+    hdrs = ["http_client.hpp"],
+    deps = [
+        ":component",
+        ":error",
+        ":event_loop",
+        ":tls_transport",
+        "@llhttp",
+    ],
+)
+
+cc_library(
+    name = "zstd_decompressor",
+    hdrs = ["zstd_decompressor.hpp"],
+    deps = [
+        ":buffer_chain",
+        ":component",
+        ":error",
+        ":event_loop",
+        "@zstd",
+    ],
+)
+
+cc_library(
+    name = "json_parser",
+    hdrs = ["json_parser.hpp"],
+    deps = [
+        ":buffer_chain",
+        ":error",
+        "@rapidjson",
     ],
 )

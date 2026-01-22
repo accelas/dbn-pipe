@@ -4,14 +4,13 @@
 #include "lib/stream/epoll_event_loop.hpp"
 #include "src/live_protocol.hpp"
 #include "src/pipeline.hpp"
+#include "src/record_batch.hpp"  // For RecordRef
 
 using namespace dbn_pipe;
 
-struct TestRecord {};
-
 TEST(UnifiedPipelineTest, CreateReturnsSharedPtr) {
     EpollEventLoop loop;
-    auto pipeline = Pipeline<LiveProtocol, TestRecord>::Create(
+    auto pipeline = Pipeline<LiveProtocol, RecordRef>::Create(
         loop, "test_api_key");
     ASSERT_NE(pipeline, nullptr);
 }
@@ -20,7 +19,7 @@ TEST(UnifiedPipelineTest, SetRequestStoresRequest) {
     EpollEventLoop loop;
     loop.Poll(0);  // Initialize thread ID
 
-    auto pipeline = Pipeline<LiveProtocol, TestRecord>::Create(
+    auto pipeline = Pipeline<LiveProtocol, RecordRef>::Create(
         loop, "test_api_key");
 
     LiveRequest req{"GLBX.MDP3", "ESZ4", "mbp-1"};
@@ -34,7 +33,7 @@ TEST(UnifiedPipelineTest, StartBeforeConnectEmitsError) {
     EpollEventLoop loop;
     loop.Poll(0);
 
-    auto pipeline = Pipeline<LiveProtocol, TestRecord>::Create(
+    auto pipeline = Pipeline<LiveProtocol, RecordRef>::Create(
         loop, "test_api_key");
 
     bool error_received = false;
@@ -54,7 +53,7 @@ TEST(UnifiedPipelineTest, SuspendBeforeConnectIsRespected) {
     EpollEventLoop loop;
     loop.Poll(0);
 
-    auto pipeline = Pipeline<LiveProtocol, TestRecord>::Create(
+    auto pipeline = Pipeline<LiveProtocol, RecordRef>::Create(
         loop, "test_api_key");
 
     pipeline->Suspend();
@@ -65,7 +64,7 @@ TEST(UnifiedPipelineTest, StateStartsDisconnected) {
     EpollEventLoop loop;
     loop.Poll(0);
 
-    auto pipeline = Pipeline<LiveProtocol, TestRecord>::Create(
+    auto pipeline = Pipeline<LiveProtocol, RecordRef>::Create(
         loop, "test_api_key");
 
     EXPECT_EQ(pipeline->GetState(), PipelineState::Disconnected);
