@@ -26,12 +26,13 @@ concept Protocol = requires {
     typename P::SinkType;
     typename P::ChainType;
 
-    // SinkType must satisfy Sink concept
-    requires Sink<typename P::SinkType>;
+    // SinkType must satisfy BasicSink concept
+    requires BasicSink<typename P::SinkType>;
 
     // ChainType must support network lifecycle and backpressure
     requires requires(
         typename P::ChainType& chain,
+        const typename P::ChainType& const_chain,
         const sockaddr_storage& addr,
         std::function<void()> cb
     ) {
@@ -40,6 +41,7 @@ concept Protocol = requires {
         { chain.SetReadyCallback(cb) } -> std::same_as<void>;
         { chain.Suspend() } -> std::same_as<void>;
         { chain.Resume() } -> std::same_as<void>;
+        { const_chain.IsSuspended() } -> std::same_as<bool>;
     };
 
     // Chain building (sink passed by reference - Pipeline owns sink)

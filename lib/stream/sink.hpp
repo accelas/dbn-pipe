@@ -12,8 +12,9 @@
 namespace dbn_pipe {
 
 // Base sink concept - lifecycle methods required for all sinks
+// Named BasicSink to avoid conflict with legacy Sink<Record> template class
 template<typename S>
-concept Sink = requires(S& s, const Error& e) {
+concept BasicSink = requires(S& s, const Error& e) {
     { s.OnError(e) } -> std::same_as<void>;
     { s.OnComplete() } -> std::same_as<void>;
     { s.Invalidate() } -> std::same_as<void>;
@@ -21,14 +22,15 @@ concept Sink = requires(S& s, const Error& e) {
 
 // Streaming sink - receives batches of records
 template<typename S>
-concept StreamingSink = Sink<S> && requires(S& s, RecordBatch&& batch) {
+concept StreamingSink = BasicSink<S> && requires(S& s, RecordBatch&& batch) {
     { s.OnData(std::move(batch)) } -> std::same_as<void>;
 };
 
-// RecordSink - concrete streaming sink implementation
-class RecordSink {
+// StreamRecordSink - concrete streaming sink implementation
+// Named to avoid conflict with the RecordSink concept in component.hpp
+class StreamRecordSink {
 public:
-    RecordSink(
+    StreamRecordSink(
         std::function<void(RecordBatch&&)> on_data,
         std::function<void(const Error&)> on_error,
         std::function<void()> on_complete
@@ -57,11 +59,11 @@ private:
     std::atomic<bool> valid_{true};
 };
 
-static_assert(StreamingSink<RecordSink>, "RecordSink must satisfy StreamingSink");
+static_assert(StreamingSink<StreamRecordSink>, "StreamRecordSink must satisfy StreamingSink");
 
 // Single-result sink - receives one result (success or error via expected)
 template<typename S>
-concept SingleResultSink = Sink<S> && requires(S& s) {
+concept SingleResultSink = BasicSink<S> && requires(S& s) {
     typename S::ResultType;
     { s.OnResult(std::declval<typename S::ResultType>()) } -> std::same_as<void>;
 };

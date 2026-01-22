@@ -16,6 +16,7 @@ struct MockChain {
     void SetReadyCallback(std::function<void()>) {}
     void Suspend() {}
     void Resume() {}
+    bool IsSuspended() const { return false; }
 };
 
 struct MockSink {

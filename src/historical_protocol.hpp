@@ -14,7 +14,7 @@
 #include "lib/stream/event_loop.hpp"
 #include "lib/stream/http_client.hpp"
 #include "lib/stream/component.hpp"
-#include "pipeline_sink.hpp"
+#include "lib/stream/sink.hpp"
 #include "lib/stream/tcp_socket.hpp"
 #include "lib/stream/tls_transport.hpp"
 #include "lib/stream/zstd_decompressor.hpp"
@@ -47,6 +47,7 @@ constexpr uint16_t kHistoricalPort = 443;
 // OnRead returns true after handshake completes.
 struct HistoricalProtocol {
     using Request = HistoricalRequest;
+    using SinkType = StreamRecordSink;
 
     // ChainType wraps the full pipeline including TcpSocket
     // Type-erased wrapper to avoid exposing template parameters
@@ -63,6 +64,7 @@ struct HistoricalProtocol {
         // Backpressure
         virtual void Suspend() = 0;
         virtual void Resume() = 0;
+        virtual bool IsSuspended() const = 0;
 
         // Protocol-specific - for sending HTTP request
         virtual std::shared_ptr<Segment> GetRequestSegment() = 0;
@@ -70,19 +72,17 @@ struct HistoricalProtocol {
         virtual const std::string& GetApiKey() const = 0;
     };
 
-    // Concrete implementation of ChainType for a specific Record type
+    // Concrete implementation of ChainType
     // TcpSocket is the head, wrapping the rest of the chain
     // Static dispatch within chain via template parameters
-    template <typename Record>
     struct ChainImpl : ChainType {
-        using SinkType = Sink<Record>;
-        using ParserType = DbnParserComponent<SinkType>;
+        using ParserType = DbnParserComponent<StreamRecordSink>;
         using ZstdType = ZstdDecompressor<ParserType>;
         using HttpType = HttpClient<ZstdType>;
         using TlsType = TlsTransport<HttpType>;
         using HeadType = TcpSocket<TlsType>;
 
-        ChainImpl(IEventLoop& loop, Sink<Record>& sink, const std::string& api_key)
+        ChainImpl(IEventLoop& loop, StreamRecordSink& sink, const std::string& api_key)
             : loop_(loop)
             , api_key_(api_key)
             , parser_(std::make_shared<ParserType>(sink))
@@ -126,6 +126,7 @@ struct HistoricalProtocol {
         // Backpressure - forward to head (TcpSocket)
         void Suspend() override { head_->Suspend(); }
         void Resume() override { head_->Resume(); }
+        bool IsSuspended() const override { return head_->IsSuspended(); }
 
         // Protocol-specific - for sending HTTP request
         std::shared_ptr<Segment> GetRequestSegment() override {
@@ -152,16 +153,12 @@ struct HistoricalProtocol {
     };
 
     // Build the component chain for historical protocol
-    // Note: dataset parameter is unused for historical protocol (auth is via HTTP basic auth)
-    // but included for API consistency with LiveProtocol
-    template <typename Record>
     static std::shared_ptr<ChainType> BuildChain(
         IEventLoop& loop,
-        Sink<Record>& sink,
-        const std::string& api_key,
-        const std::string& /*dataset*/ = {}
+        StreamRecordSink& sink,
+        const std::string& api_key
     ) {
-        return std::make_shared<ChainImpl<Record>>(loop, sink, api_key);
+        return std::make_shared<ChainImpl>(loop, sink, api_key);
     }
 
     // Send request - build and send HTTP GET request

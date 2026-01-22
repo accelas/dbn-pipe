@@ -52,6 +52,7 @@ cc_library(
     deps = [
         ":error",
         ":event_loop",
+        ":suspendable",
     ],
 )
 

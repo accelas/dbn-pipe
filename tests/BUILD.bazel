@@ -206,10 +206,10 @@ cc_test(
     name = "historical_protocol_test",
     srcs = ["historical_protocol_test.cpp"],
     deps = [
+        "//lib/stream:protocol",
         "//lib/stream:url_encode",
         "//src:historical_protocol",
-        "//src:pipeline_sink",
-        "//src:protocol_driver",
+        "//src:record_batch",
         "@googletest//:gtest_main",
     ],
 )

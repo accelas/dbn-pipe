@@ -18,7 +18,7 @@ struct MinimalSink {
 };
 
 // Verify concept satisfaction at compile time
-static_assert(Sink<MinimalSink>, "MinimalSink must satisfy Sink concept");
+static_assert(BasicSink<MinimalSink>, "MinimalSink must satisfy Sink concept");
 
 TEST(SinkConceptTest, MinimalSinkSatisfiesConcept) {
     SUCCEED();  // Compile-time check above is the real test
@@ -42,11 +42,11 @@ TEST(SinkConceptTest, StreamingSinkSatisfiesConcept) {
     SUCCEED();
 }
 
-TEST(RecordSinkTest, DeliversDataToCallback) {
+TEST(StreamRecordSinkTest, DeliversDataToCallback) {
     bool data_called = false;
     RecordBatch captured_batch;
 
-    RecordSink sink(
+    StreamRecordSink sink(
         [&](RecordBatch&& batch) { data_called = true; captured_batch = std::move(batch); },
         [](const Error&) {},
         []() {}
@@ -58,10 +58,10 @@ TEST(RecordSinkTest, DeliversDataToCallback) {
     EXPECT_TRUE(data_called);
 }
 
-TEST(RecordSinkTest, InvalidateStopsCallbacks) {
+TEST(StreamRecordSinkTest, InvalidateStopsCallbacks) {
     bool data_called = false;
 
-    RecordSink sink(
+    StreamRecordSink sink(
         [&](RecordBatch&&) { data_called = true; },
         [](const Error&) {},
         []() {}
