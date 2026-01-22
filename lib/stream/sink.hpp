@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <concepts>
+#include <expected>
 #include <functional>
 
 #include "lib/stream/error.hpp"
@@ -57,5 +58,45 @@ private:
 };
 
 static_assert(StreamingSink<RecordSink>, "RecordSink must satisfy StreamingSink");
+
+// Single-result sink - receives one result (success or error via expected)
+template<typename S>
+concept SingleResultSink = Sink<S> && requires(S& s) {
+    typename S::ResultType;
+    { s.OnResult(std::declval<typename S::ResultType>()) } -> std::same_as<void>;
+};
+
+// ResultSink - concrete single-result sink implementation
+template<typename Result>
+class ResultSink {
+public:
+    using ResultType = Result;
+
+    explicit ResultSink(std::function<void(std::expected<Result, Error>)> on_result)
+        : on_result_(std::move(on_result)) {}
+
+    void OnResult(Result&& result) {
+        if (!valid_.load(std::memory_order_acquire) || delivered_) return;
+        delivered_ = true;
+        on_result_(std::move(result));
+    }
+
+    void OnError(const Error& e) {
+        if (!valid_.load(std::memory_order_acquire) || delivered_) return;
+        delivered_ = true;
+        on_result_(std::unexpected(e));
+    }
+
+    void OnComplete() {
+        // No-op for single-result - result already delivered
+    }
+
+    void Invalidate() { valid_.store(false, std::memory_order_release); }
+
+private:
+    std::function<void(std::expected<Result, Error>)> on_result_;
+    std::atomic<bool> valid_{true};
+    bool delivered_ = false;
+};
 
 }  // namespace dbn_pipe
