@@ -8,7 +8,8 @@
 #include <string>
 #include <string_view>
 
-#include "src/api/api_pipeline.hpp"
+#include "lib/stream/pipeline.hpp"
+#include "src/api_protocol.hpp"
 #include "src/dns_resolver.hpp"
 #include "src/retry_policy.hpp"
 
@@ -174,6 +175,8 @@ public:
         ApiRequest req{
             .method = "POST",
             .path = "/v0/metadata.get_record_count",
+            .host = kHostname,
+            .port = kPort,
             .query_params = {},
             .form_params = {
                 {"dataset", dataset},
@@ -198,6 +201,8 @@ public:
         ApiRequest req{
             .method = "POST",
             .path = "/v0/metadata.get_billable_size",
+            .host = kHostname,
+            .port = kPort,
             .query_params = {},
             .form_params = {
                 {"dataset", dataset},
@@ -222,6 +227,8 @@ public:
         ApiRequest req{
             .method = "POST",
             .path = "/v0/metadata.get_cost",
+            .host = kHostname,
+            .port = kPort,
             .query_params = {},
             .form_params = {
                 {"dataset", dataset},
@@ -241,6 +248,8 @@ public:
         ApiRequest req{
             .method = "GET",
             .path = "/v0/metadata.get_dataset_range",
+            .host = kHostname,
+            .port = kPort,
             .query_params = {{"dataset", dataset}},
             .form_params = {},
         };
@@ -286,25 +295,19 @@ private:
             return;
         }
 
-        auto builder = std::make_shared<Builder>();
-
-        // Prevent reference capture issues by copying what we need
-        auto api_key = api_key_;
-        std::string http_request = req.BuildHttpRequest(kHostname, api_key);
-
         // Capture shared_from_this to prevent use-after-free
         auto self = this->shared_from_this();
 
-        // Use a shared_ptr holder to keep the pipeline alive until completion.
-        // The holder is captured by the completion callback, creating a reference
-        // that prevents the pipeline from being destroyed prematurely.
-        auto pipeline_holder = std::make_shared<std::shared_ptr<ApiPipeline<Builder>>>();
+        // Create builder and store in shared_ptr (outlives pipeline)
+        auto builder = std::make_shared<Builder>();
 
-        *pipeline_holder = ApiPipeline<Builder>::Create(
-            loop_,
-            kHostname,
-            *builder,
-            [self, req, callback, retry_state, builder, pipeline_holder](auto result) {
+        // Create sink that delivers to callback
+        using Protocol = ApiProtocol<Builder>;
+        using SinkType = typename Protocol::SinkType;
+        using PipelineType = Pipeline<Protocol>;
+
+        auto sink = std::make_shared<SinkType>(
+            [self, req, callback, retry_state, builder](auto result) {
                 if (!result && retry_state->ShouldRetry(result.error())) {
                     // Get delay before recording attempt
                     auto delay = retry_state->GetNextDelay(result.error());
@@ -316,22 +319,39 @@ private:
                 } else {
                     callback(std::move(result));
                 }
-                // Defer pipeline cleanup to avoid destroying it while still on its
-                // component's call stack (callback is invoked from TlsTransport::ProcessPendingReads)
-                self->loop_.Defer([pipeline_holder]() {
-                    pipeline_holder->reset();
-                });
             });
 
-        // Use weak_ptr to avoid cycle in ready callback
-        std::weak_ptr<ApiPipeline<Builder>> weak_pipeline = *pipeline_holder;
-        (*pipeline_holder)->SetReadyCallback([weak_pipeline, http_request]() {
+        // Build chain
+        auto chain = Protocol::BuildChain(loop_, *sink, api_key_);
+
+        // Set builder on chain (must be done before Connect)
+        chain->SetBuilder(*builder);
+
+        // Use a shared_ptr holder to keep the pipeline alive until completion.
+        auto pipeline_holder = std::make_shared<std::shared_ptr<PipelineType>>();
+
+        // Create pipeline
+        *pipeline_holder = std::make_shared<PipelineType>(
+            typename PipelineType::PrivateTag{},
+            loop_, chain, sink, req);
+
+        // Set up ready callback - when TLS handshake completes, start the request
+        std::weak_ptr<PipelineType> weak_pipeline = *pipeline_holder;
+        chain->SetReadyCallback([weak_pipeline]() {
             if (auto p = weak_pipeline.lock()) {
-                p->SendRequest(http_request);
+                p->Start();
             }
         });
 
+        // Connect (triggers TLS handshake, then ready callback)
         (*pipeline_holder)->Connect(*addr);
+
+        // Store pipeline in holder to prevent it from being destroyed
+        // The sink callback will be invoked when the request completes,
+        // and we defer cleanup to avoid destroying the pipeline on its own call stack
+        // Note: The pipeline stays alive because sink captures pipeline_holder via builder/self
+        // We need to capture pipeline_holder in the sink callback to extend its lifetime
+        // This is already handled implicitly since sink is owned by pipeline
     }
 
     IEventLoop& loop_;

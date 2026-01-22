@@ -72,6 +72,9 @@ struct ApiProtocol {
         // Protocol-specific - for sending HTTP request
         virtual void SendRequest(const std::string& host, const std::string& api_key,
                                  const ApiRequest& request) = 0;
+
+        // Get API key (for SendRequest helper)
+        virtual const std::string& GetApiKey() const = 0;
     };
 
     // Concrete implementation of ChainType
@@ -110,6 +113,9 @@ struct ApiProtocol {
         void Suspend() override { if (head_) head_->Suspend(); }
         void Resume() override { if (head_) head_->Resume(); }
         bool IsSuspended() const override { return head_ && head_->IsSuspended(); }
+
+        // Get API key
+        const std::string& GetApiKey() const override { return api_key_; }
 
         // Protocol-specific - build and send HTTP request
         void SendRequest(const std::string& host, const std::string& api_key,
@@ -260,12 +266,7 @@ struct ApiProtocol {
     // Send request - build and send HTTP GET/POST request
     static void SendRequest(std::shared_ptr<ChainType>& chain, const Request& request) {
         if (!chain) return;
-
-        // Get api_key from chain (stored in ChainImpl)
-        auto* impl = dynamic_cast<ChainImpl*>(chain.get());
-        if (impl) {
-            chain->SendRequest(request.host, impl->api_key_, request);
-        }
+        chain->SendRequest(request.host, chain->GetApiKey(), request);
     }
 
     // Teardown - close the chain
