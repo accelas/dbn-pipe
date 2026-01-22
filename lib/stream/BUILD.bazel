@@ -60,3 +60,9 @@ cc_library(
         ":event_loop",
     ],
 )
+
+cc_library(
+    name = "sink",
+    hdrs = ["sink.hpp"],
+    deps = [":error"],
+)
