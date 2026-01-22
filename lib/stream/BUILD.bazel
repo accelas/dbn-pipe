@@ -42,6 +42,11 @@ cc_library(
 )
 
 cc_library(
+    name = "suspendable",
+    hdrs = ["suspendable.hpp"],
+)
+
+cc_library(
     name = "component",
     hdrs = ["component.hpp"],
     deps = [
@@ -81,5 +86,16 @@ cc_library(
     deps = [
         ":event_loop",
         ":sink",
+    ],
+)
+
+cc_library(
+    name = "pipeline",
+    hdrs = ["pipeline.hpp"],
+    deps = [
+        ":event_loop",
+        ":protocol",
+        ":suspendable",
+        "//src:dns_resolver",
     ],
 )

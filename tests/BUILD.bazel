@@ -383,3 +383,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "generic_pipeline_test",
+    srcs = ["generic_pipeline_test.cpp"],
+    deps = [
+        "//lib/stream:pipeline",
+        "//lib/stream:epoll_event_loop",
+        "@googletest//:gtest_main",
+    ],
+)
