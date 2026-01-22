@@ -1,4 +1,4 @@
-// src/zstd_decompressor.hpp
+// lib/stream/zstd_decompressor.hpp
 #pragma once
 
 #include <zstd.h>
@@ -9,9 +9,9 @@
 #include <string>
 
 #include "lib/stream/buffer_chain.hpp"
+#include "lib/stream/component.hpp"
 #include "lib/stream/error.hpp"
 #include "lib/stream/event_loop.hpp"
-#include "lib/stream/component.hpp"
 
 namespace dbn_pipe {
 

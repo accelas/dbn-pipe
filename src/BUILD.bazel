@@ -27,20 +27,6 @@ cc_library(
 )
 
 cc_library(
-    name = "zstd_decompressor",
-    hdrs = ["zstd_decompressor.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//lib/stream:buffer_chain",
-        "//lib/stream:component",
-        "//lib/stream:error",
-        "//lib/stream:event_loop",
-        "@zstd",
-    ],
-)
-
-
-cc_library(
     name = "dbn_parser_component",
     hdrs = ["dbn_parser_component.hpp"],
     visibility = ["//visibility:public"],
@@ -141,10 +127,10 @@ cc_library(
         "//lib/stream:tcp_socket",
         "//lib/stream:tls_transport",
         "//lib/stream:url_encode",
+        "//lib/stream:zstd_decompressor",
         ":dbn_parser_component",
         ":pipeline_sink",
         ":protocol_driver",
-        ":zstd_decompressor",
     ],
     visibility = ["//visibility:public"],
 )

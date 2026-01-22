@@ -118,7 +118,7 @@ cc_test(
     deps = [
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
-        "//src:zstd_decompressor",
+        "//lib/stream:zstd_decompressor",
         "@googletest//:gtest_main",
         "@zstd",
     ],

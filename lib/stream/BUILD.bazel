@@ -129,3 +129,15 @@ cc_library(
         "@llhttp",
     ],
 )
+
+cc_library(
+    name = "zstd_decompressor",
+    hdrs = ["zstd_decompressor.hpp"],
+    deps = [
+        ":buffer_chain",
+        ":component",
+        ":error",
+        ":event_loop",
+        "@zstd",
+    ],
+)
