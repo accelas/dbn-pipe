@@ -161,12 +161,17 @@ See [docs/libuv-integration.md](docs/libuv-integration.md) for complete adapter 
 
 ## Architecture
 
+The library uses a unified `Pipeline<Protocol>` template with protocol-specific component chains:
+
 ```
 Live Pipeline:
-  TcpSocket -> CramAuth -> DbnParser -> Sink -> User Callback
+  TcpSocket -> CramAuth -> DbnParser -> RecordSink -> User Callback
 
 Historical Pipeline:
-  TcpSocket -> TlsTransport -> HttpClient -> ZstdDecompressor -> DbnParser -> Sink
+  TcpSocket -> TlsTransport -> HttpClient -> ZstdDecompressor -> DbnParser -> RecordSink
+
+API Pipeline (Metadata/Symbology):
+  TcpSocket -> TlsTransport -> HttpClient -> JsonParser -> ResultSink
 ```
 
 ### Key Components
@@ -174,19 +179,29 @@ Historical Pipeline:
 | Component | Description |
 |-----------|-------------|
 | `IEventLoop` | Event loop interface for custom integrations (libuv, asio) |
-| `EventLoop` | Built-in epoll-based event loop |
-| `LiveClient` | Alias for `Pipeline<LiveProtocol, RecordRef>` |
-| `HistoricalClient` | Alias for `Pipeline<HistoricalProtocol, RecordRef>` |
+| `Reactor` | Built-in epoll-based event loop with timers |
+| `Pipeline<Protocol>` | Generic pipeline template with state machine |
+| `LiveClient` | Alias for `Pipeline<LiveProtocol>` |
+| `HistoricalClient` | Alias for `Pipeline<HistoricalProtocol>` |
+| `MetadataClient` | JSON API client for metadata queries |
+| `SymbologyClient` | JSON API client for symbol resolution |
 | `RecordRef` | Zero-copy record reference with lifetime management |
 | `BufferChain` | Zero-copy buffer management with segment pooling |
-| `DbnParserComponent` | Zero-copy DBN record parser |
+
+### Pipeline State Machine
+
+```
+Created -> Connecting -> Ready -> Started -> TornDown
+              |            |         |
+              +------------+---------+-> TornDown (on error or Stop)
+```
 
 ### Data Flow
 
 ```
-Network -> TcpSocket -> [Protocol Chain] -> DbnParser -> RecordBatch -> User
-                                                              |
-Backpressure <-- Suspend/Resume <-- Suspend/Resume <----------+
+Network -> TcpSocket -> [Protocol Chain] -> Parser -> Sink -> User Callback
+                                                        |
+Backpressure <-- Suspend/Resume <-- Suspend/Resume <----+
 ```
 
 ## API Endpoints
