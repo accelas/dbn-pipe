@@ -77,11 +77,6 @@ cc_library(
 )
 
 cc_library(
-    name = "pipeline_fwd",
-    hdrs = ["pipeline_fwd.hpp"],
-)
-
-cc_library(
     name = "protocol",
     hdrs = ["protocol.hpp"],
     deps = [
