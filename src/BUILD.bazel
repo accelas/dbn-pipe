@@ -78,27 +78,6 @@ cc_library(
     ],
 )
 
-cc_library(
-    name = "pipeline_sink",
-    hdrs = ["pipeline_sink.hpp"],
-    deps = [
-        "//lib/stream:error",
-        "//lib/stream:event_loop",
-        ":record_batch",
-    ],
-    visibility = ["//visibility:public"],
-)
-
-
-cc_library(
-    name = "protocol_driver",
-    hdrs = ["protocol_driver.hpp"],
-    deps = [
-        "//lib/stream:event_loop",
-        ":pipeline_sink",
-    ],
-    visibility = ["//visibility:public"],
-)
 
 cc_library(
     name = "live_protocol",
@@ -123,10 +102,10 @@ cc_library(
         "//lib/stream:component",
         "//lib/stream:event_loop",
         "//lib/stream:http_client",
+        "//lib/stream:http_request_builder",
         "//lib/stream:sink",
         "//lib/stream:tcp_socket",
         "//lib/stream:tls_transport",
-        "//lib/stream:url_encode",
         "//lib/stream:zstd_decompressor",
         ":dbn_parser_component",
     ],
@@ -134,16 +113,17 @@ cc_library(
 )
 
 cc_library(
-    name = "pipeline",
-    hdrs = ["pipeline.hpp"],
+    name = "streaming_client",
+    hdrs = ["streaming_client.hpp"],
     deps = [
-        "//lib/stream:component",
         "//lib/stream:error",
         "//lib/stream:event_loop",
+        "//lib/stream:pipeline",
+        "//lib/stream:protocol",
+        "//lib/stream:sink",
+        "//lib/stream:suspendable",
         ":dns_resolver",
-        ":pipeline_sink",
-        ":protocol_driver",
-        "@databento_cpp//:databento_headers",
+        ":record_batch",
     ],
     visibility = ["//visibility:public"],
 )
@@ -152,27 +132,11 @@ cc_library(
     name = "client",
     hdrs = ["client.hpp"],
     deps = [
-        "//lib/stream:event_loop",
-        ":pipeline",
+        ":streaming_client",
         ":live_protocol",
         ":historical_protocol",
-        "@databento_cpp//:databento_headers",
     ],
     visibility = ["//visibility:public"],
-)
-
-cc_library(
-    name = "stream",
-    hdrs = ["stream.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//lib/stream:buffer_chain",
-        "//lib/stream:component",
-        "//lib/stream:error",
-        "//lib/stream:event_loop",
-        "//lib/stream:reactor",
-        "//lib/stream:tcp_socket",
-    ],
 )
 
 cc_library(
@@ -218,10 +182,10 @@ cc_library(
         "//lib/stream:buffer_chain",
         "//lib/stream:event_loop",
         "//lib/stream:http_client",
+        "//lib/stream:http_request_builder",
         "//lib/stream:json_parser",
         "//lib/stream:sink",
         "//lib/stream:tcp_socket",
         "//lib/stream:tls_transport",
-        "//lib/stream:url_encode",
     ],
 )

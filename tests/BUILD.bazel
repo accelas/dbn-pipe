@@ -10,6 +10,15 @@ cc_test(
 )
 
 cc_test(
+    name = "http_request_builder_test",
+    srcs = ["http_request_builder_test.cpp"],
+    deps = [
+        "//lib/stream:http_request_builder",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "trading_date_test",
     srcs = ["trading_date_test.cpp"],
     deps = [
@@ -172,20 +181,9 @@ cc_test(
     name = "pipeline_sink_test",
     srcs = ["pipeline_sink_test.cpp"],
     deps = [
-        "//lib/stream:epoll_event_loop",
         "//lib/stream:error",
-        "//src:pipeline_sink",
-        "@googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "protocol_driver_test",
-    srcs = ["protocol_driver_test.cpp"],
-    deps = [
-        "//lib/stream:event_loop",
-        "//src:pipeline_sink",
-        "//src:protocol_driver",
+        "//lib/stream:sink",
+        "//src:record_batch",
         "@googletest//:gtest_main",
     ],
 )
@@ -218,8 +216,7 @@ cc_test(
     srcs = ["pipeline_test.cpp"],
     deps = [
         "//lib/stream:epoll_event_loop",
-        "//src:live_protocol",
-        "//src:pipeline",
+        "//src:client",
         "@googletest//:gtest_main",
     ],
 )

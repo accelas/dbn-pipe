@@ -14,11 +14,11 @@
 #include "lib/stream/buffer_chain.hpp"
 #include "lib/stream/event_loop.hpp"
 #include "lib/stream/http_client.hpp"
+#include "lib/stream/http_request_builder.hpp"
 #include "lib/stream/json_parser.hpp"
 #include "lib/stream/sink.hpp"
 #include "lib/stream/tcp_socket.hpp"
 #include "lib/stream/tls_transport.hpp"
-#include "lib/stream/url_encode.hpp"
 
 namespace dbn_pipe {
 
@@ -32,65 +32,30 @@ struct ApiRequest {
     std::vector<std::pair<std::string, std::string>> form_params;  // For POST
 
     // Build HTTP request string for this request
-    // host: Host header value (e.g., "hist.databento.com")
+    // host_header: Host header value (e.g., "hist.databento.com")
     // api_key: API key for Basic auth (encoded as base64(api_key + ":"))
     std::string BuildHttpRequest(const std::string& host_header,
                                  const std::string& api_key) const {
         std::ostringstream out;
 
-        // Request line: METHOD /path?query HTTP/1.1
-        out << method << " " << path;
+        auto builder = HttpRequestBuilder(out)
+            .Method(method)
+            .Path(path);
 
-        // Add query string for GET requests
-        if (!query_params.empty()) {
-            out << "?";
-            bool first = true;
-            for (const auto& [key, value] : query_params) {
-                if (!first) out << "&";
-                first = false;
-                UrlEncode(out, key);
-                out << "=";
-                UrlEncode(out, value);
-            }
+        for (const auto& [key, value] : query_params) {
+            builder.QueryParam(key, value);
         }
 
-        out << " HTTP/1.1\r\n";
+        builder
+            .Host(host_header)
+            .BasicAuth(api_key)
+            .Header("Accept", "application/json")
+            .Header("Connection", "close");
 
-        // Headers
-        out << "Host: " << host_header << "\r\n";
-
-        // Basic auth: base64(api_key + ":")
-        out << "Authorization: Basic ";
-        Base64Encode(out, api_key + ":");
-        out << "\r\n";
-
-        out << "Accept: application/json\r\n";
-        out << "Connection: close\r\n";
-
-        // POST body
-        std::string body;
         if (method == "POST" && !form_params.empty()) {
-            std::ostringstream body_stream;
-            bool first = true;
-            for (const auto& [key, value] : form_params) {
-                if (!first) body_stream << "&";
-                first = false;
-                UrlEncode(body_stream, key);
-                body_stream << "=";
-                UrlEncode(body_stream, value);
-            }
-            body = body_stream.str();
-
-            out << "Content-Type: application/x-www-form-urlencoded\r\n";
-            out << "Content-Length: " << body.size() << "\r\n";
-        }
-
-        // End of headers
-        out << "\r\n";
-
-        // Body (if POST)
-        if (!body.empty()) {
-            out << body;
+            builder.FormBody(form_params);
+        } else {
+            builder.Finish();
         }
 
         return out.str();

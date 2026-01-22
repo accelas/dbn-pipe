@@ -1,82 +1,61 @@
-// tests/pipeline_base_test.cpp
+// tests/pipeline_sink_test.cpp
+// Tests for StreamRecordSink used by streaming protocols
 #include <gtest/gtest.h>
 
-#include "lib/stream/epoll_event_loop.hpp"
+#include "lib/stream/sink.hpp"
 #include "lib/stream/error.hpp"
-#include "src/pipeline_sink.hpp"
+#include "src/record_batch.hpp"
 
 using namespace dbn_pipe;
 
-// Mock record for testing
-struct MockRecord {
-    int value;
-};
-
-using TestPipelineBase = PipelineBase<MockRecord>;
-using TestSink = Sink<MockRecord>;
-
-TEST(PipelineBaseTest, SinkInvalidationStopsCallbacks) {
-    EpollEventLoop loop;
-    loop.Poll(0);  // Initialize thread ID
-
-    bool record_called = false;
+TEST(StreamRecordSinkTest, InvalidationStopsCallbacks) {
+    bool data_called = false;
     bool error_called = false;
     bool complete_called = false;
 
-    // Create a mock pipeline that tracks calls
-    struct MockPipeline : TestPipelineBase {
-        bool* record_flag;
-        bool* error_flag;
-        bool* complete_flag;
-
-        void HandleRecord(const MockRecord&) override { *record_flag = true; }
-        void HandleRecordBatch(RecordBatch&&) override {}
-        void HandlePipelineError(const Error&) override { *error_flag = true; }
-        void HandlePipelineComplete() override { *complete_flag = true; }
-    };
-
-    MockPipeline pipeline;
-    pipeline.record_flag = &record_called;
-    pipeline.error_flag = &error_called;
-    pipeline.complete_flag = &complete_called;
-
-    TestSink sink(loop, &pipeline);
+    StreamRecordSink sink(
+        [&](RecordBatch&&) { data_called = true; },
+        [&](const Error&) { error_called = true; },
+        [&]() { complete_called = true; }
+    );
 
     // Before invalidation, callbacks should work
-    sink.OnRecord(MockRecord{42});
-    EXPECT_TRUE(record_called);
+    sink.OnData(RecordBatch{});
+    EXPECT_TRUE(data_called);
 
     // Invalidate
     sink.Invalidate();
 
     // Reset flags
-    record_called = false;
+    data_called = false;
 
     // After invalidation, callbacks should be no-ops
-    sink.OnRecord(MockRecord{99});
+    sink.OnData(RecordBatch{});
     sink.OnError(Error{ErrorCode::ConnectionFailed, "test"});
     sink.OnComplete();
 
-    EXPECT_FALSE(record_called);
+    EXPECT_FALSE(data_called);
     EXPECT_FALSE(error_called);
     EXPECT_FALSE(complete_called);
 }
 
-TEST(PipelineBaseTest, SinkRequiresEventLoopThread) {
-    EpollEventLoop loop;
-    loop.Poll(0);  // Initialize thread ID
+TEST(StreamRecordSinkTest, CallbacksWorkBeforeInvalidation) {
+    int data_count = 0;
+    int error_count = 0;
+    int complete_count = 0;
 
-    struct MockPipeline : TestPipelineBase {
-        void HandleRecord(const MockRecord&) override {}
-        void HandleRecordBatch(RecordBatch&&) override {}
-        void HandlePipelineError(const Error&) override {}
-        void HandlePipelineComplete() override {}
-    };
+    StreamRecordSink sink(
+        [&](RecordBatch&&) { data_count++; },
+        [&](const Error&) { error_count++; },
+        [&]() { complete_count++; }
+    );
 
-    MockPipeline pipeline;
-    TestSink sink(loop, &pipeline);
-
-    // Should not crash when called from event loop thread
+    sink.OnData(RecordBatch{});
+    sink.OnData(RecordBatch{});
+    sink.OnError(Error{ErrorCode::ConnectionFailed, "test"});
     sink.OnComplete();
-    SUCCEED();
+
+    EXPECT_EQ(data_count, 2);
+    EXPECT_EQ(error_count, 1);
+    EXPECT_EQ(complete_count, 1);
 }
