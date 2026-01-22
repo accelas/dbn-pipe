@@ -30,6 +30,71 @@ struct ApiRequest {
     uint16_t port = 443;
     std::vector<std::pair<std::string, std::string>> query_params;
     std::vector<std::pair<std::string, std::string>> form_params;  // For POST
+
+    // Build HTTP request string for this request
+    // host: Host header value (e.g., "hist.databento.com")
+    // api_key: API key for Basic auth (encoded as base64(api_key + ":"))
+    std::string BuildHttpRequest(const std::string& host_header,
+                                 const std::string& api_key) const {
+        std::ostringstream out;
+
+        // Request line: METHOD /path?query HTTP/1.1
+        out << method << " " << path;
+
+        // Add query string for GET requests
+        if (!query_params.empty()) {
+            out << "?";
+            bool first = true;
+            for (const auto& [key, value] : query_params) {
+                if (!first) out << "&";
+                first = false;
+                UrlEncode(out, key);
+                out << "=";
+                UrlEncode(out, value);
+            }
+        }
+
+        out << " HTTP/1.1\r\n";
+
+        // Headers
+        out << "Host: " << host_header << "\r\n";
+
+        // Basic auth: base64(api_key + ":")
+        out << "Authorization: Basic ";
+        Base64Encode(out, api_key + ":");
+        out << "\r\n";
+
+        out << "Accept: application/json\r\n";
+        out << "Connection: close\r\n";
+
+        // POST body
+        std::string body;
+        if (method == "POST" && !form_params.empty()) {
+            std::ostringstream body_stream;
+            bool first = true;
+            for (const auto& [key, value] : form_params) {
+                if (!first) body_stream << "&";
+                first = false;
+                UrlEncode(body_stream, key);
+                body_stream << "=";
+                UrlEncode(body_stream, value);
+            }
+            body = body_stream.str();
+
+            out << "Content-Type: application/x-www-form-urlencoded\r\n";
+            out << "Content-Length: " << body.size() << "\r\n";
+        }
+
+        // End of headers
+        out << "\r\n";
+
+        // Body (if POST)
+        if (!body.empty()) {
+            out << body;
+        }
+
+        return out.str();
+    }
 };
 
 // ApiProtocol - Protocol implementation for JSON API requests
@@ -128,7 +193,7 @@ struct ApiProtocol {
         // Protocol-specific - build and send HTTP request
         void SendRequest(const std::string& host, const std::string& api_key,
                          const ApiRequest& request) override {
-            std::string http_request = BuildHttpRequest(host, api_key, request);
+            std::string http_request = request.BuildHttpRequest(host, api_key);
 
             // Convert to BufferChain
             BufferChain chain;
@@ -147,70 +212,6 @@ struct ApiProtocol {
         }
 
     private:
-        // Build HTTP request string
-        static std::string BuildHttpRequest(const std::string& host,
-                                           const std::string& api_key,
-                                           const ApiRequest& request) {
-            std::ostringstream out;
-
-            // Request line: METHOD /path?query HTTP/1.1
-            out << request.method << " " << request.path;
-
-            // Add query string for GET requests
-            if (!request.query_params.empty()) {
-                out << "?";
-                bool first = true;
-                for (const auto& [key, value] : request.query_params) {
-                    if (!first) out << "&";
-                    first = false;
-                    UrlEncode(out, key);
-                    out << "=";
-                    UrlEncode(out, value);
-                }
-            }
-
-            out << " HTTP/1.1\r\n";
-
-            // Headers
-            out << "Host: " << host << "\r\n";
-
-            // Basic auth: base64(api_key + ":")
-            out << "Authorization: Basic ";
-            Base64Encode(out, api_key + ":");
-            out << "\r\n";
-
-            out << "Accept: application/json\r\n";
-            out << "Connection: close\r\n";
-
-            // POST body
-            std::string body;
-            if (request.method == "POST" && !request.form_params.empty()) {
-                std::ostringstream body_stream;
-                bool first = true;
-                for (const auto& [key, value] : request.form_params) {
-                    if (!first) body_stream << "&";
-                    first = false;
-                    UrlEncode(body_stream, key);
-                    body_stream << "=";
-                    UrlEncode(body_stream, value);
-                }
-                body = body_stream.str();
-
-                out << "Content-Type: application/x-www-form-urlencoded\r\n";
-                out << "Content-Length: " << body.size() << "\r\n";
-            }
-
-            // End of headers
-            out << "\r\n";
-
-            // Body (if POST)
-            if (!body.empty()) {
-                out << body;
-            }
-
-            return out.str();
-        }
-
         // Initialize the chain (deferred until builder is set)
         void InitializeChain() {
             if (!builder_) {

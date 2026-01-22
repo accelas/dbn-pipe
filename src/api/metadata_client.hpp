@@ -349,6 +349,7 @@ private:
         std::weak_ptr<PipelineType> weak_pipeline = *pipeline_holder;
         chain->SetReadyCallback([weak_pipeline]() {
             if (auto p = weak_pipeline.lock()) {
+                p->MarkReady();
                 p->Start();
             }
         });
