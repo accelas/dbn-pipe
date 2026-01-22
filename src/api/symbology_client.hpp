@@ -346,8 +346,11 @@ private:
                 } else {
                     callback(std::move(result));
                 }
-                // Pipeline cleanup happens when pipeline_holder ref count drops to zero
-                // after this lambda completes
+                // Break the reference cycle (pipeline -> sink -> lambda -> pipeline_holder)
+                // by deferring the reset to avoid destroying pipeline on its own call stack
+                self->loop_.Defer([pipeline_holder]() {
+                    pipeline_holder->reset();
+                });
             });
 
         // Build chain
