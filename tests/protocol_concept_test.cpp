@@ -14,6 +14,7 @@ struct MockChain {
     void Connect(const sockaddr_storage&) {}
     void Close() {}
     void SetReadyCallback(std::function<void()>) {}
+    void SetDataset(const std::string&) {}
     void Suspend() {}
     void Resume() {}
     bool IsSuspended() const { return false; }

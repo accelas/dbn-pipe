@@ -195,9 +195,8 @@ cc_test(
     srcs = ["live_protocol_test.cpp"],
     deps = [
         "//lib/stream:buffer_chain",
+        "//lib/stream:protocol",
         "//src:live_protocol",
-        "//src:pipeline_sink",
-        "//src:protocol_driver",
         "@googletest//:gtest_main",
     ],
 )

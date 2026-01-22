@@ -61,6 +61,9 @@ struct HistoricalProtocol {
         // Ready callback - fires when chain is ready to send request (after TLS handshake)
         virtual void SetReadyCallback(std::function<void()> cb) = 0;
 
+        // Dataset - no-op for historical (HTTP basic auth doesn't need dataset)
+        virtual void SetDataset(const std::string&) = 0;
+
         // Backpressure
         virtual void Suspend() = 0;
         virtual void Resume() = 0;
@@ -122,6 +125,9 @@ struct HistoricalProtocol {
         void SetReadyCallback(std::function<void()> cb) override {
             ready_cb_ = std::move(cb);
         }
+
+        // Dataset - no-op for historical (HTTP basic auth doesn't need dataset)
+        void SetDataset(const std::string&) override {}
 
         // Backpressure - forward to head (TcpSocket)
         void Suspend() override { head_->Suspend(); }

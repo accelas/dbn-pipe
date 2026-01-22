@@ -215,6 +215,9 @@ public:
     CramAuthState GetState() const { return state_; }
     const Greeting& GetGreeting() const { return greeting_; }
 
+    // Set dataset for authentication (must be called before auth completes)
+    void SetDataset(const std::string& dataset) { dataset_ = dataset; }
+
     // PipelineComponent requirements
     void DisableWatchers() {}
     void DoClose();

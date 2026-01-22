@@ -34,11 +34,13 @@ concept Protocol = requires {
         typename P::ChainType& chain,
         const typename P::ChainType& const_chain,
         const sockaddr_storage& addr,
-        std::function<void()> cb
+        std::function<void()> cb,
+        const std::string& dataset
     ) {
         { chain.Connect(addr) } -> std::same_as<void>;
         { chain.Close() } -> std::same_as<void>;
         { chain.SetReadyCallback(cb) } -> std::same_as<void>;
+        { chain.SetDataset(dataset) } -> std::same_as<void>;  // For protocols needing dataset before auth
         { chain.Suspend() } -> std::same_as<void>;
         { chain.Resume() } -> std::same_as<void>;
         { const_chain.IsSuspended() } -> std::same_as<bool>;

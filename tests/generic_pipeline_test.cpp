@@ -13,6 +13,7 @@ struct MockChain {
     void Connect(const sockaddr_storage&) { connect_called = true; }
     void Close() { close_called = true; }
     void SetReadyCallback(std::function<void()> cb) { ready_cb = std::move(cb); }
+    void SetDataset(const std::string&) {}
     void Suspend() { suspended = true; }
     void Resume() { suspended = false; }
     bool IsSuspended() const { return suspended; }
