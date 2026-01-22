@@ -8,7 +8,7 @@
 
 #include "lib/stream/buffer_chain.hpp"
 #include "lib/stream/epoll_event_loop.hpp"
-#include "src/http_client.hpp"
+#include "lib/stream/http_client.hpp"
 #include "lib/stream/component.hpp"
 
 using namespace dbn_pipe;

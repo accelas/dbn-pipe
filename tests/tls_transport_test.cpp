@@ -7,7 +7,7 @@
 #include "lib/stream/buffer_chain.hpp"
 #include "lib/stream/epoll_event_loop.hpp"
 #include "lib/stream/component.hpp"
-#include "src/tls_transport.hpp"
+#include "lib/stream/tls_transport.hpp"
 
 using namespace dbn_pipe;
 

@@ -1,41 +1,12 @@
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
-    name = "url_encode",
-    hdrs = ["url_encode.hpp"],
-)
-
-cc_library(
-    name = "json_parser",
-    hdrs = ["json_parser.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//lib/stream:buffer_chain",
-        "//lib/stream:error",
-        "@rapidjson",
-    ],
-)
-
-cc_library(
-    name = "api_pipeline",
-    hdrs = ["api_pipeline.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        ":json_parser",
-        ":url_encode",
-        "//lib/stream:buffer_chain",
-        "//lib/stream:tcp_socket",
-        "//src:http_client",
-        "//src:tls_transport",
-    ],
-)
-
-cc_library(
     name = "metadata_client",
     hdrs = ["metadata_client.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":api_pipeline",
+        "//lib/stream:pipeline",
+        "//src:api_protocol",
         "//src:dns_resolver",
         "//src:retry_policy",
     ],
@@ -46,7 +17,8 @@ cc_library(
     hdrs = ["symbology_client.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":api_pipeline",
+        "//lib/stream:pipeline",
+        "//src:api_protocol",
         "//src:dns_resolver",
         "//src:retry_policy",
         "//src:stype",

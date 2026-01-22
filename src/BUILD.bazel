@@ -27,47 +27,6 @@ cc_library(
 )
 
 cc_library(
-    name = "tls_transport",
-    hdrs = ["tls_transport.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//lib/stream:buffer_chain",
-        "//lib/stream:component",
-        "//lib/stream:error",
-        "//lib/stream:event_loop",
-        "@openssl_sys//:ssl",
-        "@openssl_sys//:crypto",
-    ],
-)
-
-cc_library(
-    name = "http_client",
-    hdrs = ["http_client.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//lib/stream:component",
-        "//lib/stream:error",
-        "//lib/stream:event_loop",
-        ":tls_transport",
-        "@llhttp",
-    ],
-)
-
-cc_library(
-    name = "zstd_decompressor",
-    hdrs = ["zstd_decompressor.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//lib/stream:buffer_chain",
-        "//lib/stream:component",
-        "//lib/stream:error",
-        "//lib/stream:event_loop",
-        "@zstd",
-    ],
-)
-
-
-cc_library(
     name = "dbn_parser_component",
     hdrs = ["dbn_parser_component.hpp"],
     visibility = ["//visibility:public"],
@@ -90,7 +49,7 @@ cc_library(
         "//lib/stream:component",
         "//lib/stream:error",
         "//lib/stream:event_loop",
-        ":tls_transport",
+        "//lib/stream:tls_transport",
         "@openssl_sys//:crypto",
     ],
 )
@@ -148,11 +107,10 @@ cc_library(
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
         "//lib/stream:event_loop",
+        "//lib/stream:sink",
         "//lib/stream:tcp_socket",
         ":cram_auth",
         ":dbn_parser_component",
-        ":pipeline_sink",
-        ":protocol_driver",
     ],
     visibility = ["//visibility:public"],
 )
@@ -164,14 +122,13 @@ cc_library(
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
         "//lib/stream:event_loop",
+        "//lib/stream:http_client",
+        "//lib/stream:sink",
         "//lib/stream:tcp_socket",
-        "//src/api:url_encode",
+        "//lib/stream:tls_transport",
+        "//lib/stream:url_encode",
+        "//lib/stream:zstd_decompressor",
         ":dbn_parser_component",
-        ":http_client",
-        ":pipeline_sink",
-        ":protocol_driver",
-        ":tls_transport",
-        ":zstd_decompressor",
     ],
     visibility = ["//visibility:public"],
 )
@@ -250,5 +207,21 @@ cc_library(
         ":storage",
         ":trading_date",
         "@duckdb",
+    ],
+)
+
+cc_library(
+    name = "api_protocol",
+    hdrs = ["api_protocol.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//lib/stream:buffer_chain",
+        "//lib/stream:event_loop",
+        "//lib/stream:http_client",
+        "//lib/stream:json_parser",
+        "//lib/stream:sink",
+        "//lib/stream:tcp_socket",
+        "//lib/stream:tls_transport",
+        "//lib/stream:url_encode",
     ],
 )
