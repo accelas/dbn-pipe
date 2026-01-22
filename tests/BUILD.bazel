@@ -392,3 +392,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "api_protocol_concept_test",
+    srcs = ["api_protocol_concept_test.cpp"],
+    deps = [
+        "//lib/stream:protocol",
+        "//src:api_protocol",
+        "@googletest//:gtest_main",
+    ],
+)

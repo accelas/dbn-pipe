@@ -209,3 +209,19 @@ cc_library(
         "@duckdb",
     ],
 )
+
+cc_library(
+    name = "api_protocol",
+    hdrs = ["api_protocol.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//lib/stream:buffer_chain",
+        "//lib/stream:event_loop",
+        "//lib/stream:http_client",
+        "//lib/stream:json_parser",
+        "//lib/stream:sink",
+        "//lib/stream:tcp_socket",
+        "//lib/stream:tls_transport",
+        "//lib/stream:url_encode",
+    ],
+)
