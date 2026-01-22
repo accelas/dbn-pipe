@@ -15,4 +15,13 @@ concept Sink = requires(S& s, const Error& e) {
     { s.Invalidate() } -> std::same_as<void>;
 };
 
+// Forward declaration
+class RecordBatch;
+
+// Streaming sink - receives batches of records
+template<typename S>
+concept StreamingSink = Sink<S> && requires(S& s, RecordBatch&& batch) {
+    { s.OnData(std::move(batch)) } -> std::same_as<void>;
+};
+
 }  // namespace dbn_pipe

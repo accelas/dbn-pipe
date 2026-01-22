@@ -367,6 +367,7 @@ cc_test(
     srcs = ["sink_test.cpp"],
     deps = [
         "//lib/stream:sink",
+        "//src:record_batch",
         "@googletest//:gtest_main",
     ],
 )
