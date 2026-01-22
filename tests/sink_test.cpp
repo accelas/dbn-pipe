@@ -34,3 +34,36 @@ static_assert(StreamingSink<MockStreamingSink>, "MockStreamingSink must satisfy 
 TEST(SinkConceptTest, StreamingSinkSatisfiesConcept) {
     SUCCEED();
 }
+
+TEST(RecordSinkTest, DeliversDataToCallback) {
+    bool data_called = false;
+    RecordBatch captured_batch;
+
+    RecordSink sink(
+        [&](RecordBatch&& batch) { data_called = true; captured_batch = std::move(batch); },
+        [](const Error&) {},
+        []() {}
+    );
+
+    RecordBatch batch;
+    sink.OnData(std::move(batch));
+
+    EXPECT_TRUE(data_called);
+}
+
+TEST(RecordSinkTest, InvalidateStopsCallbacks) {
+    bool data_called = false;
+
+    RecordSink sink(
+        [&](RecordBatch&&) { data_called = true; },
+        [](const Error&) {},
+        []() {}
+    );
+
+    sink.Invalidate();
+
+    RecordBatch batch;
+    sink.OnData(std::move(batch));
+
+    EXPECT_FALSE(data_called);
+}

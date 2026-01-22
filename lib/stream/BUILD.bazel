@@ -64,5 +64,8 @@ cc_library(
 cc_library(
     name = "sink",
     hdrs = ["sink.hpp"],
-    deps = [":error"],
+    deps = [
+        ":error",
+        "//src:record_batch",
+    ],
 )
