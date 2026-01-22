@@ -1,24 +1,13 @@
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
-    name = "json_parser",
-    hdrs = ["json_parser.hpp"],
-    visibility = ["//visibility:public"],
-    deps = [
-        "//lib/stream:buffer_chain",
-        "//lib/stream:error",
-        "@rapidjson",
-    ],
-)
-
-cc_library(
     name = "api_pipeline",
     hdrs = ["api_pipeline.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":json_parser",
         "//lib/stream:buffer_chain",
         "//lib/stream:http_client",
+        "//lib/stream:json_parser",
         "//lib/stream:tcp_socket",
         "//lib/stream:tls_transport",
         "//lib/stream:url_encode",

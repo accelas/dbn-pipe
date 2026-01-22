@@ -1,4 +1,4 @@
-// src/api/json_parser.hpp
+// lib/stream/json_parser.hpp
 #pragma once
 
 #include <expected>

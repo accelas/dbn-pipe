@@ -8,7 +8,7 @@
 
 #include "lib/stream/buffer_chain.hpp"
 #include "lib/stream/error.hpp"
-#include "src/api/json_parser.hpp"
+#include "lib/stream/json_parser.hpp"
 
 namespace dbn_pipe {
 namespace {

@@ -330,7 +330,7 @@ cc_test(
     deps = [
         "//lib/stream:buffer_chain",
         "//lib/stream:error",
-        "//src/api:json_parser",
+        "//lib/stream:json_parser",
         "@googletest//:gtest_main",
     ],
 )

@@ -141,3 +141,13 @@ cc_library(
         "@zstd",
     ],
 )
+
+cc_library(
+    name = "json_parser",
+    hdrs = ["json_parser.hpp"],
+    deps = [
+        ":buffer_chain",
+        ":error",
+        "@rapidjson",
+    ],
+)

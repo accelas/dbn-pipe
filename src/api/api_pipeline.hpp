@@ -13,7 +13,7 @@
 #include "lib/stream/buffer_chain.hpp"
 #include "lib/stream/error.hpp"
 #include "lib/stream/tcp_socket.hpp"
-#include "src/api/json_parser.hpp"
+#include "lib/stream/json_parser.hpp"
 #include "lib/stream/url_encode.hpp"
 #include "lib/stream/http_client.hpp"
 #include "lib/stream/tls_transport.hpp"
