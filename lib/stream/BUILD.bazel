@@ -107,6 +107,12 @@ cc_library(
 )
 
 cc_library(
+    name = "http_request_builder",
+    hdrs = ["http_request_builder.hpp"],
+    deps = [":url_encode"],
+)
+
+cc_library(
     name = "tls_transport",
     hdrs = ["tls_transport.hpp"],
     deps = [

@@ -1,71 +1,65 @@
-// tests/unified_pipeline_test.cpp
+// tests/pipeline_test.cpp
+// Tests for StreamingClient (the unified pipeline wrapper)
 #include <gtest/gtest.h>
 
 #include "lib/stream/epoll_event_loop.hpp"
-#include "src/live_protocol.hpp"
-#include "src/pipeline.hpp"
-#include "src/record_batch.hpp"  // For RecordRef
+#include "src/client.hpp"
 
 using namespace dbn_pipe;
 
-TEST(UnifiedPipelineTest, CreateReturnsSharedPtr) {
+TEST(StreamingClientTest, CreateReturnsSharedPtr) {
     EpollEventLoop loop;
-    auto pipeline = Pipeline<LiveProtocol, RecordRef>::Create(
-        loop, "test_api_key");
-    ASSERT_NE(pipeline, nullptr);
+    auto client = LiveClient::Create(loop, "test_api_key");
+    ASSERT_NE(client, nullptr);
 }
 
-TEST(UnifiedPipelineTest, SetRequestStoresRequest) {
+TEST(StreamingClientTest, SetRequestStoresRequest) {
     EpollEventLoop loop;
     loop.Poll(0);  // Initialize thread ID
 
-    auto pipeline = Pipeline<LiveProtocol, RecordRef>::Create(
-        loop, "test_api_key");
+    auto client = LiveClient::Create(loop, "test_api_key");
 
     LiveRequest req{"GLBX.MDP3", "ESZ4", "mbp-1"};
-    pipeline->SetRequest(req);
+    client->SetRequest(req);
 
     // Should not throw - request is set
     SUCCEED();
 }
 
-TEST(UnifiedPipelineTest, StartBeforeConnectEmitsError) {
+TEST(StreamingClientTest, StartBeforeConnectEmitsError) {
     EpollEventLoop loop;
     loop.Poll(0);
 
-    auto pipeline = Pipeline<LiveProtocol, RecordRef>::Create(
-        loop, "test_api_key");
+    auto client = LiveClient::Create(loop, "test_api_key");
 
     bool error_received = false;
-    pipeline->OnError([&](const Error& e) {
+    client->OnError([&](const Error& e) {
         error_received = true;
         EXPECT_EQ(e.code, ErrorCode::InvalidState);
     });
 
     LiveRequest req{"GLBX.MDP3", "ESZ4", "mbp-1"};
-    pipeline->SetRequest(req);
-    pipeline->Start();  // Should emit error - not connected
+    client->SetRequest(req);
+    client->Start();  // Should emit error - not connected
 
     EXPECT_TRUE(error_received);
 }
 
-TEST(UnifiedPipelineTest, SuspendBeforeConnectIsRespected) {
+TEST(StreamingClientTest, SuspendBeforeConnectIsRespected) {
     EpollEventLoop loop;
     loop.Poll(0);
 
-    auto pipeline = Pipeline<LiveProtocol, RecordRef>::Create(
-        loop, "test_api_key");
+    auto client = LiveClient::Create(loop, "test_api_key");
 
-    pipeline->Suspend();
-    EXPECT_TRUE(pipeline->IsSuspended());
+    client->Suspend();
+    EXPECT_TRUE(client->IsSuspended());
 }
 
-TEST(UnifiedPipelineTest, StateStartsDisconnected) {
+TEST(StreamingClientTest, StateStartsDisconnected) {
     EpollEventLoop loop;
     loop.Poll(0);
 
-    auto pipeline = Pipeline<LiveProtocol, RecordRef>::Create(
-        loop, "test_api_key");
+    auto client = LiveClient::Create(loop, "test_api_key");
 
-    EXPECT_EQ(pipeline->GetState(), PipelineState::Disconnected);
+    EXPECT_EQ(client->GetState(), ClientState::Disconnected);
 }

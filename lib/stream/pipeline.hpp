@@ -59,8 +59,43 @@ public:
         request_(std::move(request)),
         state_(State::Created) {}
 
+    // Destructor: Safe to call from any thread.
+    // Chain components (TcpSocket etc.) have thread affinity - their destructors
+    // close fds and deregister from epoll, which must happen on the event loop thread.
+    //
+    // Thread safety behavior:
+    // - On event loop thread: teardown synchronously
+    // - Off event loop thread: defer chain destruction to event loop
+    //
+    // REQUIREMENT: For proper cleanup, ensure the event loop is still running
+    // (able to process deferred callbacks) when Pipeline is destroyed off-thread.
+    // If the loop has already stopped, the deferred callback won't execute until
+    // the EventLoop is destroyed, at which point chain cleanup happens in
+    // EventLoop's destructor (deferred queue is cleared, dropping chain refs).
     ~Pipeline() {
-        DoTeardown();
+        if (state_ == State::TornDown) return;
+        state_ = State::TornDown;
+
+        // Always invalidate sink first (thread-safe)
+        if (sink_) sink_->Invalidate();
+
+        if (loop_.IsInEventLoopThread()) {
+            // On event loop thread: teardown synchronously
+            if (chain_) P::Teardown(chain_);
+        } else if (chain_) {
+            // Off event loop thread: defer chain destruction to event loop.
+            // Move chain into the closure so it stays alive until the deferred
+            // callback runs, then P::Teardown + shared_ptr release happens on
+            // the correct thread.
+            //
+            // If the loop has stopped, the callback won't execute immediately,
+            // but the chain is kept alive by the closure until EventLoop's
+            // destructor clears the deferred queue.
+            auto chain = std::move(chain_);
+            loop_.Defer([chain = std::move(chain)]() mutable {
+                P::Teardown(chain);
+            });
+        }
     }
 
     // Connect using protocol-derived hostname/port
