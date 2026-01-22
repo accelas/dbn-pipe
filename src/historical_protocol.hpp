@@ -8,8 +8,8 @@
 #include <spanstream>
 #include <string>
 
-#include "lib/stream/url_encode.hpp"
 #include "lib/stream/buffer_chain.hpp"
+#include "lib/stream/http_request_builder.hpp"
 #include "dbn_parser_component.hpp"
 #include "lib/stream/event_loop.hpp"
 #include "lib/stream/http_client.hpp"
@@ -178,35 +178,31 @@ struct HistoricalProtocol {
             reinterpret_cast<char*>(seg->data.data()), Segment::kSize));
 
         // Build HTTP GET request for historical data API
-        out << "GET /v0/timeseries.get_range?dataset=";
-        UrlEncode(out, request.dataset);
-        out << "&symbols=";
-        UrlEncode(out, request.symbols);
-        out << "&schema=";
-        UrlEncode(out, request.schema);
-        out << "&start=" << request.start
-            << "&end=" << request.end
-            << "&encoding=dbn"
-            << "&compression=zstd";
-        // Add stype_in if specified (default is raw_symbol)
+        auto builder = HttpRequestBuilder(out)
+            .Method("GET")
+            .Path("/v0/timeseries.get_range")
+            .QueryParam("dataset", request.dataset)
+            .QueryParam("symbols", request.symbols)
+            .QueryParam("schema", request.schema)
+            .QueryParam("start", request.start)
+            .QueryParam("end", request.end)
+            .QueryParam("encoding", "dbn")
+            .QueryParam("compression", "zstd");
+
         if (!request.stype_in.empty()) {
-            out << "&stype_in=";
-            UrlEncode(out, request.stype_in);
+            builder.QueryParam("stype_in", request.stype_in);
         }
-        // Add stype_out if specified (triggers SymbolMappingMsg in response)
         if (!request.stype_out.empty()) {
-            out << "&stype_out=";
-            UrlEncode(out, request.stype_out);
+            builder.QueryParam("stype_out", request.stype_out);
         }
-        out << " HTTP/1.1\r\n"
-            << "Host: hist.databento.com\r\n"
-            << "Authorization: Basic ";
-        Base64Encode(out, chain->GetApiKey() + ":");
-        out << "\r\n"
-            << "Accept: application/octet-stream\r\n"
-            << "Accept-Encoding: zstd\r\n"
-            << "Connection: close\r\n"
-            << "\r\n";
+
+        builder
+            .Host(kHistoricalHostname)
+            .BasicAuth(chain->GetApiKey())
+            .Header("Accept", "application/octet-stream")
+            .Header("Accept-Encoding", "zstd")
+            .Header("Connection", "close")
+            .Finish();
 
         seg->size = out.span().size();
         chain->SendRequestSegment(std::move(seg));

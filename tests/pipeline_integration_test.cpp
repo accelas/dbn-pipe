@@ -35,11 +35,11 @@ TEST_F(PipelineIntegrationTest, LiveClientLifecycle) {
     client->SetRequest(req);
 
     // State should still be disconnected
-    EXPECT_EQ(client->GetState(), PipelineState::Disconnected);
+    EXPECT_EQ(client->GetState(), ClientState::Disconnected);
 
     // Stop before connect is safe
     client->Stop();
-    EXPECT_EQ(client->GetState(), PipelineState::Stopping);
+    EXPECT_EQ(client->GetState(), ClientState::Stopping);
 }
 
 TEST_F(PipelineIntegrationTest, HistoricalClientLifecycle) {
@@ -56,7 +56,7 @@ TEST_F(PipelineIntegrationTest, HistoricalClientLifecycle) {
     };
     client->SetRequest(req);
 
-    EXPECT_EQ(client->GetState(), PipelineState::Disconnected);
+    EXPECT_EQ(client->GetState(), ClientState::Disconnected);
 }
 
 TEST_F(PipelineIntegrationTest, SuspendResumeBeforeConnect) {
@@ -105,10 +105,10 @@ TEST_F(ReactorPipelineTest, LiveClientWithReactor) {
     LiveRequest req{"GLBX.MDP3", "ESZ4", "mbp-1"};
     client->SetRequest(req);
 
-    EXPECT_EQ(client->GetState(), PipelineState::Disconnected);
+    EXPECT_EQ(client->GetState(), ClientState::Disconnected);
 
     client->Stop();
-    EXPECT_EQ(client->GetState(), PipelineState::Stopping);
+    EXPECT_EQ(client->GetState(), ClientState::Stopping);
 }
 
 TEST_F(ReactorPipelineTest, HistoricalClientWithReactor) {
@@ -125,7 +125,7 @@ TEST_F(ReactorPipelineTest, HistoricalClientWithReactor) {
     };
     client->SetRequest(req);
 
-    EXPECT_EQ(client->GetState(), PipelineState::Disconnected);
+    EXPECT_EQ(client->GetState(), ClientState::Disconnected);
 }
 
 TEST_F(ReactorPipelineTest, DeferredCallbackWithReactor) {
