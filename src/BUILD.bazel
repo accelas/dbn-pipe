@@ -189,3 +189,16 @@ cc_library(
         "//lib/stream:tls_transport",
     ],
 )
+
+cc_library(
+    name = "api_client",
+    hdrs = ["api_client.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//lib/stream:error",
+        "//lib/stream:event_loop",
+        "//lib/stream:pipeline",
+        ":api_protocol",
+        ":dns_resolver",
+    ],
+)
