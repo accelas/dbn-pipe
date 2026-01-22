@@ -8,7 +8,7 @@
 #include <spanstream>
 #include <string>
 
-#include "api/url_encode.hpp"
+#include "lib/stream/url_encode.hpp"
 #include "lib/stream/buffer_chain.hpp"
 #include "dbn_parser_component.hpp"
 #include "lib/stream/event_loop.hpp"

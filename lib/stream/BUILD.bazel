@@ -99,3 +99,8 @@ cc_library(
         "//src:dns_resolver",
     ],
 )
+
+cc_library(
+    name = "url_encode",
+    hdrs = ["url_encode.hpp"],
+)

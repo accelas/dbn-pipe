@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 #include <sstream>
 
-#include "src/api/url_encode.hpp"
+#include "lib/stream/url_encode.hpp"
 #include "src/historical_protocol.hpp"
 #include "src/protocol_driver.hpp"
 #include "src/pipeline_sink.hpp"

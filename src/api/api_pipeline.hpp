@@ -14,7 +14,7 @@
 #include "lib/stream/error.hpp"
 #include "lib/stream/tcp_socket.hpp"
 #include "src/api/json_parser.hpp"
-#include "src/api/url_encode.hpp"
+#include "lib/stream/url_encode.hpp"
 #include "src/http_client.hpp"
 #include "src/tls_transport.hpp"
 

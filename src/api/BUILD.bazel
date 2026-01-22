@@ -1,11 +1,6 @@
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
-    name = "url_encode",
-    hdrs = ["url_encode.hpp"],
-)
-
-cc_library(
     name = "json_parser",
     hdrs = ["json_parser.hpp"],
     visibility = ["//visibility:public"],
@@ -22,9 +17,9 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":json_parser",
-        ":url_encode",
         "//lib/stream:buffer_chain",
         "//lib/stream:tcp_socket",
+        "//lib/stream:url_encode",
         "//src:http_client",
         "//src:tls_transport",
     ],

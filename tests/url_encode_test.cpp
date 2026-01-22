@@ -1,7 +1,7 @@
 // tests/url_encode_test.cpp
 #include <gtest/gtest.h>
 #include <sstream>
-#include "src/api/url_encode.hpp"
+#include "lib/stream/url_encode.hpp"
 
 namespace dbn_pipe {
 namespace {

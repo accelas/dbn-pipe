@@ -4,7 +4,7 @@ cc_test(
     name = "url_encode_test",
     srcs = ["url_encode_test.cpp"],
     deps = [
-        "//src/api:url_encode",
+        "//lib/stream:url_encode",
         "@googletest//:gtest_main",
     ],
 )
@@ -206,7 +206,7 @@ cc_test(
     name = "historical_protocol_test",
     srcs = ["historical_protocol_test.cpp"],
     deps = [
-        "//src/api:url_encode",
+        "//lib/stream:url_encode",
         "//src:historical_protocol",
         "//src:pipeline_sink",
         "//src:protocol_driver",
