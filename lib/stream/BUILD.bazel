@@ -74,3 +74,12 @@ cc_library(
     name = "pipeline_fwd",
     hdrs = ["pipeline_fwd.hpp"],
 )
+
+cc_library(
+    name = "protocol",
+    hdrs = ["protocol.hpp"],
+    deps = [
+        ":event_loop",
+        ":sink",
+    ],
+)

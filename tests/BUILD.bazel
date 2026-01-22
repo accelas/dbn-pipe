@@ -371,3 +371,15 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "protocol_concept_test",
+    srcs = ["protocol_concept_test.cpp"],
+    deps = [
+        "//lib/stream:protocol",
+        "//lib/stream:sink",
+        "//lib/stream:error",
+        "//lib/stream:event_loop",
+        "@googletest//:gtest_main",
+    ],
+)
