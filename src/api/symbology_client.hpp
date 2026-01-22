@@ -11,7 +11,8 @@
 #include <string_view>
 #include <vector>
 
-#include "src/api/api_pipeline.hpp"
+#include "lib/stream/pipeline.hpp"
+#include "src/api_protocol.hpp"
 #include "src/dns_resolver.hpp"
 #include "src/retry_policy.hpp"
 #include "src/stype.hpp"
@@ -270,6 +271,8 @@ public:
         ApiRequest req{
             .method = "POST",
             .path = "/v0/symbology.resolve",
+            .host = kHostname,
+            .port = kPort,
             .query_params = {},
             .form_params = {
                 {"dataset", dataset},
@@ -314,21 +317,19 @@ private:
             return;
         }
 
-        auto builder = std::make_shared<SymbologyBuilder>();
-        auto api_key = api_key_;
-        std::string http_request = req.BuildHttpRequest(kHostname, api_key);
-
         // Capture shared_from_this to prevent use-after-free
         auto self = this->shared_from_this();
 
-        // Use a shared_ptr holder to keep the pipeline alive until completion.
-        auto pipeline_holder = std::make_shared<std::shared_ptr<ApiPipeline<SymbologyBuilder>>>();
+        // Create builder and store in shared_ptr (outlives pipeline)
+        auto builder = std::make_shared<SymbologyBuilder>();
 
-        *pipeline_holder = ApiPipeline<SymbologyBuilder>::Create(
-            loop_,
-            kHostname,
-            *builder,
-            [self, req, callback, retry_state, builder, pipeline_holder](auto result) {
+        // Create sink that delivers to callback
+        using Protocol = ApiProtocol<SymbologyBuilder>;
+        using SinkType = typename Protocol::SinkType;
+        using PipelineType = Pipeline<Protocol>;
+
+        auto sink = std::make_shared<SinkType>(
+            [self, req, callback, retry_state, builder](auto result) {
                 if (!result && retry_state->ShouldRetry(result.error())) {
                     // Get delay before recording attempt
                     auto delay = retry_state->GetNextDelay(result.error());
@@ -340,21 +341,31 @@ private:
                 } else {
                     callback(std::move(result));
                 }
-                // Defer pipeline cleanup to avoid destroying it while still on its
-                // component's call stack (callback is invoked from TlsTransport::ProcessPendingReads)
-                self->loop_.Defer([pipeline_holder]() {
-                    pipeline_holder->reset();
-                });
             });
 
-        // Use weak_ptr to avoid cycle in ready callback
-        std::weak_ptr<ApiPipeline<SymbologyBuilder>> weak_pipeline = *pipeline_holder;
-        (*pipeline_holder)->SetReadyCallback([weak_pipeline, http_request]() {
+        // Build chain
+        auto chain = Protocol::BuildChain(loop_, *sink, api_key_);
+
+        // Set builder on chain (must be done before Connect)
+        chain->SetBuilder(*builder);
+
+        // Use a shared_ptr holder to keep the pipeline alive until completion.
+        auto pipeline_holder = std::make_shared<std::shared_ptr<PipelineType>>();
+
+        // Create pipeline
+        *pipeline_holder = std::make_shared<PipelineType>(
+            typename PipelineType::PrivateTag{},
+            loop_, chain, sink, req);
+
+        // Set up ready callback - when TLS handshake completes, start the request
+        std::weak_ptr<PipelineType> weak_pipeline = *pipeline_holder;
+        chain->SetReadyCallback([weak_pipeline]() {
             if (auto p = weak_pipeline.lock()) {
-                p->SendRequest(http_request);
+                p->Start();
             }
         });
 
+        // Connect (triggers TLS handshake, then ready callback)
         (*pipeline_holder)->Connect(*addr);
     }
 

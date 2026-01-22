@@ -31,7 +31,8 @@ cc_library(
     hdrs = ["symbology_client.hpp"],
     visibility = ["//visibility:public"],
     deps = [
-        ":api_pipeline",
+        "//lib/stream:pipeline",
+        "//src:api_protocol",
         "//src:dns_resolver",
         "//src:retry_policy",
         "//src:stype",
