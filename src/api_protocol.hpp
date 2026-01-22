@@ -61,6 +61,9 @@ struct ApiProtocol {
         // Dataset - no-op for API protocol
         virtual void SetDataset(const std::string&) = 0;
 
+        // Host - sets TLS SNI hostname (must be called before Connect)
+        virtual void SetHost(const std::string& host) = 0;
+
         // Builder - must be set before Connect
         virtual void SetBuilder(Builder& builder) = 0;
 
@@ -103,6 +106,11 @@ struct ApiProtocol {
 
         // Dataset - no-op for API protocol
         void SetDataset(const std::string&) override {}
+
+        // Host - sets TLS SNI hostname (must be called before Connect)
+        void SetHost(const std::string& host) override {
+            host_ = host;
+        }
 
         // Builder - must be set before Connect
         void SetBuilder(Builder& builder) override {

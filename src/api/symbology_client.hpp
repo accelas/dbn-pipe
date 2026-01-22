@@ -328,8 +328,13 @@ private:
         using SinkType = typename Protocol::SinkType;
         using PipelineType = Pipeline<Protocol>;
 
+        // Use a shared_ptr holder to keep the pipeline alive until completion.
+        // This must be created before the sink so the sink lambda can capture it.
+        auto pipeline_holder = std::make_shared<std::shared_ptr<PipelineType>>();
+
         auto sink = std::make_shared<SinkType>(
-            [self, req, callback, retry_state, builder](auto result) {
+            // Capture pipeline_holder to extend pipeline lifetime until callback completes
+            [self, req, callback, retry_state, builder, pipeline_holder](auto result) {
                 if (!result && retry_state->ShouldRetry(result.error())) {
                     // Get delay before recording attempt
                     auto delay = retry_state->GetNextDelay(result.error());
@@ -341,6 +346,8 @@ private:
                 } else {
                     callback(std::move(result));
                 }
+                // Pipeline cleanup happens when pipeline_holder ref count drops to zero
+                // after this lambda completes
             });
 
         // Build chain
@@ -349,8 +356,8 @@ private:
         // Set builder on chain (must be done before Connect)
         chain->SetBuilder(*builder);
 
-        // Use a shared_ptr holder to keep the pipeline alive until completion.
-        auto pipeline_holder = std::make_shared<std::shared_ptr<PipelineType>>();
+        // Set TLS SNI hostname (must be done before Connect)
+        chain->SetHost(req.host);
 
         // Create pipeline
         *pipeline_holder = std::make_shared<PipelineType>(
