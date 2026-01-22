@@ -22,6 +22,7 @@ using TestSink = Sink<MockRecord>;
 struct MockChain {
     void Connect(const sockaddr_storage&) {}
     void SetReadyCallback(std::function<void()>) {}
+    void SetDataset(const std::string&) {}
     void Suspend() {}
     void Resume() {}
     void Close() {}
@@ -34,9 +35,10 @@ struct ValidProtocol {
     };
 
     using ChainType = MockChain;
+    using SinkType = TestSink;
 
     static std::shared_ptr<ChainType> BuildChain(
-        IEventLoop&, TestSink&, const std::string&, const std::string& /*dataset*/ = {}
+        IEventLoop&, SinkType&, const std::string& /*api_key*/
     ) {
         return std::make_shared<ChainType>();
     }

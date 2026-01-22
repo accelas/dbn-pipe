@@ -34,18 +34,20 @@ concept ProtocolDriver = requires {
     // Chain type - includes TcpSocket as head
     typename P::ChainType;
 
+    // SinkType - must be Sink<Record> or compatible
+    typename P::SinkType;
+
     // Required static methods
     requires requires(
         IEventLoop& loop,
-        Sink<Record>& sink,
+        typename P::SinkType& sink,
         const std::string& api_key,
-        const std::string& dataset,
         std::shared_ptr<typename P::ChainType> chain,
         const typename P::Request& request
     ) {
         // Build component chain (including TcpSocket), returns entry point
-        // Dataset is passed for protocols that need it during auth (e.g., LiveProtocol)
-        { P::BuildChain(loop, sink, api_key, dataset) }
+        // Dataset is set via SetDataset() after BuildChain() for protocols that need it
+        { P::BuildChain(loop, sink, api_key) }
             -> std::same_as<std::shared_ptr<typename P::ChainType>>;
 
         // Send the protocol-specific request
@@ -55,14 +57,16 @@ concept ProtocolDriver = requires {
         { P::Teardown(chain) } -> std::same_as<void>;
     };
 
-    // ChainType must support Connect, SetReadyCallback, Suspend, Resume, Close
+    // ChainType must support Connect, SetReadyCallback, SetDataset, Suspend, Resume, Close
     requires requires(
         typename P::ChainType& chain,
         const sockaddr_storage& addr,
-        std::function<void()> cb
+        std::function<void()> cb,
+        const std::string& dataset
     ) {
         { chain.Connect(addr) } -> std::same_as<void>;
         { chain.SetReadyCallback(cb) } -> std::same_as<void>;
+        { chain.SetDataset(dataset) } -> std::same_as<void>;
         { chain.Suspend() } -> std::same_as<void>;
         { chain.Resume() } -> std::same_as<void>;
         { chain.Close() } -> std::same_as<void>;
