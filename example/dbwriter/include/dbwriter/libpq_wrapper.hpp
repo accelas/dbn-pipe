@@ -32,6 +32,11 @@ public:
     virtual ExecStatusType resultStatus(const PGresult* res) = 0;
     virtual char* resultErrorMessage(const PGresult* res) = 0;
     virtual void clear(PGresult* res) = 0;
+    virtual int ntuples(const PGresult* res) = 0;
+    virtual int nfields(const PGresult* res) = 0;
+    virtual char* getvalue(const PGresult* res, int row, int col) = 0;
+    virtual int getisnull(const PGresult* res, int row, int col) = 0;
+    virtual char* fname(const PGresult* res, int col) = 0;
 
     // COPY
     virtual int putCopyData(PGconn* conn, const char* buffer, int nbytes) = 0;
@@ -82,6 +87,21 @@ public:
     }
     void clear(PGresult* res) override {
         PQclear(res);
+    }
+    int ntuples(const PGresult* res) override {
+        return PQntuples(res);
+    }
+    int nfields(const PGresult* res) override {
+        return PQnfields(res);
+    }
+    char* getvalue(const PGresult* res, int row, int col) override {
+        return PQgetvalue(res, row, col);
+    }
+    int getisnull(const PGresult* res, int row, int col) override {
+        return PQgetisnull(res, row, col);
+    }
+    char* fname(const PGresult* res, int col) override {
+        return PQfname(res, col);
     }
     int putCopyData(PGconn* conn, const char* buffer, int nbytes) override {
         return PQputCopyData(conn, buffer, nbytes);

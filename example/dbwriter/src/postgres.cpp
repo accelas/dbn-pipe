@@ -24,15 +24,79 @@ std::string quote_identifier(std::string_view ident) {
     result += '"';
     return result;
 }
+
+// Escape a connection string value (single quotes, backslashes).
+// Per libpq docs, values containing spaces/special chars need quoting.
+std::string escape_conninfo_value(std::string_view val) {
+    // If value contains no special characters, return as-is
+    bool needs_quoting = false;
+    for (char c : val) {
+        if (c == ' ' || c == '\'' || c == '\\' || c == '=' || c == '\0') {
+            needs_quoting = true;
+            break;
+        }
+    }
+    if (!needs_quoting) {
+        return std::string(val);
+    }
+
+    std::string result;
+    result.reserve(val.size() + 2);
+    result += '\'';
+    for (char c : val) {
+        if (c == '\'' || c == '\\') {
+            result += '\\';  // Escape with backslash
+        }
+        result += c;
+    }
+    result += '\'';
+    return result;
+}
+
+// Concrete IRow implementation backed by copied string data
+class PostgresRow : public IRow {
+public:
+    PostgresRow(std::vector<std::string> values, std::vector<bool> nulls)
+        : values_(std::move(values)), nulls_(std::move(nulls)) {}
+
+    int64_t get_int64(std::size_t col) const override {
+        if (col >= values_.size() || nulls_[col]) {
+            return 0;
+        }
+        return std::stoll(values_[col]);
+    }
+
+    int32_t get_int32(std::size_t col) const override {
+        if (col >= values_.size() || nulls_[col]) {
+            return 0;
+        }
+        return std::stoi(values_[col]);
+    }
+
+    std::string_view get_string(std::size_t col) const override {
+        if (col >= values_.size() || nulls_[col]) {
+            return {};
+        }
+        return values_[col];
+    }
+
+    bool is_null(std::size_t col) const override {
+        return col >= nulls_.size() || nulls_[col];
+    }
+
+private:
+    std::vector<std::string> values_;
+    std::vector<bool> nulls_;
+};
 }  // namespace
 
 std::string PostgresConfig::connection_string() const {
     std::ostringstream ss;
-    ss << "host=" << host
+    ss << "host=" << escape_conninfo_value(host)
        << " port=" << port
-       << " dbname=" << database
-       << " user=" << user
-       << " password=" << password;
+       << " dbname=" << escape_conninfo_value(database)
+       << " user=" << escape_conninfo_value(user)
+       << " password=" << escape_conninfo_value(password);
     return ss.str();
 }
 
@@ -392,11 +456,35 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
         throw std::runtime_error("Query failed: " + err);
     }
 
-    // Convert to QueryResult (simplified)
+    // Convert PGresult to QueryResult
+    int nrows = pq_.ntuples(res);
+    int ncols = pq_.nfields(res);
+
+    std::vector<std::unique_ptr<IRow>> rows;
+    rows.reserve(static_cast<size_t>(nrows));
+
+    for (int r = 0; r < nrows; ++r) {
+        std::vector<std::string> values;
+        std::vector<bool> nulls;
+        values.reserve(static_cast<size_t>(ncols));
+        nulls.reserve(static_cast<size_t>(ncols));
+
+        for (int c = 0; c < ncols; ++c) {
+            nulls.push_back(pq_.getisnull(res, r, c) != 0);
+            if (nulls.back()) {
+                values.emplace_back();
+            } else {
+                values.emplace_back(pq_.getvalue(res, r, c));
+            }
+        }
+        rows.push_back(std::make_unique<PostgresRow>(
+            std::move(values), std::move(nulls)));
+    }
+
     pq_.clear(res);
 
     // Remaining results drained by scope_guard
-    co_return QueryResult{};
+    co_return QueryResult{std::move(rows)};
 }
 
 asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {

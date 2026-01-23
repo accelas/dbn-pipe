@@ -27,6 +27,11 @@ public:
     MOCK_METHOD(ExecStatusType, resultStatus, (const PGresult*), (override));
     MOCK_METHOD(char*, resultErrorMessage, (const PGresult*), (override));
     MOCK_METHOD(void, clear, (PGresult*), (override));
+    MOCK_METHOD(int, ntuples, (const PGresult*), (override));
+    MOCK_METHOD(int, nfields, (const PGresult*), (override));
+    MOCK_METHOD(char*, getvalue, (const PGresult*, int, int), (override));
+    MOCK_METHOD(int, getisnull, (const PGresult*, int, int), (override));
+    MOCK_METHOD(char*, fname, (const PGresult*, int), (override));
     MOCK_METHOD(int, putCopyData, (PGconn*, const char*, int), (override));
     MOCK_METHOD(int, putCopyEnd, (PGconn*, const char*), (override));
 };
@@ -119,6 +124,57 @@ public:
         // Don't reset result state here - that's for the next query
     }
 
+    int ntuples(const PGresult*) override {
+        return static_cast<int>(result_rows_.size());
+    }
+
+    int nfields(const PGresult*) override {
+        return result_rows_.empty() ? 0 : static_cast<int>(result_rows_[0].size());
+    }
+
+    char* getvalue(const PGresult*, int row, int col) override {
+        if (row < 0 || static_cast<size_t>(row) >= result_rows_.size()) {
+            return const_cast<char*>("");
+        }
+        if (col < 0 || static_cast<size_t>(col) >= result_rows_[row].size()) {
+            return const_cast<char*>("");
+        }
+        return const_cast<char*>(result_rows_[row][col].c_str());
+    }
+
+    int getisnull(const PGresult*, int row, int col) override {
+        if (row < 0 || static_cast<size_t>(row) >= result_nulls_.size()) {
+            return 1;
+        }
+        if (col < 0 || static_cast<size_t>(col) >= result_nulls_[row].size()) {
+            return 1;
+        }
+        return result_nulls_[row][col] ? 1 : 0;
+    }
+
+    char* fname(const PGresult*, int col) override {
+        if (col < 0 || static_cast<size_t>(col) >= column_names_.size()) {
+            return const_cast<char*>("");
+        }
+        return const_cast<char*>(column_names_[col].c_str());
+    }
+
+    // Configure result data for query tests
+    void set_result_data(std::vector<std::vector<std::string>> rows,
+                         std::vector<std::vector<bool>> nulls = {},
+                         std::vector<std::string> col_names = {}) {
+        result_rows_ = std::move(rows);
+        result_nulls_ = std::move(nulls);
+        column_names_ = std::move(col_names);
+        // Fill nulls if not provided
+        if (result_nulls_.empty() && !result_rows_.empty()) {
+            result_nulls_.resize(result_rows_.size());
+            for (size_t i = 0; i < result_rows_.size(); ++i) {
+                result_nulls_[i].resize(result_rows_[i].size(), false);
+            }
+        }
+    }
+
     int putCopyData(PGconn*, const char*, int) override {
         return 1;  // Success
     }
@@ -141,6 +197,9 @@ private:
     ExecStatusType result_status_ = PGRES_COMMAND_OK;
     std::string error_message_;
     std::string result_error_;
+    std::vector<std::vector<std::string>> result_rows_;
+    std::vector<std::vector<bool>> result_nulls_;
+    std::vector<std::string> column_names_;
 };
 
 }  // namespace dbwriter::testing

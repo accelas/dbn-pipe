@@ -162,6 +162,9 @@ private:
 
         auto writer = db_.begin_copy(table_.name(), col_views);
 
+        std::exception_ptr ex = nullptr;
+        bool need_abort = false;
+
         try {
             co_await writer->start();
 
@@ -175,13 +178,19 @@ private:
 
             co_await writer->finish();
         } catch (...) {
+            // Cannot co_await in catch block, so save exception and abort outside
+            ex = std::current_exception();
+            need_abort = true;
+        }
+
+        if (need_abort) {
             // Abort COPY session to leave connection in usable state
             try {
                 co_await writer->abort();
             } catch (...) {
                 // Best effort - ignore abort failures
             }
-            throw;
+            std::rethrow_exception(ex);
         }
     }
 

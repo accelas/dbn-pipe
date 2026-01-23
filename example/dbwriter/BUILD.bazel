@@ -125,6 +125,19 @@ cc_test(
 )
 
 cc_test(
+    name = "multithread_test",
+    srcs = [
+        "test/multithread_test.cpp",
+        "test/mock_libpq.hpp",
+    ],
+    includes = ["."],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "integration_test",
     srcs = ["test/integration_test.cpp"],
     deps = [

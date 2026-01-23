@@ -74,6 +74,10 @@ public:
         return {Columns::name.view()...};
     }
 
+    std::array<const char*, kColumnCount> column_pg_types() const {
+        return {Columns::pg_type::pg_type_name()...};
+    }
+
     using RowType = Row<Columns...>;
     using ColumnsTuple = std::tuple<Columns...>;
 

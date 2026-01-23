@@ -149,13 +149,24 @@ public:
     }
 
     bool IsInEventLoopThread() const override {
-        return std::this_thread::get_id() == thread_id_;
+        return std::this_thread::get_id() == thread_id_.load();
     }
 
     // Additional ASIO-specific methods
-    void Run() { ctx_.run(); }
+    // Sets thread_id_ to the calling thread before running the event loop.
+    void Run() {
+        thread_id_.store(std::this_thread::get_id());
+        ctx_.run();
+    }
     void Stop() { ctx_.stop(); }
-    void Poll() { ctx_.poll(); }
+    void Poll() {
+        thread_id_.store(std::this_thread::get_id());
+        ctx_.poll();
+    }
+    void RunOne() {
+        thread_id_.store(std::this_thread::get_id());
+        ctx_.run_one();
+    }
 
     template <typename Awaitable>
     void Spawn(Awaitable&& coro) {
@@ -166,7 +177,7 @@ public:
 
 private:
     asio::io_context& ctx_;
-    std::thread::id thread_id_;
+    std::atomic<std::thread::id> thread_id_;
 };
 
 }  // namespace dbwriter
