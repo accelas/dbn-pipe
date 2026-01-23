@@ -40,36 +40,6 @@ public:
     std::string create_table_sql(const Table& table);
 };
 
-// Template implementations
-
-template <typename Table>
-std::string SchemaValidator::create_table_sql(const Table& table) {
-    // TODO: Identifier escaping is incomplete - embedded double quotes in
-    // table/column names are not escaped. This is acceptable for now since
-    // schema design is not final. When finalized, either:
-    // 1. Escape embedded " by doubling them (standard SQL), or
-    // 2. Use a centralized quote_identifier() helper (like in postgres.cpp)
-    std::ostringstream ss;
-    ss << "CREATE TABLE IF NOT EXISTS \"" << table.name() << "\" (";
-
-    auto columns = table.column_names();
-    auto types = table.column_pg_types();
-
-    for (size_t i = 0; i < columns.size(); ++i) {
-        if (i > 0) ss << ", ";
-        ss << "\"" << columns[i] << "\" " << types[i];
-    }
-    ss << ")";
-    return ss.str();
-}
-
-template <typename Table>
-asio::awaitable<void> SchemaValidator::ensure_table(
-        IDatabase& db, const Table& table) {
-    std::string sql = create_table_sql(table);
-    co_await db.execute(sql);
-}
-
 namespace detail {
 // Escape single quotes in a string for SQL string literals
 inline std::string escape_sql_string(std::string_view s) {
@@ -84,7 +54,48 @@ inline std::string escape_sql_string(std::string_view s) {
     }
     return result;
 }
+
+// Quote a PostgreSQL identifier (table/column name) to prevent SQL injection.
+// Doubles any embedded double-quotes and wraps in double-quotes.
+inline std::string quote_identifier(std::string_view ident) {
+    std::string result;
+    result.reserve(ident.size() + 2);
+    result += '"';
+    for (char c : ident) {
+        if (c == '"') {
+            result += '"';  // Double the quote
+        }
+        result += c;
+    }
+    result += '"';
+    return result;
+}
 }  // namespace detail
+
+// Template implementations
+
+template <typename Table>
+std::string SchemaValidator::create_table_sql(const Table& table) {
+    std::ostringstream ss;
+    ss << "CREATE TABLE IF NOT EXISTS " << detail::quote_identifier(table.name()) << " (";
+
+    auto columns = table.column_names();
+    auto types = table.column_pg_types();
+
+    for (size_t i = 0; i < columns.size(); ++i) {
+        if (i > 0) ss << ", ";
+        ss << detail::quote_identifier(columns[i]) << " " << types[i];
+    }
+    ss << ")";
+    return ss.str();
+}
+
+template <typename Table>
+asio::awaitable<void> SchemaValidator::ensure_table(
+        IDatabase& db, const Table& table) {
+    std::string sql = create_table_sql(table);
+    co_await db.execute(sql);
+}
 
 template <typename Table>
 asio::awaitable<std::vector<SchemaMismatch>> SchemaValidator::validate(

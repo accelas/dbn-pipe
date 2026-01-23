@@ -135,10 +135,16 @@ public:
             suspendable_->Resume();
             suspended_ = false;
         }
-        // Poll until coroutine finishes - use timer to yield to io_context
+        // Wait for process_queue to complete using timer cancellation.
+        // process_queue cancels the timer when it finishes, waking us immediately.
+        // The 1-second timeout is a fallback; normal wakeup is via cancel().
         while (writing_) {
-            asio::steady_timer timer(ctx_, std::chrono::milliseconds(1));
-            co_await timer.async_wait(asio::use_awaitable);
+            asio::steady_timer timer(ctx_, std::chrono::seconds(1));
+            drain_timer_ = &timer;
+            asio::error_code ec;
+            co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
+            drain_timer_ = nullptr;
+            // ec == operation_aborted means cancelled by process_queue - loop will check writing_
         }
     }
 
@@ -146,10 +152,15 @@ private:
     asio::awaitable<void> process_queue() {
         // writing_ is already set by enqueue() before co_spawn()
         // Use scope guard to ensure writing_ = false on all exit paths
+        // Also cancels drain timer to wake up drain() immediately
         struct WritingGuard {
             bool& flag;
-            ~WritingGuard() { flag = false; }
-        } guard{writing_};
+            asio::steady_timer*& timer;
+            ~WritingGuard() {
+                flag = false;
+                if (timer) timer->cancel();
+            }
+        } guard{writing_, drain_timer_};
 
         while (!pending_batches_.empty() && !stopping_) {
             auto batch = std::move(pending_batches_.front());
@@ -249,6 +260,7 @@ private:
     std::atomic<bool> stopping_{false};
     ISuspendable* suspendable_ = nullptr;
     ErrorHandler error_handler_;
+    asio::steady_timer* drain_timer_ = nullptr;  // For signaling drain() completion
 };
 
 }  // namespace dbwriter

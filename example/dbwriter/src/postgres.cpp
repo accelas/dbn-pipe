@@ -378,6 +378,15 @@ asio::awaitable<void> PostgresCopyWriter::abort() {
             co_await wait_writable();
         }
 
+        // Flush the abort message to server - without this, consumeInput may hang
+        while (state_->valid) {
+            int flush_result = pq->flush(conn);
+            if (flush_result == 0) break;  // All data flushed
+            if (flush_result == -1) break;  // Error, can't do more
+            // flush_result == 1: More to flush, wait for writable
+            co_await wait_writable();
+        }
+
         // Wait for result: consume → check busy → wait if needed
         do {
             if (!state_->valid) break;  // Connection gone
