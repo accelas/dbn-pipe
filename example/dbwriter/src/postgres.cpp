@@ -32,6 +32,9 @@ PostgresCopyWriter::PostgresCopyWriter(
 }
 
 PostgresCopyWriter::~PostgresCopyWriter() {
+    // Release the fd so ASIO doesn't close it - libpq owns the socket
+    socket_.release();
+
     if (in_copy_) {
         // Best effort abort
         PQputCopyEnd(conn_, "aborted");
@@ -54,8 +57,16 @@ asio::awaitable<void> PostgresCopyWriter::start() {
         throw std::runtime_error(PQerrorMessage(conn_));
     }
 
-    // Wait for result
-    co_await wait_writable();
+    // Wait for result using do-while pattern
+    do {
+        if (!PQconsumeInput(conn_)) {
+            throw std::runtime_error(PQerrorMessage(conn_));
+        }
+        if (!PQisBusy(conn_)) break;
+        co_await socket_.async_wait(
+            asio::posix::stream_descriptor::wait_read,
+            asio::use_awaitable);
+    } while (PQisBusy(conn_));
 
     PGresult* res = PQgetResult(conn_);
     if (PQresultStatus(res) != PGRES_COPY_IN) {
@@ -190,14 +201,34 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
         throw std::runtime_error(PQerrorMessage(conn_));
     }
 
+    // Wait for result using do-while pattern
+    asio::posix::stream_descriptor socket(ctx_, PQsocket(conn_));
+    do {
+        if (!PQconsumeInput(conn_)) {
+            socket.release();
+            throw std::runtime_error(PQerrorMessage(conn_));
+        }
+        if (!PQisBusy(conn_)) break;
+        co_await socket.async_wait(
+            asio::posix::stream_descriptor::wait_read,
+            asio::use_awaitable);
+    } while (PQisBusy(conn_));
+
     PGresult* res = PQgetResult(conn_);
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {
         std::string err = PQresultErrorMessage(res);
         PQclear(res);
+        socket.release();
         throw std::runtime_error("Execute failed: " + err);
     }
     PQclear(res);
 
+    // Consume any remaining results (required by libpq)
+    while ((res = PQgetResult(conn_)) != nullptr) {
+        PQclear(res);
+    }
+
+    socket.release();  // Don't close libpq's socket
     co_return;
 }
 

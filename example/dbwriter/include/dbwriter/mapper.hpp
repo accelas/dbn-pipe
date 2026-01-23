@@ -54,27 +54,15 @@ private:
 
     template <std::size_t I>
     void encode_field(const RowType& row, ByteBuffer& buf) const {
-        using Columns = typename RowType::Storage;
-        using ColType = std::tuple_element_t<I, Columns>;
-        // Get the PgType from the Table's column list
-        // For now, use the value directly
+        // Get the Column definition which contains the PgType
+        using ColumnsTuple = typename Table::ColumnsTuple;
+        using Column = std::tuple_element_t<I, ColumnsTuple>;
+        using PgType = typename Column::pg_type;
+
         const auto& value = std::get<I>(row.as_tuple());
 
-        // This requires knowing the PgType - we need to enhance Table
-        // For now, use size-based dispatch
-        if constexpr (sizeof(ColType) == 8) {
-            buf.put_int32_be(8);
-            buf.put_int64_be(static_cast<int64_t>(value));
-        } else if constexpr (sizeof(ColType) == 4) {
-            buf.put_int32_be(4);
-            buf.put_int32_be(static_cast<int32_t>(value));
-        } else if constexpr (sizeof(ColType) == 2) {
-            buf.put_int32_be(2);
-            buf.put_int16_be(static_cast<int16_t>(value));
-        } else if constexpr (sizeof(ColType) == 1) {
-            buf.put_int32_be(1);
-            buf.put_byte(static_cast<std::byte>(value));
-        }
+        // Use the PgType's encode method
+        PgType::encode(value, buf);
     }
 };
 

@@ -75,6 +75,7 @@ public:
     }
 
     using RowType = Row<Columns...>;
+    using ColumnsTuple = std::tuple<Columns...>;
 
 private:
     // Internal storage for table name - use largest reasonable size
