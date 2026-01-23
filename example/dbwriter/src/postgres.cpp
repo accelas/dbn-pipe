@@ -147,11 +147,19 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
 
     PGresult* res = pq_.getResult(conn_);
     if (!res) {
+        // Drain any remaining results before throwing
+        while ((res = pq_.getResult(conn_)) != nullptr) {
+            pq_.clear(res);
+        }
         throw std::runtime_error("COPY finish: no result received");
     }
     if (pq_.resultStatus(res) != PGRES_COMMAND_OK) {
         std::string err = pq_.resultErrorMessage(res);
         pq_.clear(res);
+        // Drain any remaining results before throwing
+        while ((res = pq_.getResult(conn_)) != nullptr) {
+            pq_.clear(res);
+        }
         throw std::runtime_error("COPY finish failed: " + err);
     }
     pq_.clear(res);
@@ -261,6 +269,9 @@ asio::awaitable<void> PostgresDatabase::connect() {
 }
 
 asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
+    if (!is_connected()) {
+        throw std::runtime_error("Not connected to database");
+    }
     if (!pq_.sendQuery(conn_, std::string(sql).c_str())) {
         throw std::runtime_error(pq_.errorMessage(conn_));
     }
@@ -312,6 +323,9 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
 }
 
 asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
+    if (!is_connected()) {
+        throw std::runtime_error("Not connected to database");
+    }
     if (!pq_.sendQuery(conn_, std::string(sql).c_str())) {
         throw std::runtime_error(pq_.errorMessage(conn_));
     }
@@ -363,6 +377,9 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
 std::unique_ptr<ICopyWriter> PostgresDatabase::begin_copy(
     std::string_view table,
     std::span<const std::string_view> columns) {
+    if (!is_connected()) {
+        throw std::runtime_error("Not connected to database");
+    }
     return std::make_unique<PostgresCopyWriter>(conn_, ctx_, table, columns, pq_);
 }
 

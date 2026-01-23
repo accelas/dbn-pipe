@@ -92,6 +92,11 @@ public:
     void request_stop() {
         stopping_ = true;
         pending_batches_.clear();  // Discard pending work
+        // Resume suspended upstream so it's not stuck forever
+        if (suspendable_ && suspended_) {
+            suspendable_->Resume();
+            suspended_ = false;
+        }
     }
 
     // Returns true when stopped and no coroutine in flight
