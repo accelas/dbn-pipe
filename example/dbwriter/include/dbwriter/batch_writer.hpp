@@ -9,6 +9,7 @@
 #include "dbwriter/types.hpp"
 #include <asio.hpp>
 #include <atomic>
+#include <cassert>
 #include <deque>
 #include <functional>
 #include <span>
@@ -37,6 +38,12 @@ public:
     virtual void Resume() = 0;
 };
 
+// IMPORTANT: BatchWriter lifecycle requirement
+// The caller must ensure one of the following before destroying BatchWriter:
+// 1. Call request_stop() and run io_context until is_idle() returns true, OR
+// 2. Ensure no coroutine is in flight (pending_count() == 0 && !is_writing())
+//
+// Destroying while a coroutine is in flight results in undefined behavior.
 template <typename Record, typename Table, typename TransformT>
 class BatchWriter {
 public:
@@ -56,8 +63,9 @@ public:
         , config_(config) {}
 
     ~BatchWriter() {
-        // Signal stop and wait for coroutine to complete
-        stop();
+        // Destructor is non-blocking. Caller must ensure coroutine completed.
+        // Assert in debug builds to catch misuse.
+        assert(!writing_ && "BatchWriter destroyed while coroutine in flight");
     }
 
     // Non-copyable, non-movable (coroutine captures this)
@@ -79,17 +87,17 @@ public:
         }
     }
 
-    // Signal stop and block until coroutine completes
-    void stop() {
+    // Signal stop - coroutine will complete after current batch.
+    // Non-blocking. Caller must run io_context until is_idle() returns true.
+    void request_stop() {
         stopping_ = true;
-        // Spin until coroutine completes (writing_ goes false)
-        // This is safe because we're on the same thread as io_context
-        while (writing_) {
-            ctx_.poll_one();
-        }
+        pending_batches_.clear();  // Discard pending work
     }
 
-    bool is_stopped() const { return stopping_ && !writing_; }
+    // Returns true when stopped and no coroutine in flight
+    bool is_idle() const { return !writing_; }
+    bool is_writing() const { return writing_; }
+    bool stop_requested() const { return stopping_; }
 
     size_t pending_count() const { return pending_batches_.size(); }
 

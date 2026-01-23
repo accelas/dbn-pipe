@@ -23,6 +23,12 @@ std::string PostgresConfig::connection_string() const {
 // The caller must ensure all coroutine methods (start, write_row, finish)
 // are fully awaited before destroying this object. Destroying while a
 // coroutine is suspended will result in undefined behavior.
+//
+// IMPORTANT: COPY cleanup requirement
+// The caller should call co_await finish() on success or co_await abort()
+// on error BEFORE destruction. The destructor performs best-effort cleanup
+// but cannot properly handle nonblocking I/O (no coroutine context).
+// Destroying with in_copy_==true may leave the connection in an unusable state.
 
 PostgresCopyWriter::PostgresCopyWriter(
     PGconn* conn, asio::io_context& ctx,
@@ -82,11 +88,19 @@ asio::awaitable<void> PostgresCopyWriter::start() {
 
     PGresult* res = pq_.getResult(conn_);
     if (!res) {
+        // Drain any remaining results before throwing
+        while ((res = pq_.getResult(conn_)) != nullptr) {
+            pq_.clear(res);
+        }
         throw std::runtime_error("COPY: no result received");
     }
     if (pq_.resultStatus(res) != PGRES_COPY_IN) {
         std::string err = pq_.resultErrorMessage(res);
         pq_.clear(res);
+        // Drain any remaining results before throwing
+        while ((res = pq_.getResult(conn_)) != nullptr) {
+            pq_.clear(res);
+        }
         throw std::runtime_error("COPY failed: " + err);
     }
     pq_.clear(res);
@@ -152,11 +166,31 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
 
 asio::awaitable<void> PostgresCopyWriter::abort() {
     if (in_copy_) {
-        pq_.putCopyEnd(conn_, "aborted by client");
-        // Must clear result to avoid leaks
-        PGresult* res = pq_.getResult(conn_);
-        if (res) pq_.clear(res);
-        // Drain any remaining results
+        // End COPY with error message - may need to wait for writable
+        while (true) {
+            int result = pq_.putCopyEnd(conn_, "aborted by client");
+            if (result == 1) break;
+            if (result == -1) {
+                // Error - connection may be broken, drain what we can
+                break;
+            }
+            // result == 0: Would block
+            co_await wait_writable();
+        }
+
+        // Wait for result: consume → check busy → wait if needed
+        do {
+            if (!pq_.consumeInput(conn_)) {
+                break;  // Connection error, can't do more
+            }
+            if (!pq_.isBusy(conn_)) break;
+            co_await socket_.async_wait(
+                asio::posix::stream_descriptor::wait_read,
+                asio::use_awaitable);
+        } while (pq_.isBusy(conn_));
+
+        // Drain all results
+        PGresult* res;
         while ((res = pq_.getResult(conn_)) != nullptr) {
             pq_.clear(res);
         }
@@ -233,11 +267,22 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
 
     // Wait for result: consume → check busy → wait if needed
     asio::posix::stream_descriptor socket(ctx_, pq_.socket(conn_));
-    auto guard = [&socket]() { socket.release(); };
+
+    // Scope guard ensures socket.release() and result draining on all exit paths
+    ILibPq* pq = &pq_;
+    PGconn* conn = conn_;
+    auto cleanup = [&socket, pq, conn]() {
+        socket.release();
+        // Drain any remaining results to keep connection usable
+        PGresult* r;
+        while ((r = pq->getResult(conn)) != nullptr) {
+            pq->clear(r);
+        }
+    };
     struct ScopeGuard {
         std::function<void()> fn;
         ~ScopeGuard() { fn(); }
-    } scope_guard{guard};
+    } scope_guard{cleanup};
 
     do {
         if (!pq_.consumeInput(conn_)) {
@@ -262,11 +307,7 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
     // Convert to QueryResult (simplified)
     pq_.clear(res);
 
-    // Drain any remaining results
-    while ((res = pq_.getResult(conn_)) != nullptr) {
-        pq_.clear(res);
-    }
-
+    // Remaining results drained by scope_guard
     co_return QueryResult{};
 }
 
@@ -277,12 +318,22 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
 
     // Wait for result: consume → check busy → wait if needed
     asio::posix::stream_descriptor socket(ctx_, pq_.socket(conn_));
-    // Scope guard ensures socket.release() runs on all exit paths
-    auto guard = [&socket]() { socket.release(); };
+
+    // Scope guard ensures socket.release() and result draining on all exit paths
+    ILibPq* pq = &pq_;
+    PGconn* conn = conn_;
+    auto cleanup = [&socket, pq, conn]() {
+        socket.release();
+        // Drain any remaining results to keep connection usable
+        PGresult* r;
+        while ((r = pq->getResult(conn)) != nullptr) {
+            pq->clear(r);
+        }
+    };
     struct ScopeGuard {
         std::function<void()> fn;
         ~ScopeGuard() { fn(); }
-    } scope_guard{guard};
+    } scope_guard{cleanup};
 
     do {
         if (!pq_.consumeInput(conn_)) {
@@ -305,11 +356,7 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
     }
     pq_.clear(res);
 
-    // Consume any remaining results (required by libpq)
-    while ((res = pq_.getResult(conn_)) != nullptr) {
-        pq_.clear(res);
-    }
-
+    // Remaining results drained by scope_guard
     co_return;
 }
 
