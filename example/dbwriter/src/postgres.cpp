@@ -113,10 +113,16 @@ std::string PostgresConfig::connection_string() const {
 // but cannot properly handle nonblocking I/O (no coroutine context).
 // Destroying with in_copy_==true may leave the connection in an unusable state.
 //
-// IMPORTANT: Connection lifetime
+// IMPORTANT: Connection lifetime and thread safety
 // The writer holds a shared_ptr to the connection state. If PostgresDatabase
 // is destroyed while the writer exists, the state->valid flag is set to false.
 // All operations check this flag and throw if the connection is no longer valid.
+//
+// CRITICAL: Both PostgresDatabase and PostgresCopyWriter MUST be used from the
+// same io_context thread. The validity check protects against accidental misuse
+// but is NOT a thread-safety mechanism. Destroying PostgresDatabase from a
+// different thread while a writer coroutine is suspended results in undefined
+// behavior. Always ensure both objects are accessed from the io_context thread.
 
 PostgresCopyWriter::PostgresCopyWriter(
     std::shared_ptr<PostgresConnectionState> state,
@@ -390,11 +396,17 @@ asio::awaitable<void> PostgresCopyWriter::send_data(std::span<const std::byte> d
 // the connection. Writers check this flag and throw if connection is gone.
 // This prevents use-after-free when writer outlives database.
 //
-// IMPORTANT: Concurrency
+// IMPORTANT: Concurrency and thread safety
 // PostgresDatabase is NOT thread-safe. All operations (query, execute, begin_copy)
 // must be serialized - only one operation may be in flight at a time. Concurrent
-// calls on the same connection corrupt libpq protocol state. Use a single
-// io_context thread or external synchronization.
+// calls on the same connection corrupt libpq protocol state.
+//
+// CRITICAL: PostgresDatabase, all PostgresCopyWriter instances, and the io_context
+// MUST all be used from the SAME THREAD. The validity flag is NOT a synchronization
+// mechanism - it only catches accidental misuse when destruction happens before
+// the writer is done. Cross-thread destruction while a coroutine is suspended
+// results in undefined behavior. Typical usage: run io_context on a dedicated
+// thread, post all database operations to that thread.
 
 PostgresDatabase::PostgresDatabase(asio::io_context& ctx, const PostgresConfig& config,
                                    ILibPq& pq)

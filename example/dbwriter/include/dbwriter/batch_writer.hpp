@@ -84,7 +84,7 @@ public:
     void on_error(ErrorHandler handler) { error_handler_ = std::move(handler); }
 
     void enqueue(std::vector<Record> batch) {
-        if (stopping_) return;  // Don't accept new work after stop
+        if (stopping_ || draining_) return;  // Don't accept new work after stop/drain
         pending_batches_.push_back(std::move(batch));
         check_backpressure();
 
@@ -97,8 +97,9 @@ public:
         }
     }
 
-    // Signal stop - coroutine will complete after current batch.
+    // Signal immediate stop - discards pending work, completes after current batch.
     // Non-blocking. Caller must run io_context until is_idle() returns true.
+    // Use drain() instead if you need to process all pending batches.
     void request_stop() {
         stopping_ = true;
         pending_batches_.clear();  // Discard pending work
@@ -113,14 +114,23 @@ public:
     bool is_idle() const { return !writing_; }
     bool is_writing() const { return writing_; }
     bool stop_requested() const { return stopping_; }
+    bool is_draining() const { return draining_; }
 
     size_t pending_count() const { return pending_batches_.size(); }
 
-    // Awaitable that completes when all pending work is done.
-    // Stops accepting new work and waits for in-flight coroutine to complete.
+    // Awaitable that completes when all pending work is processed.
+    // Stops accepting new work but continues processing existing batches.
     // MUST be awaited before destroying BatchWriter to prevent use-after-free.
+    //
+    // Unlike request_stop(), drain() does NOT discard pending batches.
+    // All enqueued batches will be written before drain() completes.
     asio::awaitable<void> drain() {
-        request_stop();
+        draining_ = true;  // Stop accepting new work, but keep processing
+        // Resume suspended upstream so it's not stuck forever
+        if (suspendable_ && suspended_) {
+            suspendable_->Resume();
+            suspended_ = false;
+        }
         // Poll until coroutine finishes - use timer to yield to io_context
         while (writing_) {
             asio::steady_timer timer(ctx_, std::chrono::milliseconds(1));
@@ -231,6 +241,7 @@ private:
     std::deque<std::vector<Record>> pending_batches_;
     bool writing_ = false;
     bool suspended_ = false;
+    bool draining_ = false;
     std::atomic<bool> stopping_{false};
     ISuspendable* suspendable_ = nullptr;
     ErrorHandler error_handler_;
