@@ -127,7 +127,7 @@ TradesRow Transform<TradeMsg, trades_table>::operator()(const TradeMsg& msg) con
 
 ## CopyWriter & Binary Protocol
 
-CopyWriter handles async libpq binary COPY:
+CopyWriter handles async libpq binary COPY with safe connection lifecycle:
 
 ```cpp
 // PostgreSQL binary COPY format
@@ -135,21 +135,28 @@ CopyWriter handles async libpq binary COPY:
 // Row: field_count(2) + [field_len(4) + data]...
 // Trailer: -1(2)
 
-class CopyWriter {
-public:
-    CopyWriter(PGconn* conn, std::string_view table,
-               std::span<const std::string_view> columns);
+// Shared connection state prevents use-after-free when writer outlives database
+struct PostgresConnectionState {
+    PGconn* conn = nullptr;
+    std::atomic<bool> valid{false};  // Set false when database destroyed
+    ILibPq* pq = nullptr;
+};
 
-    asio::awaitable<void> start();
-    asio::awaitable<void> write_row(std::span<const std::byte> binary_row);
-    asio::awaitable<void> finish();
-    asio::awaitable<void> abort();
+class PostgresCopyWriter : public ICopyWriter {
+public:
+    PostgresCopyWriter(std::shared_ptr<PostgresConnectionState> state,
+                       asio::io_context& ctx,
+                       std::string_view table,
+                       std::span<const std::string_view> columns);
+
+    asio::awaitable<void> start() override;
+    asio::awaitable<void> write_row(std::span<const std::byte> data) override;
+    asio::awaitable<void> finish() override;
+    asio::awaitable<void> abort() override;
 
 private:
-    asio::awaitable<void> send_data(std::span<const std::byte> data);
-    asio::awaitable<void> wait_writable();
-
-    PGconn* conn_;
+    void check_valid() const;  // Throws if connection invalid
+    std::shared_ptr<PostgresConnectionState> state_;
     asio::posix::stream_descriptor socket_;
 };
 
@@ -246,6 +253,25 @@ struct BackpressureConfig {
 };
 ```
 
+## BatchWriter Lifecycle
+
+BatchWriter provides two shutdown modes:
+
+```cpp
+// drain() - TERMINAL: Waits for all pending batches to complete.
+// Once called, permanently stops accepting new work.
+// Any enqueue() after drain() starts is silently ignored.
+co_await writer.drain();  // Wait for all work, then stop
+
+// request_stop() - IMMEDIATE: Discards pending work.
+// Use for emergency shutdown or when pending work is no longer needed.
+writer.request_stop();  // Discard pending, finish current
+while (!writer.is_idle()) { ctx.poll(); }  // Wait for completion
+```
+
+**Thread safety:** BatchWriter is NOT thread-safe. All method calls must be from
+the io_context thread. Cross-thread calls require external synchronization.
+
 Backpressure flow:
 
 ```
@@ -273,8 +299,8 @@ Validate compiled schema against database on startup:
 class SchemaValidator {
 public:
     enum class Mode {
-        Strict,     // Fail if any mismatch
-        Warn,       // Log warnings, continue
+        Strict,     // Fail if any mismatch (throws on missing table)
+        Warn,       // Log warnings, continue (returns mismatches)
         Bootstrap,  // Create table if missing
     };
 
@@ -286,6 +312,30 @@ public:
     asio::awaitable<void> ensure_table(IDatabase& db, const Table& table);
 };
 ```
+
+Type validation normalizes PostgreSQL type aliases (e.g., `timestamptz` →
+`timestamp with time zone`, `int4` → `integer`) to avoid false mismatches.
+
+## Thread Safety & Operation Serialization
+
+PostgresDatabase enforces single-operation-at-a-time:
+
+```cpp
+// PostgresDatabase detects concurrent operations
+db.query("SELECT 1");     // OK
+db.execute("INSERT...");  // Throws: "Concurrent database operation detected"
+
+// All operations serialize on single connection
+co_await db.query(...);   // Must complete before next operation
+co_await db.execute(...); // OK, previous completed
+```
+
+**Critical requirements:**
+- PostgresDatabase, all PostgresCopyWriter instances, and io_context MUST be
+  used from the SAME THREAD
+- The validity flag is NOT a thread-safety mechanism
+- Cross-thread destruction while coroutine is suspended = undefined behavior
+- Typical usage: run io_context on dedicated thread, post all DB operations there
 
 ## Testing Strategy
 
@@ -368,3 +418,6 @@ example/dbwriter/
 | io_uring | Not used (epoll) | Single socket, minimal benefit |
 | Validation | Startup schema check | Fail fast on mismatch |
 | Testing | Mockable interfaces | Full coverage |
+| Connection lifetime | Shared state with validity flag | Prevents use-after-free when writer outlives database |
+| Operation serialization | Runtime detection | Throws clear error on concurrent misuse |
+| BatchWriter shutdown | drain() vs request_stop() | drain() = graceful (no data loss), request_stop() = immediate |
