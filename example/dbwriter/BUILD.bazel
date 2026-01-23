@@ -47,3 +47,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "mapper_test",
+    srcs = ["test/mapper_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
