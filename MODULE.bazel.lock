@@ -104,6 +104,36 @@
   },
   "selectedYankedVersions": {},
   "moduleExtensions": {
+    "//third_party/asio:asio.bzl%asio_ext": {
+      "general": {
+        "bzlTransitiveDigest": "S51YFVTtCDj+F8dOQbns7ywL76/6dgnEzT/ASaZ8d6E=",
+        "usagesDigest": "B1Nrm6lqYVm5X0FR0W6c9ZdtkwjX1juSE4H2LHfI+Ek=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "asio": {
+            "bzlFile": "@@bazel_tools//tools/build_defs/repo:http.bzl",
+            "ruleClassName": "http_archive",
+            "attributes": {
+              "urls": [
+                "https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-34-2.tar.gz"
+              ],
+              "strip_prefix": "asio-asio-1-34-2/asio",
+              "sha256": "f3bac015305fbb700545bd2959fbc52d75a1ec2e05f9c7f695801273ceb78cf5",
+              "build_file": "@@//third_party/asio:BUILD.asio.bazel"
+            }
+          }
+        },
+        "recordedRepoMappingEntries": [
+          [
+            "",
+            "bazel_tools",
+            "bazel_tools"
+          ]
+        ]
+      }
+    },
     "//third_party/databento:databento.bzl%databento": {
       "general": {
         "bzlTransitiveDigest": "iffhU+v9uuhQwlvHvRRGsc1G0OvqAyIARI76mDVl3I0=",
@@ -161,6 +191,23 @@
             "bazel_tools"
           ]
         ]
+      }
+    },
+    "//third_party/libpq:libpq.bzl%libpq_ext": {
+      "general": {
+        "bzlTransitiveDigest": "Yv2cMunqqPtKfz/lNmjcsj+sJpH3bqoss0cau96qrdc=",
+        "usagesDigest": "y4F1uH4rECe8DCQ4+AyRoiwlSu45FxGfcm9/RxYLp60=",
+        "recordedFileInputs": {},
+        "recordedDirentsInputs": {},
+        "envVariables": {},
+        "generatedRepoSpecs": {
+          "libpq": {
+            "bzlFile": "@@//third_party/libpq:libpq.bzl",
+            "ruleClassName": "libpq_sys",
+            "attributes": {}
+          }
+        },
+        "recordedRepoMappingEntries": []
       }
     },
     "//third_party/llhttp:llhttp.bzl%llhttp_ext": {
