@@ -65,15 +65,34 @@ asio::awaitable<void> SchemaValidator::ensure_table(
     co_await db.execute(sql);
 }
 
+namespace detail {
+// Escape single quotes in a string for SQL string literals
+inline std::string escape_sql_string(std::string_view s) {
+    std::string result;
+    result.reserve(s.size());
+    for (char c : s) {
+        if (c == '\'') {
+            result += "''";  // Double single quote
+        } else {
+            result += c;
+        }
+    }
+    return result;
+}
+}  // namespace detail
+
 template <typename Table>
 asio::awaitable<std::vector<SchemaMismatch>> SchemaValidator::validate(
         IDatabase& db, const Table& table, Mode mode) {
     std::vector<SchemaMismatch> mismatches;
 
     // Query column info from information_schema
+    // Use current_schema() to avoid false matches across schemas
+    // Escape table name to prevent SQL injection
     std::ostringstream sql;
     sql << "SELECT column_name, data_type FROM information_schema.columns "
-        << "WHERE table_name = '" << table.name() << "' "
+        << "WHERE table_schema = current_schema() "
+        << "AND table_name = '" << detail::escape_sql_string(table.name()) << "' "
         << "ORDER BY ordinal_position";
 
     auto result = co_await db.query(sql.str());
@@ -81,10 +100,20 @@ asio::awaitable<std::vector<SchemaMismatch>> SchemaValidator::validate(
     auto expected_columns = table.column_names();
     auto expected_types = table.column_pg_types();
 
-    // Check if table exists
-    if (result.empty() && mode == Mode::Bootstrap) {
-        co_await ensure_table(db, table);
-        co_return mismatches;  // Table created, no mismatches
+    // Check if table exists - empty result means table doesn't exist
+    if (result.empty()) {
+        if (mode == Mode::Bootstrap) {
+            co_await ensure_table(db, table);
+            co_return mismatches;  // Table created, no mismatches
+        }
+        // In Strict/Warn mode, report table as missing
+        std::string table_name{table.name()};
+        if (mode == Mode::Strict) {
+            throw std::runtime_error("Table '" + table_name + "' does not exist");
+        }
+        // Warn mode: return mismatch indicating table doesn't exist
+        mismatches.push_back({"(table)", table_name, "(does not exist)"});
+        co_return mismatches;
     }
 
     // Build map of actual columns

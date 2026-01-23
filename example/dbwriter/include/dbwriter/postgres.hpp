@@ -7,6 +7,7 @@
 #include "dbwriter/libpq_wrapper.hpp"
 #include <libpq-fe.h>
 #include <asio.hpp>
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -22,12 +23,20 @@ struct PostgresConfig {
     std::string connection_string() const;
 };
 
+// Shared connection state to prevent use-after-free when PostgresCopyWriter
+// outlives PostgresDatabase. The writer checks `valid` before using conn.
+struct PostgresConnectionState {
+    PGconn* conn = nullptr;
+    std::atomic<bool> valid{false};  // Set to false when database disconnects
+    ILibPq* pq = nullptr;
+};
+
 class PostgresCopyWriter : public ICopyWriter {
 public:
-    PostgresCopyWriter(PGconn* conn, asio::io_context& ctx,
+    PostgresCopyWriter(std::shared_ptr<PostgresConnectionState> state,
+                       asio::io_context& ctx,
                        std::string_view table,
-                       std::span<const std::string_view> columns,
-                       ILibPq& pq = GetLibPq());
+                       std::span<const std::string_view> columns);
     ~PostgresCopyWriter();
 
     asio::awaitable<void> start() override;
@@ -36,15 +45,15 @@ public:
     asio::awaitable<void> abort() override;
 
 private:
+    void check_valid() const;
     asio::awaitable<void> wait_writable();
     asio::awaitable<void> send_data(std::span<const std::byte> data);
 
-    PGconn* conn_;
+    std::shared_ptr<PostgresConnectionState> state_;
     asio::posix::stream_descriptor socket_;
     std::string table_;
     std::vector<std::string> columns_;
     bool in_copy_ = false;
-    ILibPq& pq_;
 };
 
 class PostgresDatabase : public IDatabase {
@@ -67,7 +76,7 @@ public:
 private:
     asio::io_context& ctx_;
     PostgresConfig config_;
-    PGconn* conn_ = nullptr;
+    std::shared_ptr<PostgresConnectionState> state_;
     ILibPq& pq_;
 };
 

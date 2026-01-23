@@ -112,16 +112,20 @@ std::string PostgresConfig::connection_string() const {
 // on error BEFORE destruction. The destructor performs best-effort cleanup
 // but cannot properly handle nonblocking I/O (no coroutine context).
 // Destroying with in_copy_==true may leave the connection in an unusable state.
+//
+// IMPORTANT: Connection lifetime
+// The writer holds a shared_ptr to the connection state. If PostgresDatabase
+// is destroyed while the writer exists, the state->valid flag is set to false.
+// All operations check this flag and throw if the connection is no longer valid.
 
 PostgresCopyWriter::PostgresCopyWriter(
-    PGconn* conn, asio::io_context& ctx,
+    std::shared_ptr<PostgresConnectionState> state,
+    asio::io_context& ctx,
     std::string_view table,
-    std::span<const std::string_view> columns,
-    ILibPq& pq)
-    : conn_(conn)
-    , socket_(ctx, pq.socket(conn))
-    , table_(table)
-    , pq_(pq) {
+    std::span<const std::string_view> columns)
+    : state_(std::move(state))
+    , socket_(ctx, state_->pq->socket(state_->conn))
+    , table_(table) {
     for (const auto& col : columns) {
         columns_.emplace_back(col);
     }
@@ -131,19 +135,30 @@ PostgresCopyWriter::~PostgresCopyWriter() {
     // Release the fd so ASIO doesn't close it - libpq owns the socket
     socket_.release();
 
-    if (in_copy_) {
+    if (in_copy_ && state_->valid) {
         // Best effort abort - must clear results to avoid leaks
-        pq_.putCopyEnd(conn_, "aborted");
-        PGresult* res = pq_.getResult(conn_);
-        if (res) pq_.clear(res);
+        state_->pq->putCopyEnd(state_->conn, "aborted");
+        PGresult* res = state_->pq->getResult(state_->conn);
+        if (res) state_->pq->clear(res);
         // Drain any remaining results
-        while ((res = pq_.getResult(conn_)) != nullptr) {
-            pq_.clear(res);
+        while ((res = state_->pq->getResult(state_->conn)) != nullptr) {
+            state_->pq->clear(res);
         }
     }
 }
 
+void PostgresCopyWriter::check_valid() const {
+    if (!state_->valid) {
+        throw std::runtime_error("Connection closed - database was destroyed");
+    }
+}
+
 asio::awaitable<void> PostgresCopyWriter::start() {
+    check_valid();
+
+    auto* pq = state_->pq;
+    auto* conn = state_->conn;
+
     // Build COPY command with quoted identifiers to prevent SQL injection
     std::ostringstream ss;
     ss << "COPY " << quote_identifier(table_) << " (";
@@ -154,16 +169,17 @@ asio::awaitable<void> PostgresCopyWriter::start() {
     ss << ") FROM STDIN WITH (FORMAT binary)";
 
     // Send command
-    if (!pq_.sendQuery(conn_, ss.str().c_str())) {
-        throw std::runtime_error(pq_.errorMessage(conn_));
+    if (!pq->sendQuery(conn, ss.str().c_str())) {
+        throw std::runtime_error(pq->errorMessage(conn));
     }
 
     // Flush command to server (required for nonblocking mode)
     while (true) {
-        int flush_result = pq_.flush(conn_);
+        check_valid();
+        int flush_result = pq->flush(conn);
         if (flush_result == 0) break;  // All data flushed
         if (flush_result == -1) {
-            throw std::runtime_error(pq_.errorMessage(conn_));
+            throw std::runtime_error(pq->errorMessage(conn));
         }
         // flush_result == 1: More to flush, wait for writable
         co_await socket_.async_wait(
@@ -173,33 +189,34 @@ asio::awaitable<void> PostgresCopyWriter::start() {
 
     // Wait for result: consume → check busy → wait if needed
     do {
-        if (!pq_.consumeInput(conn_)) {
-            throw std::runtime_error(pq_.errorMessage(conn_));
+        check_valid();
+        if (!pq->consumeInput(conn)) {
+            throw std::runtime_error(pq->errorMessage(conn));
         }
-        if (!pq_.isBusy(conn_)) break;
+        if (!pq->isBusy(conn)) break;
         co_await socket_.async_wait(
             asio::posix::stream_descriptor::wait_read,
             asio::use_awaitable);
-    } while (pq_.isBusy(conn_));
+    } while (pq->isBusy(conn));
 
-    PGresult* res = pq_.getResult(conn_);
+    PGresult* res = pq->getResult(conn);
     if (!res) {
         // Drain any remaining results before throwing
-        while ((res = pq_.getResult(conn_)) != nullptr) {
-            pq_.clear(res);
+        while ((res = pq->getResult(conn)) != nullptr) {
+            pq->clear(res);
         }
         throw std::runtime_error("COPY: no result received");
     }
-    if (pq_.resultStatus(res) != PGRES_COPY_IN) {
-        std::string err = pq_.resultErrorMessage(res);
-        pq_.clear(res);
+    if (pq->resultStatus(res) != PGRES_COPY_IN) {
+        std::string err = pq->resultErrorMessage(res);
+        pq->clear(res);
         // Drain any remaining results before throwing
-        while ((res = pq_.getResult(conn_)) != nullptr) {
-            pq_.clear(res);
+        while ((res = pq->getResult(conn)) != nullptr) {
+            pq->clear(res);
         }
         throw std::runtime_error("COPY failed: " + err);
     }
-    pq_.clear(res);
+    pq->clear(res);
 
     in_copy_ = true;
 
@@ -209,24 +226,31 @@ asio::awaitable<void> PostgresCopyWriter::start() {
 }
 
 asio::awaitable<void> PostgresCopyWriter::write_row(std::span<const std::byte> data) {
+    check_valid();
     co_await send_data(data);
 }
 
 asio::awaitable<void> PostgresCopyWriter::finish() {
+    check_valid();
+
+    auto* pq = state_->pq;
+    auto* conn = state_->conn;
+
     // Write trailer (-1 as int16)
     static constexpr char trailer[] = "\xFF\xFF";
     co_await send_data({reinterpret_cast<const std::byte*>(trailer), 2});
 
     // End COPY - may need to wait for writable in nonblocking mode
     while (true) {
-        int result = pq_.putCopyEnd(conn_, nullptr);
+        check_valid();
+        int result = pq->putCopyEnd(conn, nullptr);
         if (result == 1) break;
         if (result == -1) {
             // Error - drain any pending results and clear state before throwing
-            std::string err = pq_.errorMessage(conn_);
+            std::string err = pq->errorMessage(conn);
             PGresult* res;
-            while ((res = pq_.getResult(conn_)) != nullptr) {
-                pq_.clear(res);
+            while ((res = pq->getResult(conn)) != nullptr) {
+                pq->clear(res);
             }
             in_copy_ = false;
             throw std::runtime_error(err);
@@ -240,39 +264,40 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
 
     // Wait for result: consume → check busy → wait if needed
     do {
-        if (!pq_.consumeInput(conn_)) {
-            throw std::runtime_error(pq_.errorMessage(conn_));
+        check_valid();
+        if (!pq->consumeInput(conn)) {
+            throw std::runtime_error(pq->errorMessage(conn));
         }
-        if (!pq_.isBusy(conn_)) break;
+        if (!pq->isBusy(conn)) break;
         co_await socket_.async_wait(
             asio::posix::stream_descriptor::wait_read,
             asio::use_awaitable);
-    } while (pq_.isBusy(conn_));
+    } while (pq->isBusy(conn));
 
-    PGresult* res = pq_.getResult(conn_);
+    PGresult* res = pq->getResult(conn);
     if (!res) {
         // Drain any remaining results before throwing
-        while ((res = pq_.getResult(conn_)) != nullptr) {
-            pq_.clear(res);
+        while ((res = pq->getResult(conn)) != nullptr) {
+            pq->clear(res);
         }
         in_copy_ = false;  // Cleanup complete
         throw std::runtime_error("COPY finish: no result received");
     }
-    if (pq_.resultStatus(res) != PGRES_COMMAND_OK) {
-        std::string err = pq_.resultErrorMessage(res);
-        pq_.clear(res);
+    if (pq->resultStatus(res) != PGRES_COMMAND_OK) {
+        std::string err = pq->resultErrorMessage(res);
+        pq->clear(res);
         // Drain any remaining results before throwing
-        while ((res = pq_.getResult(conn_)) != nullptr) {
-            pq_.clear(res);
+        while ((res = pq->getResult(conn)) != nullptr) {
+            pq->clear(res);
         }
         in_copy_ = false;  // Cleanup complete
         throw std::runtime_error("COPY finish failed: " + err);
     }
-    pq_.clear(res);
+    pq->clear(res);
 
     // Drain any remaining results
-    while ((res = pq_.getResult(conn_)) != nullptr) {
-        pq_.clear(res);
+    while ((res = pq->getResult(conn)) != nullptr) {
+        pq->clear(res);
     }
 
     in_copy_ = false;  // Cleanup complete
@@ -280,10 +305,14 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
 }
 
 asio::awaitable<void> PostgresCopyWriter::abort() {
-    if (in_copy_) {
+    if (in_copy_ && state_->valid) {
+        auto* pq = state_->pq;
+        auto* conn = state_->conn;
+
         // End COPY with error message - may need to wait for writable
         while (true) {
-            int result = pq_.putCopyEnd(conn_, "aborted by client");
+            if (!state_->valid) break;  // Connection gone
+            int result = pq->putCopyEnd(conn, "aborted by client");
             if (result == 1) break;
             if (result == -1) {
                 // Error - connection may be broken, drain what we can
@@ -295,19 +324,22 @@ asio::awaitable<void> PostgresCopyWriter::abort() {
 
         // Wait for result: consume → check busy → wait if needed
         do {
-            if (!pq_.consumeInput(conn_)) {
+            if (!state_->valid) break;  // Connection gone
+            if (!pq->consumeInput(conn)) {
                 break;  // Connection error, can't do more
             }
-            if (!pq_.isBusy(conn_)) break;
+            if (!pq->isBusy(conn)) break;
             co_await socket_.async_wait(
                 asio::posix::stream_descriptor::wait_read,
                 asio::use_awaitable);
-        } while (pq_.isBusy(conn_));
+        } while (state_->valid && pq->isBusy(conn));
 
         // Drain all results
-        PGresult* res;
-        while ((res = pq_.getResult(conn_)) != nullptr) {
-            pq_.clear(res);
+        if (state_->valid) {
+            PGresult* res;
+            while ((res = pq->getResult(conn)) != nullptr) {
+                pq->clear(res);
+            }
         }
         in_copy_ = false;
     }
@@ -321,12 +353,18 @@ asio::awaitable<void> PostgresCopyWriter::wait_writable() {
 }
 
 asio::awaitable<void> PostgresCopyWriter::send_data(std::span<const std::byte> data) {
+    check_valid();
+
     if (data.size() > static_cast<size_t>(INT_MAX)) {
         throw std::runtime_error("Data size exceeds maximum allowed for PQputCopyData");
     }
 
+    auto* pq = state_->pq;
+    auto* conn = state_->conn;
+
     while (true) {
-        int result = pq_.putCopyData(conn_,
+        check_valid();
+        int result = pq->putCopyData(conn,
             reinterpret_cast<const char*>(data.data()),
             static_cast<int>(data.size()));
 
@@ -336,7 +374,7 @@ asio::awaitable<void> PostgresCopyWriter::send_data(std::span<const std::byte> d
         }
 
         if (result == -1) {
-            throw std::runtime_error(pq_.errorMessage(conn_));
+            throw std::runtime_error(pq->errorMessage(conn));
         }
 
         // result == 0: Would block, wait for writable and retry
@@ -346,11 +384,11 @@ asio::awaitable<void> PostgresCopyWriter::send_data(std::span<const std::byte> d
 
 // PostgresDatabase implementation
 //
-// IMPORTANT: Lifetime contract
-// PostgresDatabase must outlive all PostgresCopyWriter instances created via
-// begin_copy(). The writers hold a raw PGconn* pointer that becomes invalid
-// when PostgresDatabase is destroyed. Destroying PostgresDatabase while a
-// writer exists results in undefined behavior.
+// IMPORTANT: Lifetime handling
+// PostgresDatabase uses shared state with PostgresCopyWriter instances. When
+// PostgresDatabase is destroyed, state_->valid is set to false BEFORE closing
+// the connection. Writers check this flag and throw if connection is gone.
+// This prevents use-after-free when writer outlives database.
 //
 // IMPORTANT: Concurrency
 // PostgresDatabase is NOT thread-safe. All operations (query, execute, begin_copy)
@@ -362,33 +400,39 @@ PostgresDatabase::PostgresDatabase(asio::io_context& ctx, const PostgresConfig& 
                                    ILibPq& pq)
     : ctx_(ctx)
     , config_(config)
-    , pq_(pq) {}
+    , state_(std::make_shared<PostgresConnectionState>())
+    , pq_(pq) {
+    state_->pq = &pq_;
+}
 
 PostgresDatabase::~PostgresDatabase() {
-    // Note: Caller must ensure all PostgresCopyWriter instances from begin_copy()
-    // are destroyed before this destructor runs.
-    if (conn_) {
-        pq_.finish(conn_);
+    // Mark connection as invalid BEFORE closing - writers check this flag
+    state_->valid = false;
+    if (state_->conn) {
+        pq_.finish(state_->conn);
+        state_->conn = nullptr;
     }
 }
 
 asio::awaitable<void> PostgresDatabase::connect() {
-    conn_ = pq_.connectdb(config_.connection_string().c_str());
+    PGconn* conn = pq_.connectdb(config_.connection_string().c_str());
 
-    if (pq_.status(conn_) != CONNECTION_OK) {
-        std::string err = pq_.errorMessage(conn_);
-        pq_.finish(conn_);
-        conn_ = nullptr;
+    if (pq_.status(conn) != CONNECTION_OK) {
+        std::string err = pq_.errorMessage(conn);
+        pq_.finish(conn);
         throw std::runtime_error("Connection failed: " + err);
     }
 
     // Set non-blocking mode
-    if (pq_.setnonblocking(conn_, 1) != 0) {
-        std::string err = pq_.errorMessage(conn_);
-        pq_.finish(conn_);
-        conn_ = nullptr;
+    if (pq_.setnonblocking(conn, 1) != 0) {
+        std::string err = pq_.errorMessage(conn);
+        pq_.finish(conn);
         throw std::runtime_error("Failed to set non-blocking mode: " + err);
     }
+
+    // Populate shared state - now writers can use this connection
+    state_->conn = conn;
+    state_->valid = true;
 
     co_return;
 }
@@ -397,20 +441,23 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
     if (!is_connected()) {
         throw std::runtime_error("Not connected to database");
     }
-    if (!pq_.sendQuery(conn_, std::string(sql).c_str())) {
-        throw std::runtime_error(pq_.errorMessage(conn_));
+
+    PGconn* conn = state_->conn;
+
+    if (!pq_.sendQuery(conn, std::string(sql).c_str())) {
+        throw std::runtime_error(pq_.errorMessage(conn));
     }
 
     // Create socket descriptor for async waits
-    asio::posix::stream_descriptor socket(ctx_, pq_.socket(conn_));
+    asio::posix::stream_descriptor socket(ctx_, pq_.socket(conn));
 
     // Flush command to server (required for nonblocking mode)
     while (true) {
-        int flush_result = pq_.flush(conn_);
+        int flush_result = pq_.flush(conn);
         if (flush_result == 0) break;  // All data flushed
         if (flush_result == -1) {
             socket.release();
-            throw std::runtime_error(pq_.errorMessage(conn_));
+            throw std::runtime_error(pq_.errorMessage(conn));
         }
         // flush_result == 1: More to flush, wait for writable
         co_await socket.async_wait(
@@ -422,7 +469,6 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
 
     // Scope guard ensures socket.release() and result draining on all exit paths
     ILibPq* pq = &pq_;
-    PGconn* conn = conn_;
     auto cleanup = [&socket, pq, conn]() {
         socket.release();
         // Drain any remaining results to keep connection usable
@@ -437,16 +483,16 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
     } scope_guard{cleanup};
 
     do {
-        if (!pq_.consumeInput(conn_)) {
-            throw std::runtime_error(pq_.errorMessage(conn_));
+        if (!pq_.consumeInput(conn)) {
+            throw std::runtime_error(pq_.errorMessage(conn));
         }
-        if (!pq_.isBusy(conn_)) break;
+        if (!pq_.isBusy(conn)) break;
         co_await socket.async_wait(
             asio::posix::stream_descriptor::wait_read,
             asio::use_awaitable);
-    } while (pq_.isBusy(conn_));
+    } while (pq_.isBusy(conn));
 
-    PGresult* res = pq_.getResult(conn_);
+    PGresult* res = pq_.getResult(conn);
     if (!res) {
         throw std::runtime_error("Query: no result received");
     }
@@ -491,20 +537,23 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
     if (!is_connected()) {
         throw std::runtime_error("Not connected to database");
     }
-    if (!pq_.sendQuery(conn_, std::string(sql).c_str())) {
-        throw std::runtime_error(pq_.errorMessage(conn_));
+
+    PGconn* conn = state_->conn;
+
+    if (!pq_.sendQuery(conn, std::string(sql).c_str())) {
+        throw std::runtime_error(pq_.errorMessage(conn));
     }
 
     // Create socket descriptor for async waits
-    asio::posix::stream_descriptor socket(ctx_, pq_.socket(conn_));
+    asio::posix::stream_descriptor socket(ctx_, pq_.socket(conn));
 
     // Flush command to server (required for nonblocking mode)
     while (true) {
-        int flush_result = pq_.flush(conn_);
+        int flush_result = pq_.flush(conn);
         if (flush_result == 0) break;  // All data flushed
         if (flush_result == -1) {
             socket.release();
-            throw std::runtime_error(pq_.errorMessage(conn_));
+            throw std::runtime_error(pq_.errorMessage(conn));
         }
         // flush_result == 1: More to flush, wait for writable
         co_await socket.async_wait(
@@ -516,7 +565,6 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
 
     // Scope guard ensures socket.release() and result draining on all exit paths
     ILibPq* pq = &pq_;
-    PGconn* conn = conn_;
     auto cleanup = [&socket, pq, conn]() {
         socket.release();
         // Drain any remaining results to keep connection usable
@@ -531,16 +579,16 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
     } scope_guard{cleanup};
 
     do {
-        if (!pq_.consumeInput(conn_)) {
-            throw std::runtime_error(pq_.errorMessage(conn_));
+        if (!pq_.consumeInput(conn)) {
+            throw std::runtime_error(pq_.errorMessage(conn));
         }
-        if (!pq_.isBusy(conn_)) break;
+        if (!pq_.isBusy(conn)) break;
         co_await socket.async_wait(
             asio::posix::stream_descriptor::wait_read,
             asio::use_awaitable);
-    } while (pq_.isBusy(conn_));
+    } while (pq_.isBusy(conn));
 
-    PGresult* res = pq_.getResult(conn_);
+    PGresult* res = pq_.getResult(conn);
     if (!res) {
         throw std::runtime_error("Execute: no result received");
     }
@@ -561,11 +609,11 @@ std::unique_ptr<ICopyWriter> PostgresDatabase::begin_copy(
     if (!is_connected()) {
         throw std::runtime_error("Not connected to database");
     }
-    return std::make_unique<PostgresCopyWriter>(conn_, ctx_, table, columns, pq_);
+    return std::make_unique<PostgresCopyWriter>(state_, ctx_, table, columns);
 }
 
 bool PostgresDatabase::is_connected() const {
-    return conn_ && pq_.status(conn_) == CONNECTION_OK;
+    return state_->valid && state_->conn && pq_.status(state_->conn) == CONNECTION_OK;
 }
 
 }  // namespace dbwriter

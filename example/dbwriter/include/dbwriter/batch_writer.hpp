@@ -40,9 +40,9 @@ public:
 };
 
 // IMPORTANT: BatchWriter lifecycle requirement
-// The caller must ensure one of the following before destroying BatchWriter:
-// 1. Call request_stop() and run io_context until is_idle() returns true, OR
-// 2. Ensure no coroutine is in flight (pending_count() == 0 && !is_writing())
+// The caller must ensure the coroutine completes before destroying BatchWriter.
+// Recommended approach: co_await drain() before destruction.
+// Alternative: Call request_stop() and run io_context until is_idle() returns true.
 //
 // Destroying while a coroutine is in flight results in undefined behavior.
 //
@@ -115,6 +115,18 @@ public:
     bool stop_requested() const { return stopping_; }
 
     size_t pending_count() const { return pending_batches_.size(); }
+
+    // Awaitable that completes when all pending work is done.
+    // Stops accepting new work and waits for in-flight coroutine to complete.
+    // MUST be awaited before destroying BatchWriter to prevent use-after-free.
+    asio::awaitable<void> drain() {
+        request_stop();
+        // Poll until coroutine finishes - use timer to yield to io_context
+        while (writing_) {
+            asio::steady_timer timer(ctx_, std::chrono::milliseconds(1));
+            co_await timer.async_wait(asio::use_awaitable);
+        }
+    }
 
 private:
     asio::awaitable<void> process_queue() {
