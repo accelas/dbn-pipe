@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "dbwriter/postgres.hpp"
+#include <climits>
 #include <sstream>
 #include <stdexcept>
 
@@ -132,7 +133,8 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
         co_await wait_writable();
     }
 
-    in_copy_ = false;
+    // Note: Keep in_copy_ true until we've successfully drained all results.
+    // This ensures destructor will attempt cleanup if we throw before completion.
 
     // Wait for result: consume → check busy → wait if needed
     do {
@@ -151,6 +153,7 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
         while ((res = pq_.getResult(conn_)) != nullptr) {
             pq_.clear(res);
         }
+        in_copy_ = false;  // Cleanup complete
         throw std::runtime_error("COPY finish: no result received");
     }
     if (pq_.resultStatus(res) != PGRES_COMMAND_OK) {
@@ -160,6 +163,7 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
         while ((res = pq_.getResult(conn_)) != nullptr) {
             pq_.clear(res);
         }
+        in_copy_ = false;  // Cleanup complete
         throw std::runtime_error("COPY finish failed: " + err);
     }
     pq_.clear(res);
@@ -169,6 +173,7 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
         pq_.clear(res);
     }
 
+    in_copy_ = false;  // Cleanup complete
     co_return;
 }
 
@@ -214,6 +219,10 @@ asio::awaitable<void> PostgresCopyWriter::wait_writable() {
 }
 
 asio::awaitable<void> PostgresCopyWriter::send_data(std::span<const std::byte> data) {
+    if (data.size() > static_cast<size_t>(INT_MAX)) {
+        throw std::runtime_error("Data size exceeds maximum allowed for PQputCopyData");
+    }
+
     while (true) {
         int result = pq_.putCopyData(conn_,
             reinterpret_cast<const char*>(data.data()),

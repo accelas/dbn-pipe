@@ -44,6 +44,11 @@ public:
 // 2. Ensure no coroutine is in flight (pending_count() == 0 && !is_writing())
 //
 // Destroying while a coroutine is in flight results in undefined behavior.
+//
+// IMPORTANT: Thread safety
+// BatchWriter is NOT thread-safe. All method calls (enqueue, request_stop, etc.)
+// must be made from the io_context thread or externally synchronized.
+// Calling from multiple threads without synchronization results in data races.
 template <typename Record, typename Table, typename TransformT>
 class BatchWriter {
 public:
@@ -134,17 +139,27 @@ private:
 
         auto writer = db_.begin_copy(table_.name(), col_views);
 
-        co_await writer->start();
+        try {
+            co_await writer->start();
 
-        ByteBuffer buf;
-        for (const auto& record : batch) {
-            auto row = transform_(record);
-            mapper_.encode_row(row, buf);
-            co_await writer->write_row(buf.view());
-            buf.clear();
+            ByteBuffer buf;
+            for (const auto& record : batch) {
+                auto row = transform_(record);
+                mapper_.encode_row(row, buf);
+                co_await writer->write_row(buf.view());
+                buf.clear();
+            }
+
+            co_await writer->finish();
+        } catch (...) {
+            // Abort COPY session to leave connection in usable state
+            try {
+                co_await writer->abort();
+            } catch (...) {
+                // Best effort - ignore abort failures
+            }
+            throw;
         }
-
-        co_await writer->finish();
     }
 
     void check_backpressure() {
