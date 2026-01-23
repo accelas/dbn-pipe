@@ -44,6 +44,11 @@ public:
 
 template <typename Table>
 std::string SchemaValidator::create_table_sql(const Table& table) {
+    // TODO: Identifier escaping is incomplete - embedded double quotes in
+    // table/column names are not escaped. This is acceptable for now since
+    // schema design is not final. When finalized, either:
+    // 1. Escape embedded " by doubling them (standard SQL), or
+    // 2. Use a centralized quote_identifier() helper (like in postgres.cpp)
     std::ostringstream ss;
     ss << "CREATE TABLE IF NOT EXISTS \"" << table.name() << "\" (";
 
@@ -141,19 +146,28 @@ asio::awaitable<std::vector<SchemaMismatch>> SchemaValidator::validate(
             for (auto& c : exp_lower) c = static_cast<char>(std::tolower(c));
             for (auto& c : act_lower) c = static_cast<char>(std::tolower(c));
 
-            // Handle common type aliases
-            if (exp_lower == "int8" || exp_lower == "bigint") {
-                exp_lower = "bigint";
-            }
-            if (act_lower == "int8" || act_lower == "bigint") {
-                act_lower = "bigint";
-            }
-            if (exp_lower == "int4" || exp_lower == "integer") {
-                exp_lower = "integer";
-            }
-            if (act_lower == "int4" || act_lower == "integer") {
-                act_lower = "integer";
-            }
+            // Normalize common PostgreSQL type aliases to canonical forms
+            // information_schema.columns.data_type returns verbose names
+            auto normalize_type = [](std::string& t) {
+                // Integer types
+                if (t == "int8" || t == "bigint") t = "bigint";
+                else if (t == "int4" || t == "integer" || t == "int") t = "integer";
+                else if (t == "int2" || t == "smallint") t = "smallint";
+                // Floating point
+                else if (t == "float8" || t == "double precision") t = "double precision";
+                else if (t == "float4" || t == "real") t = "real";
+                // Timestamp types (information_schema returns verbose forms)
+                else if (t == "timestamptz" || t == "timestamp with time zone") t = "timestamp with time zone";
+                else if (t == "timestamp" || t == "timestamp without time zone") t = "timestamp without time zone";
+                // Boolean
+                else if (t == "bool" || t == "boolean") t = "boolean";
+                // Character types
+                else if (t == "varchar" || t == "character varying") t = "character varying";
+                else if (t == "char" || t == "character") t = "character";
+                // Text is canonical
+            };
+            normalize_type(exp_lower);
+            normalize_type(act_lower);
 
             if (exp_lower != act_lower) {
                 mismatches.push_back({col_name, expected_type, actual_type});

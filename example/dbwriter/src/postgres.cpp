@@ -453,6 +453,14 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
     if (!is_connected()) {
         throw std::runtime_error("Not connected to database");
     }
+    check_no_operation_in_flight();
+
+    // Guard to track operation in flight and clear on exit
+    operation_in_flight_ = true;
+    struct OperationGuard {
+        bool& flag;
+        ~OperationGuard() { flag = false; }
+    } guard{operation_in_flight_};
 
     PGconn* conn = state_->conn;
 
@@ -461,7 +469,11 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
     }
 
     // Create socket descriptor for async waits
-    asio::posix::stream_descriptor socket(ctx_, pq_.socket(conn));
+    int fd = pq_.socket(conn);
+    if (fd < 0) {
+        throw std::runtime_error("Invalid socket from libpq connection");
+    }
+    asio::posix::stream_descriptor socket(ctx_, fd);
 
     // Flush command to server (required for nonblocking mode)
     while (true) {
@@ -549,6 +561,14 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
     if (!is_connected()) {
         throw std::runtime_error("Not connected to database");
     }
+    check_no_operation_in_flight();
+
+    // Guard to track operation in flight and clear on exit
+    operation_in_flight_ = true;
+    struct OperationGuard {
+        bool& flag;
+        ~OperationGuard() { flag = false; }
+    } guard{operation_in_flight_};
 
     PGconn* conn = state_->conn;
 
@@ -557,7 +577,11 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
     }
 
     // Create socket descriptor for async waits
-    asio::posix::stream_descriptor socket(ctx_, pq_.socket(conn));
+    int fd = pq_.socket(conn);
+    if (fd < 0) {
+        throw std::runtime_error("Invalid socket from libpq connection");
+    }
+    asio::posix::stream_descriptor socket(ctx_, fd);
 
     // Flush command to server (required for nonblocking mode)
     while (true) {
@@ -621,11 +645,25 @@ std::unique_ptr<ICopyWriter> PostgresDatabase::begin_copy(
     if (!is_connected()) {
         throw std::runtime_error("Not connected to database");
     }
+    check_no_operation_in_flight();
+    // Note: We don't set operation_in_flight_ here because the COPY operation
+    // is managed by the returned writer. The writer will hold the connection
+    // in COPY mode until finish() or abort() is called. Calling query/execute
+    // while a COPY is in progress will fail at the libpq level.
     return std::make_unique<PostgresCopyWriter>(state_, ctx_, table, columns);
 }
 
 bool PostgresDatabase::is_connected() const {
     return state_->valid && state_->conn && pq_.status(state_->conn) == CONNECTION_OK;
+}
+
+void PostgresDatabase::check_no_operation_in_flight() const {
+    if (operation_in_flight_) {
+        throw std::runtime_error(
+            "Concurrent database operation detected. PostgresDatabase only "
+            "supports one operation at a time. Serialize calls to query(), "
+            "execute(), and begin_copy().");
+    }
 }
 
 }  // namespace dbwriter

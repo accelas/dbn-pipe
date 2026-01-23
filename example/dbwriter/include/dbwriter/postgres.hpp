@@ -74,10 +74,13 @@ public:
     bool is_connected() const override;
 
 private:
+    void check_no_operation_in_flight() const;
+
     asio::io_context& ctx_;
     PostgresConfig config_;
     std::shared_ptr<PostgresConnectionState> state_;
     ILibPq& pq_;
+    bool operation_in_flight_ = false;  // Detects concurrent operation misuse
 };
 
 }  // namespace dbwriter
