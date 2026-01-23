@@ -74,3 +74,16 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "batch_writer_test",
+    srcs = [
+        "test/batch_writer_test.cpp",
+        "test/mock_database.hpp",
+    ],
+    includes = ["."],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
