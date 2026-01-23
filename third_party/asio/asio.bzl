@@ -1,39 +1,23 @@
-"""Module extension for system ASIO header-only library."""
+"""Module extension for ASIO header-only library."""
 
-def _asio_impl(repository_ctx):
-    """Creates a repository that wraps system ASIO headers."""
-    repository_ctx.file("BUILD.bazel", """
-cc_library(
-    name = "asio",
-    hdrs = glob(["include/**/*.hpp", "include/**/*.ipp"]),
-    includes = ["include"],
-    defines = [
-        "ASIO_STANDALONE",
-        "ASIO_HAS_CO_AWAIT",
-    ],
-    visibility = ["//visibility:public"],
-)
-""")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-    # Get include path from pkg-config or use default
-    result = repository_ctx.execute(["pkg-config", "--variable=includedir", "asio"])
-    if result.return_code == 0:
-        include_dir = result.stdout.strip()
-    else:
-        include_dir = "/usr/include"
+# Version configuration - update these when upgrading
+# Using asio-1-34-2 which corresponds to standalone ASIO 1.34.2
+ASIO_VERSION = "1-34-2"
+ASIO_SHA256 = "f3bac015305fbb700545bd2959fbc52d75a1ec2e05f9c7f695801273ceb78cf5"
 
-    # Symlink the ASIO include directory
-    repository_ctx.symlink(include_dir + "/asio", "include/asio")
-    repository_ctx.symlink(include_dir + "/asio.hpp", "include/asio.hpp")
-
-asio_sys = repository_rule(
-    implementation = _asio_impl,
-    local = True,
-)
-
-def _asio_ext_impl(ctx):
-    asio_sys(name = "asio")
+def _asio_impl(ctx):
+    http_archive(
+        name = "asio",
+        urls = [
+            "https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-{}.tar.gz".format(ASIO_VERSION),
+        ],
+        strip_prefix = "asio-asio-{}/asio".format(ASIO_VERSION),
+        sha256 = ASIO_SHA256,
+        build_file = Label("//third_party/asio:BUILD.asio.bazel"),
+    )
 
 asio_ext = module_extension(
-    implementation = _asio_ext_impl,
+    implementation = _asio_impl,
 )

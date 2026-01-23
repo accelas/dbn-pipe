@@ -1,0 +1,12 @@
+# Build file for ASIO header-only library
+
+cc_library(
+    name = "asio",
+    hdrs = glob(["include/**/*.hpp", "include/**/*.ipp"]),
+    includes = ["include"],
+    defines = [
+        "ASIO_STANDALONE",
+        "ASIO_HAS_CO_AWAIT",
+    ],
+    visibility = ["//visibility:public"],
+)
