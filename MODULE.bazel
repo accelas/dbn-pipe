@@ -53,6 +53,14 @@ use_repo(duckdb_ext, "duckdb")
 rapidjson_ext = use_extension("//third_party/rapidjson:rapidjson.bzl", "rapidjson_ext")
 use_repo(rapidjson_ext, "rapidjson")
 
+# ASIO (header-only networking)
+asio_ext = use_extension("//third_party/asio:asio.bzl", "asio_ext")
+use_repo(asio_ext, "asio")
+
+# libpq (PostgreSQL client)
+libpq_ext = use_extension("//third_party/libpq:libpq.bzl", "libpq_ext")
+use_repo(libpq_ext, "libpq")
+
 # ============================================================================
 # C++ Toolchain
 # ============================================================================

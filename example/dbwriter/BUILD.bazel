@@ -1,0 +1,22 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+cc_library(
+    name = "dbwriter",
+    hdrs = glob(["include/dbwriter/*.hpp"]),
+    srcs = glob(["src/*.cpp"]),
+    includes = ["include"],
+    deps = [
+        "@asio",
+        "@libpq",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_test(
+    name = "types_test",
+    srcs = ["test/types_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
