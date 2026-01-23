@@ -100,3 +100,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "asio_event_loop_test",
+    srcs = ["test/asio_event_loop_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
