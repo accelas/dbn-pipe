@@ -88,6 +88,10 @@ public:
         check_backpressure();
 
         if (!writing_) {
+            // Set writing_ BEFORE co_spawn to prevent race:
+            // If request_stop() + destruction happens before coroutine starts,
+            // is_idle() must return false to prevent use-after-free.
+            writing_ = true;
             asio::co_spawn(ctx_, process_queue(), asio::detached);
         }
     }
@@ -113,7 +117,7 @@ public:
 
 private:
     asio::awaitable<void> process_queue() {
-        writing_ = true;
+        // writing_ is already set by enqueue() before co_spawn()
 
         while (!pending_batches_.empty() && !stopping_) {
             auto batch = std::move(pending_batches_.front());

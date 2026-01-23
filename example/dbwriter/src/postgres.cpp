@@ -127,7 +127,14 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
         int result = pq_.putCopyEnd(conn_, nullptr);
         if (result == 1) break;
         if (result == -1) {
-            throw std::runtime_error(pq_.errorMessage(conn_));
+            // Error - drain any pending results and clear state before throwing
+            std::string err = pq_.errorMessage(conn_);
+            PGresult* res;
+            while ((res = pq_.getResult(conn_)) != nullptr) {
+                pq_.clear(res);
+            }
+            in_copy_ = false;
+            throw std::runtime_error(err);
         }
         // result == 0: Would block
         co_await wait_writable();
@@ -243,6 +250,12 @@ asio::awaitable<void> PostgresCopyWriter::send_data(std::span<const std::byte> d
 }
 
 // PostgresDatabase implementation
+//
+// IMPORTANT: Lifetime contract
+// PostgresDatabase must outlive all PostgresCopyWriter instances created via
+// begin_copy(). The writers hold a raw PGconn* pointer that becomes invalid
+// when PostgresDatabase is destroyed. Destroying PostgresDatabase while a
+// writer exists results in undefined behavior.
 
 PostgresDatabase::PostgresDatabase(asio::io_context& ctx, const PostgresConfig& config,
                                    ILibPq& pq)
@@ -251,6 +264,8 @@ PostgresDatabase::PostgresDatabase(asio::io_context& ctx, const PostgresConfig& 
     , pq_(pq) {}
 
 PostgresDatabase::~PostgresDatabase() {
+    // Note: Caller must ensure all PostgresCopyWriter instances from begin_copy()
+    // are destroyed before this destructor runs.
     if (conn_) {
         pq_.finish(conn_);
     }
