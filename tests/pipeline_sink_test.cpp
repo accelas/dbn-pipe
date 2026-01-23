@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/pipeline_sink_test.cpp
 // Tests for StreamRecordSink used by streaming protocols
 #include <gtest/gtest.h>

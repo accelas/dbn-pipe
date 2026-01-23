@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/dns_resolver.hpp
 #pragma once
 

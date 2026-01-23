@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/streaming_client.hpp
 #pragma once
 

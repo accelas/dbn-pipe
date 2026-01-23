@@ -1,5 +1,4 @@
-// Copyright 2026 Kai Wang
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 
 // Multi-threaded test: Download and PostgreSQL writer on separate threads.
 // Verifies thread-safe handoff between download thread and DB writer thread.

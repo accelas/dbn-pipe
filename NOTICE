@@ -1,5 +1,4 @@
 dbn-pipe
-Copyright 2025 Kai Wang
 
 Third-Party Dependencies
 ========================
@@ -26,6 +25,31 @@ OpenSSL
   Copyright (c) 1995-1998 Eric A. Young, Tim J. Hudson
   Licensed under the Apache License 2.0
   https://www.openssl.org/
+
+fmt
+  Copyright (c) 2012 - present, Victor Zverovich and {fmt} contributors
+  Licensed under the MIT License
+  https://github.com/fmtlib/fmt
+
+DuckDB
+  Copyright (c) DuckDB Contributors
+  Licensed under the MIT License
+  https://github.com/duckdb/duckdb
+
+RapidJSON
+  Copyright (c) 2015 THL A29 Limited, a Tencent company, and Milo Yip
+  Licensed under the MIT License
+  https://github.com/Tencent/rapidjson
+
+ASIO
+  Copyright (c) 2003-2024 Christopher M. Kohlhoff
+  Licensed under the Boost Software License 1.0
+  https://github.com/chriskohlhoff/asio
+
+libpq (PostgreSQL)
+  Copyright (c) 1996-2024, PostgreSQL Global Development Group
+  Licensed under the PostgreSQL License
+  https://www.postgresql.org/
 
 GoogleTest (dev dependency)
   Copyright 2008, Google Inc.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/symbol_map.hpp
 #pragma once
 

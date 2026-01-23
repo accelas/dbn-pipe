@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/stype_test.cpp
 #include <gtest/gtest.h>
 #include "src/stype.hpp"

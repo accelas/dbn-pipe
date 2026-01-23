@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/zstd_decompressor_test.cpp
 #include <gtest/gtest.h>
 #include <zstd.h>

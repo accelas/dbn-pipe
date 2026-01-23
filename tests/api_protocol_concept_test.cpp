@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/api_protocol_concept_test.cpp
 #include <gtest/gtest.h>
 

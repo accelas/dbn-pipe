@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/dbn_parser_component_test.cpp
 #include <gtest/gtest.h>
 

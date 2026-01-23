@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/record_batch_test.cpp
 #include <gtest/gtest.h>
 

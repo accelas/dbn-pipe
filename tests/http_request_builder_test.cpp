@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/http_request_builder_test.cpp
 #include <gtest/gtest.h>
 

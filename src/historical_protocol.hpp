@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/historical_protocol.hpp
 #pragma once
 

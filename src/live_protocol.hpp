@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/live_protocol.hpp
 #pragma once
 

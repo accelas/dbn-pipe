@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/schema_utils.hpp
 #pragma once
 

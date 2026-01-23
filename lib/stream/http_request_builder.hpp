@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // lib/stream/http_request_builder.hpp
 #pragma once
 

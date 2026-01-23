@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/tcp_socket_test.cpp
 #include <gtest/gtest.h>
 

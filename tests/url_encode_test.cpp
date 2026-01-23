@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/url_encode_test.cpp
 #include <gtest/gtest.h>
 #include <iterator>

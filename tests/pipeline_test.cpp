@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/pipeline_test.cpp
 // Tests for StreamingClient (the unified pipeline wrapper)
 #include <gtest/gtest.h>
