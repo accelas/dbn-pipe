@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/retry_policy_test.cpp
 #include <gtest/gtest.h>
 #include "lib/stream/error.hpp"

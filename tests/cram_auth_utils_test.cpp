@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/cram_auth_utils_test.cpp
 #include <gtest/gtest.h>
 

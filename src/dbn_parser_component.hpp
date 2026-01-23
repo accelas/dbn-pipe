@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/dbn_parser_component.hpp
 #pragma once
 

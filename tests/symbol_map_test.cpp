@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/symbol_map_test.cpp
 #include <gtest/gtest.h>
 

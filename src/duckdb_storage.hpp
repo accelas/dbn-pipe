@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/duckdb_storage.hpp
 #pragma once
 

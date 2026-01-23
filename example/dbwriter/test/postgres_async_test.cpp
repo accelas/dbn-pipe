@@ -1,5 +1,4 @@
-// Copyright 2026 Kai Wang
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 
 // Tests for PostgreSQL async timing behavior
 //

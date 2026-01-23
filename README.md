@@ -217,4 +217,4 @@ This project follows [Semantic Versioning](https://semver.org/).
 
 ## License
 
-Apache 2.0 - See [LICENSE](LICENSE) for details.
+MIT - See [LICENSE](LICENSE) for details.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // lib/stream/reactor.cpp
 #include "lib/stream/reactor.hpp"
 #include "lib/stream/event_loop.hpp"

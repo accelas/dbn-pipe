@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/generic_pipeline_test.cpp
 #include <gtest/gtest.h>
 

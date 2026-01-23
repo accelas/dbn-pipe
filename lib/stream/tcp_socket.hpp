@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // lib/stream/tcp_socket.hpp
 #pragma once
 

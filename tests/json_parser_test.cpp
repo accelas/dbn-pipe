@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/json_parser_test.cpp
 #include <gtest/gtest.h>
 
