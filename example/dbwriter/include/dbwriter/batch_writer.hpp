@@ -119,11 +119,15 @@ public:
     size_t pending_count() const { return pending_batches_.size(); }
 
     // Awaitable that completes when all pending work is processed.
-    // Stops accepting new work but continues processing existing batches.
     // MUST be awaited before destroying BatchWriter to prevent use-after-free.
     //
     // Unlike request_stop(), drain() does NOT discard pending batches.
     // All enqueued batches will be written before drain() completes.
+    //
+    // IMPORTANT: drain() is TERMINAL - once called, the writer permanently
+    // stops accepting new work. Any enqueue() calls after drain() starts
+    // will be silently ignored. If you need to flush without stopping,
+    // wait for pending_count() == 0 and is_idle() instead.
     asio::awaitable<void> drain() {
         draining_ = true;  // Stop accepting new work, but keep processing
         // Resume suspended upstream so it's not stuck forever

@@ -136,8 +136,10 @@ TEST(BatchWriterTest, DrainRejectsNewWork) {
         co_await writer.drain();
     }, asio::detached);
 
-    // Run one iteration to start drain
-    ctx.poll();
+    // Run until drain flag is set (more deterministic than single poll)
+    while (!writer.is_draining()) {
+        ctx.poll();
+    }
 
     // Try to enqueue after drain started - should be rejected
     writer.enqueue({{.id = 2, .value = 2}});  // This should be ignored
