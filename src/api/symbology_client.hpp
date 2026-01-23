@@ -3,13 +3,15 @@
 
 #include <expected>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <fmt/format.h>
 
 #include "lib/stream/pipeline.hpp"
 #include "src/api_protocol.hpp"
@@ -260,12 +262,12 @@ public:
         const std::string& end_date,
         std::function<void(std::expected<SymbologyResponse, Error>)> callback) {
         // Build comma-separated symbols string
-        std::ostringstream symbols_ss;
-        bool first = true;
-        for (const auto& sym : symbols) {
-            if (!first) symbols_ss << ",";
-            first = false;
-            symbols_ss << sym;
+        std::string symbols_str;
+        symbols_str.reserve(symbols.size() * 12);  // ~10 chars per symbol + comma
+        auto out = std::back_inserter(symbols_str);
+        for (size_t i = 0; i < symbols.size(); ++i) {
+            if (i > 0) *out++ = ',';
+            out = fmt::format_to(out, "{}", symbols[i]);
         }
 
         ApiRequest req{
@@ -276,7 +278,7 @@ public:
             .query_params = {},
             .form_params = {
                 {"dataset", dataset},
-                {"symbols", symbols_ss.str()},
+                {"symbols", symbols_str},
                 {"stype_in", std::string(STypeToString(stype_in))},
                 {"stype_out", std::string(STypeToString(stype_out))},
                 {"start_date", start_date},

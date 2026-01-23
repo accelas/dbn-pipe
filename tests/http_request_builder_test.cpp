@@ -1,15 +1,16 @@
 // tests/http_request_builder_test.cpp
 #include <gtest/gtest.h>
 
-#include <sstream>
+#include <iterator>
+#include <string>
 
 #include "lib/stream/http_request_builder.hpp"
 
 using namespace dbn_pipe;
 
 TEST(HttpRequestBuilderTest, SimpleGetRequest) {
-    std::ostringstream out;
-    HttpRequestBuilder(out)
+    std::string out;
+    HttpRequestBuilder(std::back_inserter(out))
         .Method("GET")
         .Path("/v0/endpoint")
         .Host("api.example.com")
@@ -22,12 +23,12 @@ TEST(HttpRequestBuilderTest, SimpleGetRequest) {
         "Connection: close\r\n"
         "\r\n";
 
-    EXPECT_EQ(out.str(), expected);
+    EXPECT_EQ(out, expected);
 }
 
 TEST(HttpRequestBuilderTest, GetWithQueryParams) {
-    std::ostringstream out;
-    HttpRequestBuilder(out)
+    std::string out;
+    HttpRequestBuilder(std::back_inserter(out))
         .Method("GET")
         .Path("/v0/data")
         .QueryParam("dataset", "GLBX.MDP3")
@@ -40,12 +41,12 @@ TEST(HttpRequestBuilderTest, GetWithQueryParams) {
         "Host: hist.databento.com\r\n"
         "\r\n";
 
-    EXPECT_EQ(out.str(), expected);
+    EXPECT_EQ(out, expected);
 }
 
 TEST(HttpRequestBuilderTest, QueryParamUrlEncoding) {
-    std::ostringstream out;
-    HttpRequestBuilder(out)
+    std::string out;
+    HttpRequestBuilder(std::back_inserter(out))
         .Method("GET")
         .Path("/search")
         .QueryParam("q", "hello world")
@@ -58,12 +59,12 @@ TEST(HttpRequestBuilderTest, QueryParamUrlEncoding) {
         "Host: example.com\r\n"
         "\r\n";
 
-    EXPECT_EQ(out.str(), expected);
+    EXPECT_EQ(out, expected);
 }
 
 TEST(HttpRequestBuilderTest, NumericQueryParam) {
-    std::ostringstream out;
-    HttpRequestBuilder(out)
+    std::string out;
+    HttpRequestBuilder(std::back_inserter(out))
         .Method("GET")
         .Path("/v0/timeseries")
         .QueryParam("start", 1704067200000000000ULL)
@@ -76,12 +77,12 @@ TEST(HttpRequestBuilderTest, NumericQueryParam) {
         "Host: hist.databento.com\r\n"
         "\r\n";
 
-    EXPECT_EQ(out.str(), expected);
+    EXPECT_EQ(out, expected);
 }
 
 TEST(HttpRequestBuilderTest, BasicAuth) {
-    std::ostringstream out;
-    HttpRequestBuilder(out)
+    std::string out;
+    HttpRequestBuilder(std::back_inserter(out))
         .Method("GET")
         .Path("/v0/data")
         .Host("api.example.com")
@@ -95,12 +96,12 @@ TEST(HttpRequestBuilderTest, BasicAuth) {
         "Authorization: Basic dGVzdF9hcGlfa2V5Og==\r\n"
         "\r\n";
 
-    EXPECT_EQ(out.str(), expected);
+    EXPECT_EQ(out, expected);
 }
 
 TEST(HttpRequestBuilderTest, MultipleHeaders) {
-    std::ostringstream out;
-    HttpRequestBuilder(out)
+    std::string out;
+    HttpRequestBuilder(std::back_inserter(out))
         .Method("GET")
         .Path("/v0/data")
         .Host("api.example.com")
@@ -117,17 +118,17 @@ TEST(HttpRequestBuilderTest, MultipleHeaders) {
         "Connection: close\r\n"
         "\r\n";
 
-    EXPECT_EQ(out.str(), expected);
+    EXPECT_EQ(out, expected);
 }
 
 TEST(HttpRequestBuilderTest, PostWithFormBody) {
-    std::ostringstream out;
+    std::string out;
     std::vector<std::pair<std::string, std::string>> params = {
         {"username", "test"},
         {"password", "secret"}
     };
 
-    HttpRequestBuilder(out)
+    HttpRequestBuilder(std::back_inserter(out))
         .Method("POST")
         .Path("/login")
         .Host("api.example.com")
@@ -141,12 +142,12 @@ TEST(HttpRequestBuilderTest, PostWithFormBody) {
         "\r\n"
         "username=test&password=secret";
 
-    EXPECT_EQ(out.str(), expected);
+    EXPECT_EQ(out, expected);
 }
 
 TEST(HttpRequestBuilderTest, HistoricalStyleRequest) {
-    std::ostringstream out;
-    HttpRequestBuilder(out)
+    std::string out;
+    HttpRequestBuilder(std::back_inserter(out))
         .Method("GET")
         .Path("/v0/timeseries.get_range")
         .QueryParam("dataset", "GLBX.MDP3")
@@ -164,18 +165,18 @@ TEST(HttpRequestBuilderTest, HistoricalStyleRequest) {
         .Finish();
 
     // Verify it starts correctly
-    EXPECT_TRUE(out.str().starts_with("GET /v0/timeseries.get_range?"));
-    EXPECT_TRUE(out.str().find("dataset=GLBX.MDP3") != std::string::npos);
-    EXPECT_TRUE(out.str().find("symbols=ESZ4") != std::string::npos);
-    EXPECT_TRUE(out.str().find("Host: hist.databento.com") != std::string::npos);
-    EXPECT_TRUE(out.str().find("Authorization: Basic") != std::string::npos);
-    EXPECT_TRUE(out.str().find("Accept: application/octet-stream") != std::string::npos);
-    EXPECT_TRUE(out.str().ends_with("\r\n\r\n"));
+    EXPECT_TRUE(out.starts_with("GET /v0/timeseries.get_range?"));
+    EXPECT_TRUE(out.find("dataset=GLBX.MDP3") != std::string::npos);
+    EXPECT_TRUE(out.find("symbols=ESZ4") != std::string::npos);
+    EXPECT_TRUE(out.find("Host: hist.databento.com") != std::string::npos);
+    EXPECT_TRUE(out.find("Authorization: Basic") != std::string::npos);
+    EXPECT_TRUE(out.find("Accept: application/octet-stream") != std::string::npos);
+    EXPECT_TRUE(out.ends_with("\r\n\r\n"));
 }
 
 TEST(HttpRequestBuilderTest, ChainedBuilderWithConditionals) {
-    std::ostringstream out;
-    auto builder = HttpRequestBuilder(out)
+    std::string out;
+    auto builder = HttpRequestBuilder(std::back_inserter(out))
         .Method("GET")
         .Path("/v0/data")
         .QueryParam("required", "value");
@@ -188,6 +189,6 @@ TEST(HttpRequestBuilderTest, ChainedBuilderWithConditionals) {
 
     builder.Host("example.com").Finish();
 
-    EXPECT_TRUE(out.str().find("required=value") != std::string::npos);
-    EXPECT_TRUE(out.str().find("optional=yes") != std::string::npos);
+    EXPECT_TRUE(out.find("required=value") != std::string::npos);
+    EXPECT_TRUE(out.find("optional=yes") != std::string::npos);
 }
