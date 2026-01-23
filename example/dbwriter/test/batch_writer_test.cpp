@@ -15,7 +15,6 @@ using ::testing::Return;
 TEST(BackpressureConfigTest, Defaults) {
     BackpressureConfig config;
 
-    EXPECT_EQ(config.max_pending_bytes, 1ULL * 1024 * 1024 * 1024);
     EXPECT_EQ(config.high_water_mark, 256);
     EXPECT_EQ(config.low_water_mark, 64);
 }

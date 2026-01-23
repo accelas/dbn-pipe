@@ -8,6 +8,24 @@
 
 namespace dbwriter {
 
+namespace {
+// Quote a PostgreSQL identifier to prevent SQL injection.
+// Doubles any embedded double-quotes and wraps in double-quotes.
+std::string quote_identifier(std::string_view ident) {
+    std::string result;
+    result.reserve(ident.size() + 2);
+    result += '"';
+    for (char c : ident) {
+        if (c == '"') {
+            result += '"';  // Double the quote
+        }
+        result += c;
+    }
+    result += '"';
+    return result;
+}
+}  // namespace
+
 std::string PostgresConfig::connection_string() const {
     std::ostringstream ss;
     ss << "host=" << host
@@ -62,12 +80,12 @@ PostgresCopyWriter::~PostgresCopyWriter() {
 }
 
 asio::awaitable<void> PostgresCopyWriter::start() {
-    // Build COPY command
+    // Build COPY command with quoted identifiers to prevent SQL injection
     std::ostringstream ss;
-    ss << "COPY " << table_ << " (";
+    ss << "COPY " << quote_identifier(table_) << " (";
     for (size_t i = 0; i < columns_.size(); ++i) {
         if (i > 0) ss << ", ";
-        ss << columns_[i];
+        ss << quote_identifier(columns_[i]);
     }
     ss << ") FROM STDIN WITH (FORMAT binary)";
 
@@ -256,6 +274,12 @@ asio::awaitable<void> PostgresCopyWriter::send_data(std::span<const std::byte> d
 // begin_copy(). The writers hold a raw PGconn* pointer that becomes invalid
 // when PostgresDatabase is destroyed. Destroying PostgresDatabase while a
 // writer exists results in undefined behavior.
+//
+// IMPORTANT: Concurrency
+// PostgresDatabase is NOT thread-safe. All operations (query, execute, begin_copy)
+// must be serialized - only one operation may be in flight at a time. Concurrent
+// calls on the same connection corrupt libpq protocol state. Use a single
+// io_context thread or external synchronization.
 
 PostgresDatabase::PostgresDatabase(asio::io_context& ctx, const PostgresConfig& config,
                                    ILibPq& pq)

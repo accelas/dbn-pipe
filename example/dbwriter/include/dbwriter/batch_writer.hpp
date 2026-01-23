@@ -18,8 +18,9 @@
 namespace dbwriter {
 
 struct BackpressureConfig {
-    size_t max_pending_bytes = 1ULL * 1024 * 1024 * 1024;  // 1GB
+    // Number of pending batches that triggers backpressure (suspends upstream)
     size_t high_water_mark = 256;
+    // Number of pending batches that releases backpressure (resumes upstream)
     size_t low_water_mark = 64;
 };
 
@@ -118,6 +119,11 @@ public:
 private:
     asio::awaitable<void> process_queue() {
         // writing_ is already set by enqueue() before co_spawn()
+        // Use scope guard to ensure writing_ = false on all exit paths
+        struct WritingGuard {
+            bool& flag;
+            ~WritingGuard() { flag = false; }
+        } guard{writing_};
 
         while (!pending_batches_.empty() && !stopping_) {
             auto batch = std::move(pending_batches_.front());
@@ -126,15 +132,28 @@ private:
             try {
                 co_await write_batch(batch);
             } catch (const std::exception& e) {
+                // Wrap error_handler_ to prevent exceptions from escaping
                 if (error_handler_) {
-                    error_handler_(WriteError::CopyFailed, e.what());
+                    try {
+                        error_handler_(WriteError::CopyFailed, e.what());
+                    } catch (...) {
+                        // Swallow - error handler must not throw
+                    }
+                }
+            } catch (...) {
+                // Catch non-std::exception types
+                if (error_handler_) {
+                    try {
+                        error_handler_(WriteError::CopyFailed, "unknown error");
+                    } catch (...) {
+                        // Swallow
+                    }
                 }
             }
 
             check_resume();
         }
-
-        writing_ = false;
+        // writing_ = false handled by guard destructor
     }
 
     asio::awaitable<void> write_batch(const std::vector<Record>& batch) {
