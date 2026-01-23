@@ -23,6 +23,7 @@ public:
 
     // Async query
     virtual int sendQuery(PGconn* conn, const char* query) = 0;
+    virtual int flush(PGconn* conn) = 0;
     virtual int consumeInput(PGconn* conn) = 0;
     virtual int isBusy(PGconn* conn) = 0;
     virtual PGresult* getResult(PGconn* conn) = 0;
@@ -60,6 +61,9 @@ public:
     }
     int sendQuery(PGconn* conn, const char* query) override {
         return PQsendQuery(conn, query);
+    }
+    int flush(PGconn* conn) override {
+        return PQflush(conn);
     }
     int consumeInput(PGconn* conn) override {
         return PQconsumeInput(conn);

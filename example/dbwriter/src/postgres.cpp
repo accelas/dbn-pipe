@@ -94,6 +94,19 @@ asio::awaitable<void> PostgresCopyWriter::start() {
         throw std::runtime_error(pq_.errorMessage(conn_));
     }
 
+    // Flush command to server (required for nonblocking mode)
+    while (true) {
+        int flush_result = pq_.flush(conn_);
+        if (flush_result == 0) break;  // All data flushed
+        if (flush_result == -1) {
+            throw std::runtime_error(pq_.errorMessage(conn_));
+        }
+        // flush_result == 1: More to flush, wait for writable
+        co_await socket_.async_wait(
+            asio::posix::stream_descriptor::wait_write,
+            asio::use_awaitable);
+    }
+
     // Wait for result: consume → check busy → wait if needed
     do {
         if (!pq_.consumeInput(conn_)) {
@@ -324,8 +337,24 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
         throw std::runtime_error(pq_.errorMessage(conn_));
     }
 
-    // Wait for result: consume → check busy → wait if needed
+    // Create socket descriptor for async waits
     asio::posix::stream_descriptor socket(ctx_, pq_.socket(conn_));
+
+    // Flush command to server (required for nonblocking mode)
+    while (true) {
+        int flush_result = pq_.flush(conn_);
+        if (flush_result == 0) break;  // All data flushed
+        if (flush_result == -1) {
+            socket.release();
+            throw std::runtime_error(pq_.errorMessage(conn_));
+        }
+        // flush_result == 1: More to flush, wait for writable
+        co_await socket.async_wait(
+            asio::posix::stream_descriptor::wait_write,
+            asio::use_awaitable);
+    }
+
+    // Wait for result: consume → check busy → wait if needed
 
     // Scope guard ensures socket.release() and result draining on all exit paths
     ILibPq* pq = &pq_;
@@ -378,8 +407,24 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
         throw std::runtime_error(pq_.errorMessage(conn_));
     }
 
-    // Wait for result: consume → check busy → wait if needed
+    // Create socket descriptor for async waits
     asio::posix::stream_descriptor socket(ctx_, pq_.socket(conn_));
+
+    // Flush command to server (required for nonblocking mode)
+    while (true) {
+        int flush_result = pq_.flush(conn_);
+        if (flush_result == 0) break;  // All data flushed
+        if (flush_result == -1) {
+            socket.release();
+            throw std::runtime_error(pq_.errorMessage(conn_));
+        }
+        // flush_result == 1: More to flush, wait for writable
+        co_await socket.async_wait(
+            asio::posix::stream_descriptor::wait_write,
+            asio::use_awaitable);
+    }
+
+    // Wait for result: consume → check busy → wait if needed
 
     // Scope guard ensures socket.release() and result draining on all exit paths
     ILibPq* pq = &pq_;

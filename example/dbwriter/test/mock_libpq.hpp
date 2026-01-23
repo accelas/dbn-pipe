@@ -20,6 +20,7 @@ public:
     MOCK_METHOD(int, setnonblocking, (PGconn*, int), (override));
     MOCK_METHOD(char*, errorMessage, (const PGconn*), (override));
     MOCK_METHOD(int, sendQuery, (PGconn*, const char*), (override));
+    MOCK_METHOD(int, flush, (PGconn*), (override));
     MOCK_METHOD(int, consumeInput, (PGconn*), (override));
     MOCK_METHOD(int, isBusy, (PGconn*), (override));
     MOCK_METHOD(PGresult*, getResult, (PGconn*), (override));
@@ -71,6 +72,10 @@ public:
         result_returned_ = false;
         results_consumed_ = false;
         return 1;  // Success
+    }
+
+    int flush(PGconn*) override {
+        return 0;  // All data flushed
     }
 
     int consumeInput(PGconn*) override {
