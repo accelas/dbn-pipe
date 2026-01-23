@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/api_error_test.cpp
 #include <gtest/gtest.h>
 #include "lib/stream/error.hpp"

@@ -1,5 +1,4 @@
-// Copyright 2026 Kai Wang
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 
 // Note: This test requires a running PostgreSQL container
 // Run with: bazel test //example/dbwriter:integration_test --test_env=POSTGRES_HOST=... etc

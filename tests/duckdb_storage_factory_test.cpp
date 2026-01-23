@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/duckdb_storage_factory_test.cpp
 #include <gtest/gtest.h>
 #include <filesystem>

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/sink_test.cpp
 #include <gtest/gtest.h>
 

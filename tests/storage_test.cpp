@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/storage_test.cpp
 #include <gtest/gtest.h>
 #include "src/storage.hpp"

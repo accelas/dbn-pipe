@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // lib/stream/zstd_decompressor.hpp
 #pragma once
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/cram_auth.hpp
 #pragma once
 

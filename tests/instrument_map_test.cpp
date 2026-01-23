@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/instrument_map_test.cpp
 #include <gtest/gtest.h>
 

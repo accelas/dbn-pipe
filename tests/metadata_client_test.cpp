@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/metadata_client_test.cpp
 #include <gtest/gtest.h>
 
