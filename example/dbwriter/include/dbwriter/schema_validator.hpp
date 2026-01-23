@@ -161,9 +161,17 @@ asio::awaitable<std::vector<SchemaMismatch>> SchemaValidator::validate(
                 else if (t == "timestamp" || t == "timestamp without time zone") t = "timestamp without time zone";
                 // Boolean
                 else if (t == "bool" || t == "boolean") t = "boolean";
-                // Character types
-                else if (t == "varchar" || t == "character varying") t = "character varying";
-                else if (t == "char" || t == "character") t = "character";
+                // Character types - handle with/without length modifiers
+                // varchar(n) / character varying(n) → "character varying"
+                // char(n) / character(n) → "character"
+                // information_schema.data_type strips the (n) for fixed-length types
+                // Note: Check "character varying" BEFORE "character" to avoid false match
+                else if (t == "varchar" || t.rfind("varchar(", 0) == 0 ||
+                         t == "character varying" || t.rfind("character varying(", 0) == 0)
+                    t = "character varying";
+                else if (t == "char" || t.rfind("char(", 0) == 0 ||
+                         t == "character" || t.rfind("character(", 0) == 0)
+                    t = "character";
                 // Text is canonical
             };
             normalize_type(exp_lower);

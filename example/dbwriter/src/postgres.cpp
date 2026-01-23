@@ -163,6 +163,24 @@ void PostgresCopyWriter::check_valid() const {
 asio::awaitable<void> PostgresCopyWriter::start() {
     check_valid();
 
+    // Guard against double-start or concurrent COPY operations
+    if (in_copy_) {
+        throw std::runtime_error("start() already called on this CopyWriter");
+    }
+    if (state_->copy_in_flight) {
+        throw std::runtime_error(
+            "Another COPY operation is in progress on this connection");
+    }
+
+    // Mark COPY as in-flight early so concurrent operations are blocked.
+    // Use scope guard to clear on failure before we set in_copy_.
+    state_->copy_in_flight = true;
+    struct CopyGuard {
+        std::atomic<bool>& flag;
+        bool committed = false;
+        ~CopyGuard() { if (!committed) flag = false; }
+    } guard{state_->copy_in_flight};
+
     auto* pq = state_->pq;
     auto* conn = state_->conn;
 
@@ -226,7 +244,7 @@ asio::awaitable<void> PostgresCopyWriter::start() {
     pq->clear(res);
 
     in_copy_ = true;
-    state_->copy_in_flight = true;  // Block other operations on this connection
+    guard.committed = true;  // COPY started successfully, don't clear copy_in_flight
 
     // Write binary COPY header
     static constexpr char header[] = "PGCOPY\n\377\r\n\0\0\0\0\0\0\0\0\0";
@@ -243,6 +261,9 @@ asio::awaitable<void> PostgresCopyWriter::write_row(std::span<const std::byte> d
 
 asio::awaitable<void> PostgresCopyWriter::finish() {
     check_valid();
+    if (!in_copy_) {
+        throw std::runtime_error("finish() called without successful start()");
+    }
 
     auto* pq = state_->pq;
     auto* conn = state_->conn;
