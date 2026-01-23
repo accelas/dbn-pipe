@@ -18,6 +18,11 @@ std::string PostgresConfig::connection_string() const {
 }
 
 // PostgresCopyWriter implementation
+//
+// IMPORTANT: Coroutine lifetime requirement
+// The caller must ensure all coroutine methods (start, write_row, finish)
+// are fully awaited before destroying this object. Destroying while a
+// coroutine is suspended will result in undefined behavior.
 
 PostgresCopyWriter::PostgresCopyWriter(
     PGconn* conn, asio::io_context& ctx,
@@ -38,9 +43,14 @@ PostgresCopyWriter::~PostgresCopyWriter() {
     socket_.release();
 
     if (in_copy_) {
-        // Best effort abort
+        // Best effort abort - must clear results to avoid leaks
         pq_.putCopyEnd(conn_, "aborted");
-        pq_.getResult(conn_);
+        PGresult* res = pq_.getResult(conn_);
+        if (res) pq_.clear(res);
+        // Drain any remaining results
+        while ((res = pq_.getResult(conn_)) != nullptr) {
+            pq_.clear(res);
+        }
     }
 }
 
@@ -116,7 +126,13 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
 asio::awaitable<void> PostgresCopyWriter::abort() {
     if (in_copy_) {
         pq_.putCopyEnd(conn_, "aborted by client");
-        pq_.getResult(conn_);
+        // Must clear result to avoid leaks
+        PGresult* res = pq_.getResult(conn_);
+        if (res) pq_.clear(res);
+        // Drain any remaining results
+        while ((res = pq_.getResult(conn_)) != nullptr) {
+            pq_.clear(res);
+        }
         in_copy_ = false;
     }
     co_return;
@@ -177,7 +193,12 @@ asio::awaitable<void> PostgresDatabase::connect() {
     }
 
     // Set non-blocking mode
-    pq_.setnonblocking(conn_, 1);
+    if (pq_.setnonblocking(conn_, 1) != 0) {
+        std::string err = pq_.errorMessage(conn_);
+        pq_.finish(conn_);
+        conn_ = nullptr;
+        throw std::runtime_error("Failed to set non-blocking mode: " + err);
+    }
 
     co_return;
 }

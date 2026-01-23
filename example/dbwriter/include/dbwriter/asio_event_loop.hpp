@@ -14,13 +14,65 @@ namespace dbwriter {
 
 // Shared state for AsioEventHandle to avoid use-after-free in async handlers.
 // Handlers capture shared_ptr<State> instead of raw this pointer.
-struct AsioEventHandleState {
+// The stream_descriptor is also owned by the state to ensure it outlives handlers.
+struct AsioEventHandleState : public std::enable_shared_from_this<AsioEventHandleState> {
+    asio::posix::stream_descriptor stream;
     std::function<void()> on_read;
     std::function<void()> on_write;
     std::function<void(int)> on_error;
     bool want_read = false;
     bool want_write = false;
     bool destroyed = false;  // Set when handle is destroyed
+
+    explicit AsioEventHandleState(asio::io_context& ctx, int fd)
+        : stream(ctx, fd) {}
+
+    void start_waiting() {
+        if (want_read) {
+            start_read_wait();
+        }
+        if (want_write) {
+            start_write_wait();
+        }
+    }
+
+    void start_read_wait() {
+        // Capture weak_ptr to avoid preventing destruction
+        std::weak_ptr<AsioEventHandleState> weak_self = shared_from_this();
+        stream.async_wait(
+            asio::posix::stream_descriptor::wait_read,
+            [weak_self](std::error_code ec) {
+                auto self = weak_self.lock();
+                if (!self || self->destroyed) return;  // Handle was destroyed
+                if (!ec) {
+                    if (self->on_read) self->on_read();
+                    if (self->want_read && !self->destroyed) {
+                        self->start_read_wait();
+                    }
+                } else if (ec != asio::error::operation_aborted && self->on_error) {
+                    self->on_error(ec.value());
+                }
+            });
+    }
+
+    void start_write_wait() {
+        // Capture weak_ptr to avoid preventing destruction
+        std::weak_ptr<AsioEventHandleState> weak_self = shared_from_this();
+        stream.async_wait(
+            asio::posix::stream_descriptor::wait_write,
+            [weak_self](std::error_code ec) {
+                auto self = weak_self.lock();
+                if (!self || self->destroyed) return;  // Handle was destroyed
+                if (!ec) {
+                    if (self->on_write) self->on_write();
+                    if (self->want_write && !self->destroyed) {
+                        self->start_write_wait();
+                    }
+                } else if (ec != asio::error::operation_aborted && self->on_error) {
+                    self->on_error(ec.value());
+                }
+            });
+    }
 };
 
 // ASIO-based event handle for fd registration
@@ -32,81 +84,36 @@ public:
                     std::function<void()> on_write,
                     std::function<void(int)> on_error)
         : fd_(fd)
-        , stream_(ctx, fd)
-        , state_(std::make_shared<AsioEventHandleState>()) {
+        , state_(std::make_shared<AsioEventHandleState>(ctx, fd)) {
         state_->on_read = std::move(on_read);
         state_->on_write = std::move(on_write);
         state_->on_error = std::move(on_error);
         state_->want_read = want_read;
         state_->want_write = want_write;
-        start_waiting();
+        state_->start_waiting();
     }
 
     ~AsioEventHandle() override {
         // Mark as destroyed so pending handlers don't access callbacks
         state_->destroyed = true;
         // Cancel pending operations (handlers will see operation_aborted)
-        stream_.cancel();
+        state_->stream.cancel();
         // Don't close the fd, we don't own it
-        stream_.release();
+        state_->stream.release();
     }
 
     void Update(bool want_read, bool want_write) override {
         state_->want_read = want_read;
         state_->want_write = want_write;
         // Cancel current waits and restart
-        stream_.cancel();
-        start_waiting();
+        state_->stream.cancel();
+        state_->start_waiting();
     }
 
     int fd() const override { return fd_; }
 
 private:
-    void start_waiting() {
-        if (state_->want_read) {
-            start_read_wait();
-        }
-        if (state_->want_write) {
-            start_write_wait();
-        }
-    }
-
-    void start_read_wait() {
-        auto state = state_;  // Capture shared_ptr, not this
-        stream_.async_wait(
-            asio::posix::stream_descriptor::wait_read,
-            [this, state](std::error_code ec) {
-                if (state->destroyed) return;  // Handle was destroyed
-                if (!ec) {
-                    if (state->on_read) state->on_read();
-                    if (state->want_read && !state->destroyed) {
-                        start_read_wait();
-                    }
-                } else if (ec != asio::error::operation_aborted && state->on_error) {
-                    state->on_error(ec.value());
-                }
-            });
-    }
-
-    void start_write_wait() {
-        auto state = state_;  // Capture shared_ptr, not this
-        stream_.async_wait(
-            asio::posix::stream_descriptor::wait_write,
-            [this, state](std::error_code ec) {
-                if (state->destroyed) return;  // Handle was destroyed
-                if (!ec) {
-                    if (state->on_write) state->on_write();
-                    if (state->want_write && !state->destroyed) {
-                        start_write_wait();
-                    }
-                } else if (ec != asio::error::operation_aborted && state->on_error) {
-                    state->on_error(ec.value());
-                }
-            });
-    }
-
     int fd_;
-    asio::posix::stream_descriptor stream_;
     std::shared_ptr<AsioEventHandleState> state_;
 };
 
