@@ -87,3 +87,16 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "schema_validator_test",
+    srcs = [
+        "test/schema_validator_test.cpp",
+        "test/mock_database.hpp",
+    ],
+    includes = ["."],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
