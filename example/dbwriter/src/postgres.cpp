@@ -150,6 +150,7 @@ PostgresCopyWriter::~PostgresCopyWriter() {
         while ((res = state_->pq->getResult(state_->conn)) != nullptr) {
             state_->pq->clear(res);
         }
+        state_->copy_in_flight = false;  // Allow other operations
     }
 }
 
@@ -225,6 +226,7 @@ asio::awaitable<void> PostgresCopyWriter::start() {
     pq->clear(res);
 
     in_copy_ = true;
+    state_->copy_in_flight = true;  // Block other operations on this connection
 
     // Write binary COPY header
     static constexpr char header[] = "PGCOPY\n\377\r\n\0\0\0\0\0\0\0\0\0";
@@ -233,6 +235,9 @@ asio::awaitable<void> PostgresCopyWriter::start() {
 
 asio::awaitable<void> PostgresCopyWriter::write_row(std::span<const std::byte> data) {
     check_valid();
+    if (!in_copy_) {
+        throw std::runtime_error("write_row() called before start() completed");
+    }
     co_await send_data(data);
 }
 
@@ -259,6 +264,7 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
                 pq->clear(res);
             }
             in_copy_ = false;
+            state_->copy_in_flight = false;
             throw std::runtime_error(err);
         }
         // result == 0: Would block
@@ -287,6 +293,7 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
             pq->clear(res);
         }
         in_copy_ = false;  // Cleanup complete
+        state_->copy_in_flight = false;
         throw std::runtime_error("COPY finish: no result received");
     }
     if (pq->resultStatus(res) != PGRES_COMMAND_OK) {
@@ -297,6 +304,7 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
             pq->clear(res);
         }
         in_copy_ = false;  // Cleanup complete
+        state_->copy_in_flight = false;
         throw std::runtime_error("COPY finish failed: " + err);
     }
     pq->clear(res);
@@ -307,6 +315,7 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
     }
 
     in_copy_ = false;  // Cleanup complete
+    state_->copy_in_flight = false;  // Allow other operations
     co_return;
 }
 
@@ -348,6 +357,7 @@ asio::awaitable<void> PostgresCopyWriter::abort() {
             }
         }
         in_copy_ = false;
+        state_->copy_in_flight = false;  // Allow other operations
     }
     co_return;
 }
@@ -663,6 +673,11 @@ void PostgresDatabase::check_no_operation_in_flight() const {
             "Concurrent database operation detected. PostgresDatabase only "
             "supports one operation at a time. Serialize calls to query(), "
             "execute(), and begin_copy().");
+    }
+    if (state_->copy_in_flight) {
+        throw std::runtime_error(
+            "COPY operation in progress. Cannot execute query/execute/begin_copy "
+            "while a COPY is active. Call finish() or abort() on the CopyWriter first.");
     }
 }
 

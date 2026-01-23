@@ -28,6 +28,7 @@ struct PostgresConfig {
 struct PostgresConnectionState {
     PGconn* conn = nullptr;
     std::atomic<bool> valid{false};  // Set to false when database disconnects
+    std::atomic<bool> copy_in_flight{false};  // Set during active COPY operation
     ILibPq* pq = nullptr;
 };
 
