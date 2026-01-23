@@ -1,0 +1,36 @@
+// Copyright 2026 Kai Wang
+// SPDX-License-Identifier: Apache-2.0
+
+#pragma once
+
+#include <algorithm>
+#include <string_view>
+
+namespace dbwriter {
+
+// Compile-time string for use as template parameter
+template <std::size_t N>
+struct FixedString {
+    char data[N + 1]{};
+
+    constexpr FixedString(const char (&str)[N + 1]) {
+        std::copy_n(str, N + 1, data);
+    }
+
+    constexpr std::string_view view() const { return {data, N}; }
+    constexpr std::size_t size() const { return N; }
+
+    constexpr bool operator==(const FixedString& other) const {
+        return view() == other.view();
+    }
+
+    constexpr auto operator<=>(const FixedString& other) const {
+        return view() <=> other.view();
+    }
+};
+
+// Deduction guide
+template <std::size_t N>
+FixedString(const char (&)[N]) -> FixedString<N - 1>;
+
+}  // namespace dbwriter

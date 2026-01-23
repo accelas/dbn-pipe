@@ -1,0 +1,173 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+cc_library(
+    name = "dbwriter",
+    hdrs = glob(["include/dbwriter/*.hpp"]),
+    srcs = glob(["src/*.cpp"]),
+    includes = ["include"],
+    deps = [
+        "//lib/stream:event_loop",
+        "@asio",
+        "@libpq",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_test(
+    name = "types_test",
+    srcs = ["test/types_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "pg_types_test",
+    srcs = ["test/pg_types_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "fixed_string_test",
+    srcs = ["test/fixed_string_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "table_test",
+    srcs = ["test/table_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "mapper_test",
+    srcs = ["test/mapper_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "transform_test",
+    srcs = ["test/transform_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "postgres_test",
+    srcs = ["test/postgres_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "batch_writer_test",
+    srcs = [
+        "test/batch_writer_test.cpp",
+        "test/mock_database.hpp",
+    ],
+    includes = ["."],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "schema_validator_test",
+    srcs = [
+        "test/schema_validator_test.cpp",
+        "test/mock_database.hpp",
+    ],
+    includes = ["."],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "asio_event_loop_test",
+    srcs = ["test/asio_event_loop_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "postgres_async_test",
+    srcs = [
+        "test/postgres_async_test.cpp",
+        "test/mock_libpq.hpp",
+    ],
+    includes = ["."],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "multithread_test",
+    srcs = [
+        "test/multithread_test.cpp",
+        "test/mock_libpq.hpp",
+    ],
+    includes = ["."],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "integration_test",
+    srcs = ["test/integration_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+    tags = ["manual"],  # Skip in normal test runs
+)
+
+# E2E test: Downloads from Databento and writes to PostgreSQL.
+# Disabled by default - run locally with environment variables:
+#   DATABENTO_API_KEY=<key> POSTGRES_HOST=<host> POSTGRES_PORT=<port> \
+#   POSTGRES_DB=<db> POSTGRES_USER=<user> POSTGRES_PASSWORD=<pass> \
+#   bazel run //example/dbwriter:e2e_test
+#
+# Required table schema:
+#   CREATE TABLE trades (
+#       ts_event_ns BIGINT,
+#       ts_event TIMESTAMPTZ,
+#       instrument_id INTEGER,
+#       price BIGINT,
+#       size INTEGER
+#   );
+cc_test(
+    name = "e2e_test",
+    srcs = ["test/e2e_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "//src:client",
+        "@googletest//:gtest_main",
+    ],
+    tags = ["manual"],
+)

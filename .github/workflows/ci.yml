@@ -52,7 +52,7 @@ jobs:
             # Install dependencies
             apt-get update
             apt-get install -y --no-install-recommends \
-              git wget ca-certificates build-essential python3 libssl-dev libzstd-dev
+              git wget ca-certificates build-essential python3 libssl-dev libzstd-dev libpq-dev
 
             # Install Bazelisk
             mkdir -p /tmp/bazelisk
