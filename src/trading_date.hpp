@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/trading_date.hpp
 #pragma once
 

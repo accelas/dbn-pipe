@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/record_batch.hpp
 #pragma once
 

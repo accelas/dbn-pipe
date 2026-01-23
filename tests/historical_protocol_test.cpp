@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/historical_protocol_test.cpp
 #include <gtest/gtest.h>
 #include <iterator>

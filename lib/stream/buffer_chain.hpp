@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // lib/stream/buffer_chain.hpp
 #pragma once
 

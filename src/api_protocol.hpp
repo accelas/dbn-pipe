@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // src/api_protocol.hpp
 #pragma once
 

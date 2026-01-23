@@ -1,5 +1,4 @@
-// Copyright 2026 Kai Wang
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 
 // End-to-end test: Download from Databento -> Write to PostgreSQL
 // Uses ASIO event loop for everything (both dbn-pipe and PostgreSQL)

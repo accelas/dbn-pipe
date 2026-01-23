@@ -1,5 +1,4 @@
-// Copyright 2026 Kai Wang
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 
 #include "dbwriter/fixed_string.hpp"
 #include <gtest/gtest.h>

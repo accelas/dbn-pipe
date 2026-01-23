@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // lib/stream/url_encode.hpp
 #pragma once
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // lib/stream/sink.hpp
 #pragma once
 

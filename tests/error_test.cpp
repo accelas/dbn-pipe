@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // tests/error_test.cpp
 #include <cerrno>
 
