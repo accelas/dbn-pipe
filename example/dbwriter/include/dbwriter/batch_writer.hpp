@@ -8,6 +8,7 @@
 #include "dbwriter/transform.hpp"
 #include "dbwriter/types.hpp"
 #include <asio.hpp>
+#include <atomic>
 #include <deque>
 #include <functional>
 #include <span>
@@ -54,10 +55,22 @@ public:
         , mapper_(table)
         , config_(config) {}
 
+    ~BatchWriter() {
+        // Signal stop and wait for coroutine to complete
+        stop();
+    }
+
+    // Non-copyable, non-movable (coroutine captures this)
+    BatchWriter(const BatchWriter&) = delete;
+    BatchWriter& operator=(const BatchWriter&) = delete;
+    BatchWriter(BatchWriter&&) = delete;
+    BatchWriter& operator=(BatchWriter&&) = delete;
+
     void set_suspendable(ISuspendable* s) { suspendable_ = s; }
     void on_error(ErrorHandler handler) { error_handler_ = std::move(handler); }
 
     void enqueue(std::vector<Record> batch) {
+        if (stopping_) return;  // Don't accept new work after stop
         pending_batches_.push_back(std::move(batch));
         check_backpressure();
 
@@ -66,13 +79,25 @@ public:
         }
     }
 
+    // Signal stop and block until coroutine completes
+    void stop() {
+        stopping_ = true;
+        // Spin until coroutine completes (writing_ goes false)
+        // This is safe because we're on the same thread as io_context
+        while (writing_) {
+            ctx_.poll_one();
+        }
+    }
+
+    bool is_stopped() const { return stopping_ && !writing_; }
+
     size_t pending_count() const { return pending_batches_.size(); }
 
 private:
     asio::awaitable<void> process_queue() {
         writing_ = true;
 
-        while (!pending_batches_.empty()) {
+        while (!pending_batches_.empty() && !stopping_) {
             auto batch = std::move(pending_batches_.front());
             pending_batches_.pop_front();
 
@@ -134,6 +159,7 @@ private:
     std::deque<std::vector<Record>> pending_batches_;
     bool writing_ = false;
     bool suspended_ = false;
+    std::atomic<bool> stopping_{false};
     ISuspendable* suspendable_ = nullptr;
     ErrorHandler error_handler_;
 };

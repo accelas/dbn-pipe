@@ -5,6 +5,7 @@
 
 #include "lib/stream/event_loop.hpp"
 #include <asio.hpp>
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -22,7 +23,7 @@ struct AsioEventHandleState : public std::enable_shared_from_this<AsioEventHandl
     std::function<void(int)> on_error;
     bool want_read = false;
     bool want_write = false;
-    bool destroyed = false;  // Set when handle is destroyed
+    std::atomic<bool> destroyed{false};  // Set when handle is destroyed
 
     explicit AsioEventHandleState(asio::io_context& ctx, int fd)
         : stream(ctx, fd) {}
