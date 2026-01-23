@@ -158,7 +158,13 @@ private:
             asio::steady_timer*& timer;
             ~WritingGuard() {
                 flag = false;
-                if (timer) timer->cancel();
+                if (timer) {
+                    try {
+                        timer->cancel();
+                    } catch (...) {
+                        // Swallow - destructor must not throw
+                    }
+                }
             }
         } guard{writing_, drain_timer_};
 

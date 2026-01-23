@@ -362,6 +362,19 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
 
 asio::awaitable<void> PostgresCopyWriter::abort() {
     if (in_copy_ && state_->valid) {
+        // Scope guard ensures in_copy_ and copy_in_flight are cleared on ALL
+        // exit paths, including exceptions from wait_writable/async_wait.
+        // This is critical - if cleanup is skipped, the connection becomes
+        // permanently blocked for future operations.
+        struct AbortGuard {
+            bool& in_copy;
+            std::atomic<bool>& copy_in_flight;
+            ~AbortGuard() {
+                in_copy = false;
+                copy_in_flight = false;
+            }
+        } guard{in_copy_, state_->copy_in_flight};
+
         auto* pq = state_->pq;
         auto* conn = state_->conn;
 
@@ -406,8 +419,7 @@ asio::awaitable<void> PostgresCopyWriter::abort() {
                 pq->clear(res);
             }
         }
-        in_copy_ = false;
-        state_->copy_in_flight = false;  // Allow other operations
+        // in_copy_ and copy_in_flight cleared by guard destructor
     }
     co_return;
 }

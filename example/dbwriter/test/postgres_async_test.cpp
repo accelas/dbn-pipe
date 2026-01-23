@@ -254,5 +254,145 @@ TEST(PostgresAsyncTest, WrongPatternBehavior) {
     EXPECT_EQ(result.wait_count, 1);  // Wrong pattern waits first
 }
 
+// Test abort path state cleanup
+// This tests that copy_in_flight is properly cleared on all abort paths,
+// including when putCopyEnd fails.
+
+class AbortPathSimulator : public SimulatedLibPq {
+public:
+    void set_put_copy_end_result(int result) { put_copy_end_result_ = result; }
+    void set_flush_result(int result) { flush_result_ = result; }
+
+    int putCopyEnd(PGconn*, const char*) override {
+        put_copy_end_called_ = true;
+        return put_copy_end_result_;
+    }
+
+    int flush(PGconn*) override {
+        return flush_result_;
+    }
+
+    bool put_copy_end_called() const { return put_copy_end_called_; }
+
+private:
+    int put_copy_end_result_ = 1;  // Success by default
+    int flush_result_ = 0;  // Flushed by default
+    bool put_copy_end_called_ = false;
+};
+
+// Simulates the abort path logic from PostgresCopyWriter::abort()
+// to verify state cleanup works correctly
+struct AbortSimulator {
+    bool in_copy = false;
+    bool copy_in_flight = false;
+
+    // Simulates abort() with scope guard pattern
+    void abort_with_guard(AbortPathSimulator& pq, bool simulate_early_exit) {
+        if (!in_copy) return;
+
+        // Scope guard - this is what we're testing
+        struct Guard {
+            bool& in_copy;
+            bool& copy_in_flight;
+            ~Guard() {
+                in_copy = false;
+                copy_in_flight = false;
+            }
+        } guard{in_copy, copy_in_flight};
+
+        auto* conn = reinterpret_cast<PGconn*>(0x1234);
+        int result = pq.putCopyEnd(conn, "aborted");
+
+        if (result == -1 || simulate_early_exit) {
+            // Early exit - guard destructor will clean up
+            return;
+        }
+
+        // Normal path - guard destructor will also clean up
+    }
+
+    // Old pattern WITHOUT scope guard (for comparison)
+    void abort_without_guard(AbortPathSimulator& pq, bool simulate_early_exit) {
+        if (!in_copy) return;
+
+        auto* conn = reinterpret_cast<PGconn*>(0x1234);
+        int result = pq.putCopyEnd(conn, "aborted");
+
+        if (result == -1 || simulate_early_exit) {
+            // Early exit - OOPS! State not cleaned up!
+            return;
+        }
+
+        // Only cleaned up on normal path
+        in_copy = false;
+        copy_in_flight = false;
+    }
+};
+
+// Test: abort() clears state on success path
+TEST(PostgresAsyncTest, AbortClearsStateOnSuccess) {
+    AbortPathSimulator pq;
+    pq.set_put_copy_end_result(1);  // Success
+
+    AbortSimulator sim;
+    sim.in_copy = true;
+    sim.copy_in_flight = true;
+
+    sim.abort_with_guard(pq, false);
+
+    EXPECT_FALSE(sim.in_copy);
+    EXPECT_FALSE(sim.copy_in_flight);
+    EXPECT_TRUE(pq.put_copy_end_called());
+}
+
+// Test: abort() clears state even when putCopyEnd fails
+TEST(PostgresAsyncTest, AbortClearsStateOnPutCopyEndFailure) {
+    AbortPathSimulator pq;
+    pq.set_put_copy_end_result(-1);  // Failure
+
+    AbortSimulator sim;
+    sim.in_copy = true;
+    sim.copy_in_flight = true;
+
+    sim.abort_with_guard(pq, false);
+
+    // With scope guard, state should still be cleared
+    EXPECT_FALSE(sim.in_copy);
+    EXPECT_FALSE(sim.copy_in_flight);
+}
+
+// Test: abort() clears state on early exit (simulates exception)
+TEST(PostgresAsyncTest, AbortClearsStateOnEarlyExit) {
+    AbortPathSimulator pq;
+    pq.set_put_copy_end_result(1);  // Success, but we exit early
+
+    AbortSimulator sim;
+    sim.in_copy = true;
+    sim.copy_in_flight = true;
+
+    sim.abort_with_guard(pq, true);  // Simulate early exit
+
+    // With scope guard, state should still be cleared
+    EXPECT_FALSE(sim.in_copy);
+    EXPECT_FALSE(sim.copy_in_flight);
+}
+
+// Test: OLD pattern (without guard) fails to clean up on early exit
+// This documents why the scope guard is necessary
+TEST(PostgresAsyncTest, OldPatternFailsToCleanupOnEarlyExit) {
+    AbortPathSimulator pq;
+    pq.set_put_copy_end_result(1);
+
+    AbortSimulator sim;
+    sim.in_copy = true;
+    sim.copy_in_flight = true;
+
+    sim.abort_without_guard(pq, true);  // Simulate early exit
+
+    // Without scope guard, state is NOT cleaned up!
+    EXPECT_TRUE(sim.in_copy);  // Still true - bug!
+    EXPECT_TRUE(sim.copy_in_flight);  // Still true - bug!
+}
+
 }  // namespace
 }  // namespace dbwriter
