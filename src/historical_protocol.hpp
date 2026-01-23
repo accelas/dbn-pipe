@@ -4,8 +4,6 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <span>
-#include <spanstream>
 #include <string>
 
 #include "lib/stream/buffer_chain.hpp"
@@ -172,10 +170,10 @@ struct HistoricalProtocol {
     static void SendRequest(std::shared_ptr<ChainType>& chain, const Request& request) {
         if (!chain) return;
 
-        // Get segment and format directly into it
+        // Get segment and format directly into it using char* as output iterator
         auto seg = chain->GetRequestSegment();
-        std::ospanstream out(std::span<char>(
-            reinterpret_cast<char*>(seg->data.data()), Segment::kSize));
+        char* buf = reinterpret_cast<char*>(seg->data.data());
+        char* out = buf;
 
         // Build HTTP GET request for historical data API
         auto builder = HttpRequestBuilder(out)
@@ -204,7 +202,7 @@ struct HistoricalProtocol {
             .Header("Connection", "close")
             .Finish();
 
-        seg->size = out.span().size();
+        seg->size = static_cast<size_t>(builder.GetIterator() - buf);
         chain->SendRequestSegment(std::move(seg));
     }
 

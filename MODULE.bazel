@@ -30,6 +30,9 @@ bazel_dep(name = "googletest", version = "1.15.2")
 # Decompression (for Historical API)
 bazel_dep(name = "zstd", version = "1.5.6")
 
+# String formatting
+bazel_dep(name = "fmt", version = "11.0.2")
+
 # ============================================================================
 # Databento C++ headers (type definitions only)
 # ============================================================================

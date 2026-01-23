@@ -5,8 +5,8 @@
 #include <cstring>
 #include <expected>
 #include <functional>
+#include <iterator>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,9 +36,11 @@ struct ApiRequest {
     // api_key: API key for Basic auth (encoded as base64(api_key + ":"))
     std::string BuildHttpRequest(const std::string& host_header,
                                  const std::string& api_key) const {
-        std::ostringstream out;
+        // Estimate: method + path + query params + headers typically 200-500 bytes
+        std::string out;
+        out.reserve(512);
 
-        auto builder = HttpRequestBuilder(out)
+        auto builder = HttpRequestBuilder(std::back_inserter(out))
             .Method(method)
             .Path(path);
 
@@ -58,7 +60,7 @@ struct ApiRequest {
             builder.Finish();
         }
 
-        return out.str();
+        return out;
     }
 };
 

@@ -7,14 +7,15 @@
 #include <cstddef>
 #include <cstring>
 #include <functional>
-#include <iomanip>
+#include <iterator>
 #include <memory>
 #include <memory_resource>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <fmt/format.h>
 
 #include "lib/stream/buffer_chain.hpp"
 #include "lib/stream/error.hpp"
@@ -105,19 +106,21 @@ public:
         SHA256(reinterpret_cast<const unsigned char*>(challenge_key.data()),
                challenge_key.size(), digest);
 
-        std::ostringstream oss;
+        // SHA256 hex (64 chars) + dash + bucket_id (5 chars) = 70 chars
+        std::string result;
+        result.reserve(70);
+        auto out = std::back_inserter(result);
         for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
-            oss << std::hex << std::setfill('0') << std::setw(2)
-                << static_cast<int>(digest[i]);
+            out = fmt::format_to(out, "{:02x}", digest[i]);
         }
 
         // Append bucket_id (last 5 chars of API key)
         static constexpr std::size_t kBucketIdLength = 5;
         if (api_key.size() >= kBucketIdLength) {
-            oss << '-' << api_key.substr(api_key.size() - kBucketIdLength);
+            fmt::format_to(out, "-{}", api_key.substr(api_key.size() - kBucketIdLength));
         }
 
-        return oss.str();
+        return result;
     }
 
     // Format auth request with required fields
@@ -125,13 +128,8 @@ public:
     static std::string FormatAuthRequest(std::string_view auth,
                                          std::string_view dataset,
                                          std::string_view client = "dbn-pipe/0.1") {
-        std::ostringstream oss;
-        oss << "auth=" << auth
-            << "|dataset=" << dataset
-            << "|encoding=dbn"
-            << "|ts_out=0"
-            << "|client=" << client;
-        return oss.str();
+        return fmt::format("auth={}|dataset={}|encoding=dbn|ts_out=0|client={}",
+            auth, dataset, client);
     }
 };
 
@@ -663,18 +661,19 @@ void CramAuth<D>::SendPendingSubscription() {
 
     // Format matches official API:
     // schema=<s>|stype_in=<t>|start=<ts>|id=<n>|symbols=<syms>|snapshot=<b>|is_last=<b>
-    std::ostringstream oss;
-    oss << "schema=" << *pending_schema_
-        << "|stype_in=" << pending_stype_in_.value_or("raw_symbol");
+    std::string msg;
+    msg.reserve(128 + pending_symbols_->size());
+    auto out = std::back_inserter(msg);
+    out = fmt::format_to(out, "schema={}|stype_in={}",
+        *pending_schema_, pending_stype_in_.value_or("raw_symbol"));
     if (pending_start_) {
-        oss << "|start=" << *pending_start_;
+        out = fmt::format_to(out, "|start={}", *pending_start_);
     }
-    oss << "|id=" << sub_counter_
-        << "|symbols=" << *pending_symbols_
-        << "|snapshot=" << (pending_snapshot_ ? "1" : "0")
-        << "|is_last=1";  // TODO: support chunking for large symbol lists
+    fmt::format_to(out, "|id={}|symbols={}|snapshot={}|is_last=1",
+        sub_counter_, *pending_symbols_, pending_snapshot_ ? "1" : "0");
+    // TODO: support chunking for large symbol lists
 
-    SendLine(oss.str());
+    SendLine(msg);
     subscription_sent_ = true;
 
     // If start was requested before subscription was sent, send it now
