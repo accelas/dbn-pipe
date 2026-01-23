@@ -38,3 +38,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "table_test",
+    srcs = ["test/table_test.cpp"],
+    deps = [
+        ":dbwriter",
+        "@googletest//:gtest_main",
+    ],
+)
