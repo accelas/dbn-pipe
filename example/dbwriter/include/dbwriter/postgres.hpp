@@ -4,6 +4,7 @@
 #pragma once
 
 #include "dbwriter/database.hpp"
+#include "dbwriter/libpq_wrapper.hpp"
 #include <libpq-fe.h>
 #include <asio.hpp>
 #include <memory>
@@ -25,7 +26,8 @@ class PostgresCopyWriter : public ICopyWriter {
 public:
     PostgresCopyWriter(PGconn* conn, asio::io_context& ctx,
                        std::string_view table,
-                       std::span<const std::string_view> columns);
+                       std::span<const std::string_view> columns,
+                       ILibPq& pq = GetLibPq());
     ~PostgresCopyWriter();
 
     asio::awaitable<void> start() override;
@@ -42,11 +44,13 @@ private:
     std::string table_;
     std::vector<std::string> columns_;
     bool in_copy_ = false;
+    ILibPq& pq_;
 };
 
 class PostgresDatabase : public IDatabase {
 public:
-    PostgresDatabase(asio::io_context& ctx, const PostgresConfig& config);
+    PostgresDatabase(asio::io_context& ctx, const PostgresConfig& config,
+                     ILibPq& pq = GetLibPq());
     ~PostgresDatabase();
 
     asio::awaitable<void> connect();
@@ -64,6 +68,7 @@ private:
     asio::io_context& ctx_;
     PostgresConfig config_;
     PGconn* conn_ = nullptr;
+    ILibPq& pq_;
 };
 
 }  // namespace dbwriter
