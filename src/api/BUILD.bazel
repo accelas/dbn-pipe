@@ -22,5 +22,6 @@ cc_library(
         "//src:dns_resolver",
         "//src:retry_policy",
         "//src:stype",
+        "@fmt",
     ],
 )

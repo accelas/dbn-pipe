@@ -50,6 +50,7 @@ cc_library(
         "//lib/stream:error",
         "//lib/stream:event_loop",
         "//lib/stream:tls_transport",
+        "@fmt",
         "@openssl_sys//:crypto",
     ],
 )
@@ -171,6 +172,7 @@ cc_library(
         ":storage",
         ":trading_date",
         "@duckdb",
+        "@fmt",
     ],
 )
 
@@ -187,6 +189,7 @@ cc_library(
         "//lib/stream:sink",
         "//lib/stream:tcp_socket",
         "//lib/stream:tls_transport",
+        "@fmt",
     ],
 )
 

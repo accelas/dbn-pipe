@@ -3,13 +3,15 @@
 
 #include <cstdint>
 #include <expected>
+#include <iterator>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <fmt/format.h>
 
 #include <duckdb.hpp>
 
@@ -80,20 +82,18 @@ public:
             EvictIfNeeded();
         }
 
-        std::ostringstream sql;
-        sql << "INSERT INTO symbol_mappings "
-            << "(instrument_id, symbol, start_date, end_date, last_accessed) VALUES ("
-            << instrument_id << ", "
-            << "'" << EscapeString(symbol) << "', "
-            << "'" << start.ToIsoString() << "', "
-            << "'" << end.ToIsoString() << "', "
-            << "nextval('access_counter')) "
-            << "ON CONFLICT (instrument_id, start_date) DO UPDATE SET "
-            << "symbol = EXCLUDED.symbol, "
-            << "end_date = EXCLUDED.end_date, "
-            << "last_accessed = nextval('access_counter')";
+        auto sql = fmt::format(
+            "INSERT INTO symbol_mappings "
+            "(instrument_id, symbol, start_date, end_date, last_accessed) VALUES ("
+            "{}, '{}', '{}', '{}', nextval('access_counter')) "
+            "ON CONFLICT (instrument_id, start_date) DO UPDATE SET "
+            "symbol = EXCLUDED.symbol, "
+            "end_date = EXCLUDED.end_date, "
+            "last_accessed = nextval('access_counter')",
+            instrument_id, EscapeString(symbol),
+            start.ToIsoString(), end.ToIsoString());
 
-        auto result = conn_->Query(sql.str());
+        auto result = conn_->Query(sql);
         if (result->HasError()) {
             throw std::runtime_error("Failed to execute StoreMapping: " + result->GetError());
         }
@@ -101,14 +101,15 @@ public:
 
     std::optional<std::string> LookupSymbol(uint32_t instrument_id,
                                              const TradingDate& date) override {
-        std::ostringstream sql;
-        sql << "SELECT symbol, start_date FROM symbol_mappings "
-            << "WHERE instrument_id = " << instrument_id
-            << " AND start_date <= '" << date.ToIsoString() << "'"
-            << " AND end_date >= '" << date.ToIsoString() << "'"
-            << " LIMIT 1";
+        auto sql = fmt::format(
+            "SELECT symbol, start_date FROM symbol_mappings "
+            "WHERE instrument_id = {} "
+            "AND start_date <= '{}' "
+            "AND end_date >= '{}' "
+            "LIMIT 1",
+            instrument_id, date.ToIsoString(), date.ToIsoString());
 
-        auto result = conn_->Query(sql.str());
+        auto result = conn_->Query(sql);
         if (result->HasError()) {
             return std::nullopt;
         }
@@ -122,11 +123,11 @@ public:
         std::string start_date = chunk->GetValue(1, 0).ToString();
 
         // Update last_accessed counter (LRU tracking)
-        std::ostringstream update_sql;
-        update_sql << "UPDATE symbol_mappings SET last_accessed = nextval('access_counter') "
-                   << "WHERE instrument_id = " << instrument_id
-                   << " AND start_date = '" << start_date << "'";
-        conn_->Query(update_sql.str());
+        auto update_sql = fmt::format(
+            "UPDATE symbol_mappings SET last_accessed = nextval('access_counter') "
+            "WHERE instrument_id = {} AND start_date = '{}'",
+            instrument_id, start_date);
+        conn_->Query(update_sql);
 
         return symbol;
     }
@@ -134,40 +135,43 @@ public:
     void StoreProgress(const std::string& job_id, const std::string& filename,
                        const DownloadProgress& progress) override {
         // Serialize completed_ranges to JSON-like string
-        std::ostringstream ranges_ss;
-        ranges_ss << "[";
+        // Each range: "[uint64,uint64]" ~40 chars max, plus brackets and commas
+        std::string ranges_str;
+        ranges_str.reserve(2 + progress.completed_ranges.size() * 45);
+        auto ranges_out = std::back_inserter(ranges_str);
+        *ranges_out++ = '[';
         for (size_t i = 0; i < progress.completed_ranges.size(); ++i) {
-            if (i > 0) ranges_ss << ",";
-            ranges_ss << "[" << progress.completed_ranges[i].first
-                      << "," << progress.completed_ranges[i].second << "]";
+            if (i > 0) *ranges_out++ = ',';
+            ranges_out = fmt::format_to(ranges_out, "[{},{}]",
+                progress.completed_ranges[i].first,
+                progress.completed_ranges[i].second);
         }
-        ranges_ss << "]";
+        *ranges_out++ = ']';
 
-        std::ostringstream sql;
-        sql << "INSERT INTO download_progress "
-            << "(job_id, filename, sha256_expected, total_size, completed_ranges) VALUES ("
-            << "'" << EscapeString(job_id) << "', "
-            << "'" << EscapeString(filename) << "', "
-            << "'" << EscapeString(progress.sha256_expected) << "', "
-            << progress.total_size << ", "
-            << "'" << ranges_ss.str() << "') "
-            << "ON CONFLICT (job_id, filename) DO UPDATE SET "
-            << "sha256_expected = EXCLUDED.sha256_expected, "
-            << "total_size = EXCLUDED.total_size, "
-            << "completed_ranges = EXCLUDED.completed_ranges";
+        auto sql = fmt::format(
+            "INSERT INTO download_progress "
+            "(job_id, filename, sha256_expected, total_size, completed_ranges) VALUES ("
+            "'{}', '{}', '{}', {}, '{}') "
+            "ON CONFLICT (job_id, filename) DO UPDATE SET "
+            "sha256_expected = EXCLUDED.sha256_expected, "
+            "total_size = EXCLUDED.total_size, "
+            "completed_ranges = EXCLUDED.completed_ranges",
+            EscapeString(job_id), EscapeString(filename),
+            EscapeString(progress.sha256_expected), progress.total_size,
+            ranges_str);
 
-        conn_->Query(sql.str());
+        conn_->Query(sql);
     }
 
     std::optional<DownloadProgress> LoadProgress(const std::string& job_id,
                                                   const std::string& filename) override {
-        std::ostringstream sql;
-        sql << "SELECT sha256_expected, total_size, completed_ranges "
-            << "FROM download_progress "
-            << "WHERE job_id = '" << EscapeString(job_id) << "' "
-            << "AND filename = '" << EscapeString(filename) << "'";
+        auto sql = fmt::format(
+            "SELECT sha256_expected, total_size, completed_ranges "
+            "FROM download_progress "
+            "WHERE job_id = '{}' AND filename = '{}'",
+            EscapeString(job_id), EscapeString(filename));
 
-        auto result = conn_->Query(sql.str());
+        auto result = conn_->Query(sql);
         if (result->HasError()) {
             return std::nullopt;
         }
@@ -190,12 +194,12 @@ public:
     }
 
     void ClearProgress(const std::string& job_id, const std::string& filename) override {
-        std::ostringstream sql;
-        sql << "DELETE FROM download_progress "
-            << "WHERE job_id = '" << EscapeString(job_id) << "' "
-            << "AND filename = '" << EscapeString(filename) << "'";
+        auto sql = fmt::format(
+            "DELETE FROM download_progress "
+            "WHERE job_id = '{}' AND filename = '{}'",
+            EscapeString(job_id), EscapeString(filename));
 
-        conn_->Query(sql.str());
+        conn_->Query(sql);
     }
 
     std::vector<std::pair<std::string, std::string>> ListIncompleteDownloads() override {
@@ -243,11 +247,12 @@ private:
         )");
 
         // Set schema version if not exists
-        std::ostringstream sql;
-        sql << "INSERT INTO schema_meta (key, value) "
-            << "SELECT 'version', '" << kSchemaVersion << "' "
-            << "WHERE NOT EXISTS (SELECT 1 FROM schema_meta WHERE key = 'version')";
-        conn_->Query(sql.str());
+        auto sql = fmt::format(
+            "INSERT INTO schema_meta (key, value) "
+            "SELECT 'version', '{}' "
+            "WHERE NOT EXISTS (SELECT 1 FROM schema_meta WHERE key = 'version')",
+            kSchemaVersion);
+        conn_->Query(sql);
 
         // Symbol mappings table - use VARCHAR for dates (ISO format YYYY-MM-DD)
         // String comparison works correctly for ISO date format
@@ -370,14 +375,14 @@ private:
         size_t target = static_cast<size_t>(max_mappings_ * 0.9);
         size_t to_delete = count - target;
 
-        std::ostringstream sql;
-        sql << "DELETE FROM symbol_mappings "
-            << "WHERE (instrument_id, start_date) IN ("
-            << "  SELECT instrument_id, start_date FROM symbol_mappings "
-            << "  ORDER BY last_accessed ASC LIMIT " << to_delete
-            << ")";
+        auto sql = fmt::format(
+            "DELETE FROM symbol_mappings "
+            "WHERE (instrument_id, start_date) IN ("
+            "  SELECT instrument_id, start_date FROM symbol_mappings "
+            "  ORDER BY last_accessed ASC LIMIT {})",
+            to_delete);
 
-        conn_->Query(sql.str());
+        conn_->Query(sql);
     }
 
     std::unique_ptr<duckdb::DuckDB> db_;
