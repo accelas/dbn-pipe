@@ -292,6 +292,26 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
         co_await wait_writable();
     }
 
+    // Flush the end-of-copy marker to ensure server receives it
+    // Without this, consumeInput may wait forever for a response
+    while (true) {
+        check_valid();
+        int flush_result = pq->flush(conn);
+        if (flush_result == 0) break;  // All data flushed
+        if (flush_result == -1) {
+            std::string err = pq->errorMessage(conn);
+            PGresult* res;
+            while ((res = pq->getResult(conn)) != nullptr) {
+                pq->clear(res);
+            }
+            in_copy_ = false;
+            state_->copy_in_flight = false;
+            throw std::runtime_error(err);
+        }
+        // flush_result == 1: More to flush, wait for writable
+        co_await wait_writable();
+    }
+
     // Note: Keep in_copy_ true until we've successfully drained all results.
     // This ensures destructor will attempt cleanup if we throw before completion.
 
@@ -406,7 +426,18 @@ asio::awaitable<void> PostgresCopyWriter::send_data(std::span<const std::byte> d
             static_cast<int>(data.size()));
 
         if (result == 1) {
-            // Success
+            // Success - now flush to ensure data reaches server
+            // In nonblocking mode, data may be buffered until flushed
+            while (true) {
+                check_valid();
+                int flush_result = pq->flush(conn);
+                if (flush_result == 0) break;  // All data flushed
+                if (flush_result == -1) {
+                    throw std::runtime_error(pq->errorMessage(conn));
+                }
+                // flush_result == 1: More to flush, wait for writable
+                co_await wait_writable();
+            }
             co_return;
         }
 

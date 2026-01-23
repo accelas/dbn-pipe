@@ -94,6 +94,12 @@ asio::awaitable<std::vector<SchemaMismatch>> SchemaValidator::validate(
     // Query column info from information_schema
     // Use current_schema() to avoid false matches across schemas
     // Escape table name to prevent SQL injection
+    //
+    // TODO: Currently only checks data_type, not length/precision modifiers.
+    // This means CHAR(1) and CHAR(10) are treated as equal (both "character").
+    // To fix: SELECT character_maximum_length, numeric_precision, numeric_scale
+    // and compare against parsed expected types. Acceptable for now since we
+    // primarily use fixed-size types (bigint, integer, etc.) without modifiers.
     std::ostringstream sql;
     sql << "SELECT column_name, data_type FROM information_schema.columns "
         << "WHERE table_schema = current_schema() "
