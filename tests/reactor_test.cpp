@@ -6,24 +6,25 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 
-#include "lib/stream/reactor.hpp"
+#include "lib/stream/epoll_event_loop.hpp"
+#include "lib/stream/event.hpp"
+#include "lib/stream/timer.hpp"
 
 using namespace dbn_pipe;
 
 TEST(ReactorTest, Construction) {
-    Reactor reactor;
+    EpollEventLoop reactor;
     // Should not throw, epoll_fd created
 }
 
 TEST(ReactorTest, PollEmpty) {
-    Reactor reactor;
-    // Non-blocking poll with no fds should return 0
-    int n = reactor.Poll(0);
-    EXPECT_EQ(n, 0);
+    EpollEventLoop reactor;
+    // Non-blocking poll with no fds should just return (no explicit return value)
+    reactor.Poll(0);
 }
 
 TEST(ReactorTest, EventAddRemove) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     // Create an eventfd for testing
     int efd = eventfd(0, EFD_NONBLOCK);
@@ -31,7 +32,7 @@ TEST(ReactorTest, EventAddRemove) {
 
     bool called = false;
     {
-        Event event(reactor, efd, EPOLLIN);
+        Event event(reactor, efd, true, false);  // want_read=true, want_write=false
         event.OnEvent([&](uint32_t) { called = true; });
 
         // Write to make it readable
@@ -39,8 +40,7 @@ TEST(ReactorTest, EventAddRemove) {
         write(efd, &val, sizeof(val));
 
         // Poll should trigger callback
-        int n = reactor.Poll(0);
-        EXPECT_EQ(n, 1);
+        reactor.Poll(0);
         EXPECT_TRUE(called);
 
         // Event goes out of scope, removes itself
@@ -50,21 +50,20 @@ TEST(ReactorTest, EventAddRemove) {
     called = false;
     uint64_t val = 1;
     write(efd, &val, sizeof(val));
-    int n = reactor.Poll(0);
-    EXPECT_EQ(n, 0);
+    reactor.Poll(0);
     EXPECT_FALSE(called);
 
     close(efd);
 }
 
 TEST(ReactorTest, EventModify) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     int efd = eventfd(0, EFD_NONBLOCK);
     ASSERT_GE(efd, 0);
 
     int call_count = 0;
-    Event event(reactor, efd, EPOLLIN);
+    Event event(reactor, efd, true, false);  // want_read=true, want_write=false
     event.OnEvent([&](uint32_t /*events*/) {
         call_count++;
     });
@@ -78,21 +77,21 @@ TEST(ReactorTest, EventModify) {
     // Read to clear
     read(efd, &val, sizeof(val));
 
-    // Modify to also watch EPOLLOUT (always ready for eventfd)
-    event.Modify(EPOLLIN | EPOLLOUT);
+    // Update to also watch write (always ready for eventfd)
+    event.Update(true, true);  // want_read=true, want_write=true
     reactor.Poll(0);
-    EXPECT_EQ(call_count, 2);  // EPOLLOUT fires
+    EXPECT_EQ(call_count, 2);  // write readiness fires
 
     close(efd);
 }
 
 TEST(ReactorTest, RunStop) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     int efd = eventfd(0, EFD_NONBLOCK);
     ASSERT_GE(efd, 0);
 
-    Event event(reactor, efd, EPOLLIN);
+    Event event(reactor, efd, true, false);  // want_read=true, want_write=false
     event.OnEvent([&](uint32_t) {
         reactor.Stop();
     });
@@ -108,7 +107,7 @@ TEST(ReactorTest, RunStop) {
 }
 
 TEST(ReactorTest, Timer) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     Timer timer(reactor);
 
@@ -132,7 +131,7 @@ TEST(ReactorTest, Timer) {
 }
 
 TEST(ReactorTest, TimerOneShot) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     Timer timer(reactor);
 
@@ -152,14 +151,14 @@ TEST(ReactorTest, TimerOneShot) {
 
 // Tests for IEventLoop interface implementation
 TEST(ReactorTest, ImplementsIEventLoop) {
-    Reactor reactor;
-    // Reactor should be usable as IEventLoop&
+    EpollEventLoop reactor;
+    // EpollEventLoop should be usable as IEventLoop&
     IEventLoop& loop = reactor;
     (void)loop;  // Suppress unused warning
 }
 
 TEST(ReactorTest, RegisterReadEvent) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     int efd = eventfd(0, EFD_NONBLOCK);
     ASSERT_GE(efd, 0);
@@ -182,7 +181,7 @@ TEST(ReactorTest, RegisterReadEvent) {
 }
 
 TEST(ReactorTest, RegisterWriteEvent) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     int efd = eventfd(0, EFD_NONBLOCK);
     ASSERT_GE(efd, 0);
@@ -202,7 +201,7 @@ TEST(ReactorTest, RegisterWriteEvent) {
 }
 
 TEST(ReactorTest, RegisterHandleUpdate) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     int efd = eventfd(0, EFD_NONBLOCK);
     ASSERT_GE(efd, 0);
@@ -229,7 +228,7 @@ TEST(ReactorTest, RegisterHandleUpdate) {
 }
 
 TEST(ReactorTest, RegisterHandleUnregisterOnDestruction) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     int efd = eventfd(0, EFD_NONBLOCK);
     ASSERT_GE(efd, 0);
@@ -256,7 +255,7 @@ TEST(ReactorTest, RegisterHandleUnregisterOnDestruction) {
 }
 
 TEST(ReactorTest, DeferFromIEventLoop) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     IEventLoop& loop = reactor;
 
@@ -269,7 +268,7 @@ TEST(ReactorTest, DeferFromIEventLoop) {
 }
 
 TEST(ReactorTest, IsInEventLoopThread) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     // Before Poll, no thread recorded yet, so returns false
     EXPECT_FALSE(reactor.IsInEventLoopThread());
@@ -287,7 +286,7 @@ TEST(ReactorTest, IsInEventLoopThread) {
 }
 
 TEST(ReactorTest, DeferThreadSafety) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     constexpr int kNumThreads = 4;
     constexpr int kCallsPerThread = 1000;
@@ -338,7 +337,7 @@ TEST(ReactorTest, DeferThreadSafety) {
 // cause Run() to run forever. Previously, Run() unconditionally set running_
 // to true, which would overwrite Stop()'s false value.
 TEST(ReactorTest, StopBeforeRunDoesNotHang) {
-    Reactor reactor;
+    EpollEventLoop reactor;
 
     // Call Stop() before Run() starts
     reactor.Stop();
@@ -363,7 +362,7 @@ TEST(ReactorTest, StopBeforeRunDoesNotHang) {
 TEST(ReactorTest, StopDuringRunStartup) {
     // Run this test multiple times to catch timing-dependent races
     for (int i = 0; i < 10; ++i) {
-        Reactor reactor;
+        EpollEventLoop reactor;
 
         std::atomic<bool> run_started{false};
         std::atomic<bool> run_exited{false};

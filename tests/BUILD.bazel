@@ -49,7 +49,9 @@ cc_test(
     name = "reactor_test",
     srcs = ["reactor_test.cpp"],
     deps = [
-        "//lib/stream:reactor",
+        "//lib/stream:epoll_event_loop",
+        "//lib/stream:event",
+        "//lib/stream:timer",
         "@googletest//:gtest_main",
     ],
 )
