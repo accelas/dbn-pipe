@@ -160,6 +160,7 @@ public:
         ErrorCallback on_error) override;
 
     void Defer(std::function<void()> fn) override;
+    void Schedule(std::chrono::milliseconds delay, TimerCallback fn) override;
     bool IsInEventLoopThread() const override;
 
     // Access underlying loop (for LibuvEventHandle)
@@ -215,6 +216,27 @@ void LibuvEventLoop::Defer(std::function<void()> fn) {
     }
     // Wake up event loop from any thread
     uv_async_send(&async_handle_);
+}
+
+void LibuvEventLoop::Schedule(std::chrono::milliseconds delay, TimerCallback fn) {
+    auto* timer = new uv_timer_t;
+    uv_timer_init(loop_, timer);
+
+    struct TimerData {
+        TimerCallback callback;
+    };
+    auto* data = new TimerData{std::move(fn)};
+    timer->data = data;
+
+    uv_timer_start(timer, [](uv_timer_t* handle) {
+        auto* data = static_cast<TimerData*>(handle->data);
+        data->callback();
+        delete data;
+        uv_timer_stop(handle);
+        uv_close(reinterpret_cast<uv_handle_t*>(handle), [](uv_handle_t* h) {
+            delete reinterpret_cast<uv_timer_t*>(h);
+        });
+    }, delay.count(), 0);
 }
 
 bool LibuvEventLoop::IsInEventLoopThread() const {
