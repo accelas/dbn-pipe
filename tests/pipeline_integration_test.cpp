@@ -5,7 +5,6 @@
 
 #include "src/client.hpp"
 #include "lib/stream/epoll_event_loop.hpp"
-#include "lib/stream/event.hpp"
 #include "lib/stream/timer.hpp"
 
 using namespace dbn_pipe;
