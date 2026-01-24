@@ -2,6 +2,7 @@
 
 #include "lib/stream/epoll_event_loop.hpp"
 
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/timerfd.h>
 #include <unistd.h>
@@ -97,6 +98,25 @@ EpollEventLoop::EpollEventLoop() {
         throw std::runtime_error(std::string("epoll_create1 failed: ") +
                                  std::strerror(errno));
     }
+
+    // Create eventfd for cross-thread wakeup
+    wake_fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+    if (wake_fd_ < 0) {
+        close(epoll_fd_);
+        throw std::runtime_error(std::string("eventfd failed: ") +
+                                 std::strerror(errno));
+    }
+
+    // Register wake_fd_ with epoll (data.ptr = nullptr to distinguish from handles)
+    epoll_event ev{};
+    ev.events = EPOLLIN;
+    ev.data.ptr = nullptr;
+    if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, wake_fd_, &ev) < 0) {
+        close(wake_fd_);
+        close(epoll_fd_);
+        throw std::runtime_error(std::string("epoll_ctl ADD wake_fd failed: ") +
+                                 std::strerror(errno));
+    }
 }
 
 EpollEventLoop::~EpollEventLoop() {
@@ -107,6 +127,11 @@ EpollEventLoop::~EpollEventLoop() {
         }
     }
     timers_.clear();
+
+    // Close wake_fd_ before epoll_fd_
+    if (wake_fd_ >= 0) {
+        close(wake_fd_);
+    }
 
     if (epoll_fd_ >= 0) {
         close(epoll_fd_);
@@ -126,8 +151,15 @@ std::unique_ptr<IEventHandle> EpollEventLoop::Register(
 }
 
 void EpollEventLoop::Defer(std::function<void()> fn) {
-    std::lock_guard<std::mutex> lock(deferred_mutex_);
-    deferred_callbacks_.push_back(std::move(fn));
+    {
+        std::lock_guard<std::mutex> lock(deferred_mutex_);
+        deferred_callbacks_.push_back(std::move(fn));
+    }
+
+    // Wake up the event loop if called from another thread
+    if (!IsInEventLoopThread()) {
+        Wake();
+    }
 }
 
 void EpollEventLoop::Schedule(std::chrono::milliseconds delay, TimerCallback fn) {
@@ -227,19 +259,36 @@ void EpollEventLoop::Poll(int timeout_ms) {
         auto* handle = static_cast<EpollEventHandle*>(events[i].data.ptr);
         if (handle != nullptr) {
             handle->HandleEvents(events[i].events);
+        } else {
+            // wake_fd_ event - read and discard to clear the eventfd
+            uint64_t val;
+            [[maybe_unused]] ssize_t n = read(wake_fd_, &val, sizeof(val));
         }
     }
+
+    // Process deferred callbacks that may have been added during wake
+    ProcessDeferredCallbacks();
 }
 
 void EpollEventLoop::Run() {
-    running_.store(true);
-    while (running_.load()) {
-        Poll(100);  // 100ms timeout to check running_ periodically
+    // Only run if we're in Idle state (not already Stopped)
+    State expected = State::Idle;
+    if (!state_.compare_exchange_strong(expected, State::Running)) {
+        return;  // Already running or stopped
+    }
+    while (state_.load() == State::Running) {
+        Poll(100);  // 100ms timeout to check state_ periodically
     }
 }
 
 void EpollEventLoop::Stop() {
-    running_.store(false);
+    state_.store(State::Stopped);
+    Wake();  // Interrupt epoll_wait so Run() exits immediately
+}
+
+void EpollEventLoop::Wake() {
+    uint64_t val = 1;
+    [[maybe_unused]] ssize_t n = write(wake_fd_, &val, sizeof(val));
 }
 
 void EpollEventLoop::ProcessDeferredCallbacks() {

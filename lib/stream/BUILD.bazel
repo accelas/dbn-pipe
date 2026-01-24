@@ -27,18 +27,17 @@ cc_library(
     deps = [":epoll_event_loop_internal"],
 )
 
+cc_library(
+    name = "event",
+    hdrs = ["event.hpp"],
+    deps = [":event_loop"],
+)
+
 # For tests that need direct access to EpollEventLoop
 cc_library(
     name = "epoll_event_loop",
     hdrs = ["epoll_event_loop.hpp"],
     deps = [":epoll_event_loop_internal"],
-)
-
-cc_library(
-    name = "reactor",
-    srcs = ["reactor.cpp"],
-    hdrs = ["reactor.hpp"],
-    deps = [":event_loop"],
 )
 
 cc_library(
@@ -156,4 +155,10 @@ cc_library(
         ":error",
         "@rapidjson",
     ],
+)
+
+cc_library(
+    name = "timer",
+    hdrs = ["timer.hpp"],
+    deps = [":event_loop"],
 )
