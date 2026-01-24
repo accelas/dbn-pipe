@@ -5,7 +5,8 @@
 
 #include "src/client.hpp"
 #include "lib/stream/epoll_event_loop.hpp"
-#include "lib/stream/reactor.hpp"
+#include "lib/stream/event.hpp"
+#include "lib/stream/timer.hpp"
 
 using namespace dbn_pipe;
 
@@ -79,19 +80,19 @@ TEST_F(PipelineIntegrationTest, SuspendResumeBeforeConnect) {
     EXPECT_FALSE(client->IsSuspended());
 }
 
-// Tests using Reactor (the legacy event loop) with Pipeline
-class ReactorPipelineTest : public ::testing::Test {
+// Tests using EpollEventLoop with Pipeline
+class EpollEventLoopPipelineTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        reactor_.Poll(0);  // Initialize thread ID
+        loop_.Poll(0);  // Initialize thread ID
     }
 
-    Reactor reactor_;
+    EpollEventLoop loop_;
 };
 
-TEST_F(ReactorPipelineTest, LiveClientWithReactor) {
-    // Reactor implements IEventLoop, so it should work with Pipeline::Create
-    auto client = LiveClient::Create(reactor_, "test_api_key");
+TEST_F(EpollEventLoopPipelineTest, LiveClientWithEpollEventLoop) {
+    // EpollEventLoop implements IEventLoop, so it should work with Pipeline::Create
+    auto client = LiveClient::Create(loop_, "test_api_key");
 
     bool error_received = false;
     bool complete_received = false;
@@ -113,8 +114,8 @@ TEST_F(ReactorPipelineTest, LiveClientWithReactor) {
     EXPECT_EQ(client->GetState(), ClientState::Stopping);
 }
 
-TEST_F(ReactorPipelineTest, HistoricalClientWithReactor) {
-    auto client = HistoricalClient::Create(reactor_, "test_api_key");
+TEST_F(EpollEventLoopPipelineTest, HistoricalClientWithEpollEventLoop) {
+    auto client = HistoricalClient::Create(loop_, "test_api_key");
 
     HistoricalRequest req{
         "GLBX.MDP3",
@@ -130,33 +131,33 @@ TEST_F(ReactorPipelineTest, HistoricalClientWithReactor) {
     EXPECT_EQ(client->GetState(), ClientState::Disconnected);
 }
 
-TEST_F(ReactorPipelineTest, DeferredCallbackWithReactor) {
-    auto client = LiveClient::Create(reactor_, "test_api_key");
+TEST_F(EpollEventLoopPipelineTest, DeferredCallbackWithEpollEventLoop) {
+    auto client = LiveClient::Create(loop_, "test_api_key");
 
     bool deferred_executed = false;
-    reactor_.Defer([&]() {
+    loop_.Defer([&]() {
         deferred_executed = true;
     });
 
     EXPECT_FALSE(deferred_executed);
-    reactor_.Poll(0);
+    loop_.Poll(0);
     EXPECT_TRUE(deferred_executed);
 }
 
-TEST_F(ReactorPipelineTest, ReactorWithTimer) {
-    auto client = LiveClient::Create(reactor_, "test_api_key");
+TEST_F(EpollEventLoopPipelineTest, EpollEventLoopWithTimer) {
+    auto client = LiveClient::Create(loop_, "test_api_key");
 
-    Timer timer(reactor_);
+    Timer timer(loop_);
     bool timer_fired = false;
 
     timer.OnTimer([&]() {
         timer_fired = true;
-        reactor_.Stop();
+        loop_.Stop();
     });
 
     timer.Start(10);  // 10ms one-shot timer
 
-    reactor_.Run();  // Will exit when timer fires
+    loop_.Run();  // Will exit when timer fires
 
     EXPECT_TRUE(timer_fired);
 }

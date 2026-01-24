@@ -238,7 +238,8 @@ cc_test(
     srcs = ["pipeline_integration_test.cpp"],
     deps = [
         "//lib/stream:epoll_event_loop",
-        "//lib/stream:reactor",
+        "//lib/stream:event",
+        "//lib/stream:timer",
         "//src:client",
         "@googletest//:gtest_main",
     ],
