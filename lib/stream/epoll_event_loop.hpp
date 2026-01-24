@@ -88,6 +88,7 @@ public:
     void Poll(int timeout_ms);
     void Run();
     void Stop();
+    void Wake();
 
     // Internal: called by EpollEventHandle
     int epoll_fd() const { return epoll_fd_; }
@@ -97,6 +98,7 @@ private:
     void HandleTimerExpired(int timer_fd);
 
     int epoll_fd_;
+    int wake_fd_ = -1;
     std::atomic<bool> running_{false};
     std::atomic<std::thread::id> loop_thread_id_{};
 
