@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <thread>
 #include <vector>
@@ -311,4 +312,25 @@ TEST(EpollEventLoopStandaloneTest, PollWithNoEvents) {
 
     // Should not block and return cleanly
     loop.Poll(0);
+}
+
+TEST(EpollEventLoopStandaloneTest, DeferFromOtherThreadWakesLoop) {
+    EpollEventLoop loop;
+
+    std::atomic<bool> callback_called{false};
+    std::thread other_thread([&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        loop.Defer([&]() { callback_called = true; });
+    });
+
+    // Poll with long timeout - should wake up when Defer() is called
+    auto start = std::chrono::steady_clock::now();
+    loop.Poll(1000);  // 1 second timeout
+    auto elapsed = std::chrono::steady_clock::now() - start;
+
+    other_thread.join();
+
+    EXPECT_TRUE(callback_called);
+    // Should have woken up quickly, not waited full second
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count(), 100);
 }

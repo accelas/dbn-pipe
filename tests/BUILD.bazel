@@ -49,7 +49,9 @@ cc_test(
     name = "reactor_test",
     srcs = ["reactor_test.cpp"],
     deps = [
-        "//lib/stream:reactor",
+        "//lib/stream:epoll_event_loop",
+        "//lib/stream:event",
+        "//lib/stream:timer",
         "@googletest//:gtest_main",
     ],
 )
@@ -236,7 +238,8 @@ cc_test(
     srcs = ["pipeline_integration_test.cpp"],
     deps = [
         "//lib/stream:epoll_event_loop",
-        "//lib/stream:reactor",
+        "//lib/stream:event",
+        "//lib/stream:timer",
         "//src:client",
         "@googletest//:gtest_main",
     ],
@@ -406,6 +409,26 @@ cc_test(
     deps = [
         "//lib/stream:json_parser",
         "//src:api_client",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "event_test",
+    srcs = ["event_test.cpp"],
+    deps = [
+        "//lib/stream:epoll_event_loop",
+        "//lib/stream:event",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "timer_test",
+    srcs = ["timer_test.cpp"],
+    deps = [
+        "//lib/stream:epoll_event_loop",
+        "//lib/stream:timer",
         "@googletest//:gtest_main",
     ],
 )
