@@ -1,0 +1,27 @@
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
+cc_library(
+    name = "rest_api",
+    hdrs = glob(["include/rest_api/*.hpp"]),
+    includes = ["include"],
+    deps = [
+        "//example/dbwriter",
+        "//lib/stream:event_loop",
+        "//lib/stream:http_client",
+        "//lib/stream:json_parser",
+        "//lib/stream:tcp_socket",
+        "//lib/stream:tls_transport",
+        "//src:client",
+        "@asio",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_test(
+    name = "rest_api_pipeline_test",
+    srcs = ["test/rest_api_pipeline_test.cpp"],
+    deps = [
+        ":rest_api",
+        "@googletest//:gtest_main",
+    ],
+)
