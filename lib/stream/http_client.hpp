@@ -108,17 +108,7 @@ public:
                 return;  // Wait for next OnResume
             }
 
-            if (err == HPE_USER) {
-                // Error already emitted in callback
-                return;
-            }
-
-            if (err != HPE_OK) {
-                this->EmitError(*downstream_,
-                                Error{ErrorCode::HttpError, llhttp_errno_name(err)});
-                this->RequestClose();
-                return;
-            }
+            if (HandleParseError(err)) return;
 
             pending_input_.Consume(chunk_size);
         }
@@ -139,22 +129,12 @@ public:
         // Handle close-delimited responses if message wasn't complete
         if (!message_complete_) {
             llhttp_errno_t err = llhttp_finish(&parser_);
-            if (err != HPE_OK) {
-                this->EmitError(*downstream_,
-                    Error{ErrorCode::HttpError, llhttp_errno_name(err)});
-                this->RequestClose();
-                return;
-            }
+            if (HandleParseError(err)) return;
         }
 
         // Check for HTTP error status
         if (status_code_ >= 300 && !this->IsFinalized()) {
-            std::string msg = "HTTP " + std::to_string(status_code_);
-            if (!error_body_.empty()) {
-                msg += ": " + error_body_;
-            }
-            this->EmitError(*downstream_, MakeHttpError(std::move(msg)));
-            this->RequestClose();
+            EmitHttpStatusError();
             return;
         }
 
@@ -264,6 +244,29 @@ private:
     // Create error with proper code and retry_after
     Error MakeHttpError(const std::string& msg) {
         return Error{StatusToErrorCode(status_code_), msg, 0, retry_after_};
+    }
+
+    // Emit HTTP status error (status >= 300) and request close
+    void EmitHttpStatusError() {
+        std::string msg = "HTTP " + std::to_string(status_code_);
+        if (!error_body_.empty()) {
+            msg += ": " + error_body_;
+        }
+        this->EmitError(*downstream_, MakeHttpError(std::move(msg)));
+        this->RequestClose();
+    }
+
+    // Handle llhttp parse error. Returns true if caller should return (error or user callback).
+    bool HandleParseError(llhttp_errno_t err) {
+        if (err == HPE_USER) {
+            return true;  // Error already emitted in callback
+        }
+        if (err != HPE_OK) {
+            this->EmitError(*downstream_, Error{ErrorCode::HttpError, llhttp_errno_name(err)});
+            this->RequestClose();
+            return true;
+        }
+        return false;  // Continue processing
     }
 
     // Segment pool for body output
@@ -383,17 +386,7 @@ void HttpClient<D>::OnData(BufferChain& data) {
             return;  // Wait for OnResume to continue
         }
 
-        if (err == HPE_USER) {
-            // Callback returned error - error was already emitted in callback
-            return;
-        }
-
-        if (err != HPE_OK) {
-            this->EmitError(*downstream_,
-                            Error{ErrorCode::HttpError, llhttp_errno_name(err)});
-            this->RequestClose();
-            return;
-        }
+        if (HandleParseError(err)) return;
 
         data.Consume(chunk_size);
     }
@@ -430,26 +423,14 @@ void HttpClient<D>::OnDone() {
         // Connection closed before message complete
         // Try to finalize the parser for close-delimited responses
         llhttp_errno_t err = llhttp_finish(&parser_);
-        if (err == HPE_OK && !this->IsFinalized()) {
-            // Parser finished OK but didn't trigger OnMessageComplete
-            // This is fine for close-delimited responses
-        } else if (err != HPE_OK) {
-            this->EmitError(*downstream_,
-                            Error{ErrorCode::HttpError, llhttp_errno_name(err)});
-            this->RequestClose();
-            return;
-        }
+        // HPE_OK without OnMessageComplete is fine for close-delimited responses
+        if (err != HPE_OK && HandleParseError(err)) return;
     }
 
     // Check for HTTP error status (connection closed before OnMessageComplete emitted error)
     // Skip if already finalized (OnMessageComplete already emitted error)
     if (status_code_ >= 300 && !this->IsFinalized()) {
-        std::string msg = "HTTP " + std::to_string(status_code_);
-        if (!error_body_.empty()) {
-            msg += ": " + error_body_;
-        }
-        this->EmitError(*downstream_, MakeHttpError(std::move(msg)));
-        this->RequestClose();
+        EmitHttpStatusError();
         return;
     }
 
@@ -586,12 +567,7 @@ int HttpClient<D>::OnMessageComplete(llhttp_t* parser) {
 
     if (self->status_code_ >= 300) {
         // HTTP error - emit error with body
-        std::string msg = "HTTP " + std::to_string(self->status_code_);
-        if (!self->error_body_.empty()) {
-            msg += ": " + self->error_body_;
-        }
-        self->EmitError(*self->downstream_, self->MakeHttpError(std::move(msg)));
-        self->RequestClose();
+        self->EmitHttpStatusError();
         return HPE_USER;  // Stop parsing immediately after error
     } else {
         // Check suspend before completion (even for zero-body responses)
