@@ -179,6 +179,7 @@ public:
             .path = "/v0/metadata.get_record_count",
             .host = kHostname,
             .port = kPort,
+            .path_params = {},
             .query_params = {},
             .form_params = {
                 {"dataset", dataset},
@@ -205,6 +206,7 @@ public:
             .path = "/v0/metadata.get_billable_size",
             .host = kHostname,
             .port = kPort,
+            .path_params = {},
             .query_params = {},
             .form_params = {
                 {"dataset", dataset},
@@ -231,6 +233,7 @@ public:
             .path = "/v0/metadata.get_cost",
             .host = kHostname,
             .port = kPort,
+            .path_params = {},
             .query_params = {},
             .form_params = {
                 {"dataset", dataset},
@@ -252,6 +255,7 @@ public:
             .path = "/v0/metadata.get_dataset_range",
             .host = kHostname,
             .port = kPort,
+            .path_params = {},
             .query_params = {{"dataset", dataset}},
             .form_params = {},
         };

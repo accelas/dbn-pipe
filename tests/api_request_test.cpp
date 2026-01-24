@@ -196,5 +196,58 @@ TEST(ApiRequestTest, MetadataGetDatasetRangeRequestFormat) {
               std::string::npos);
 }
 
+// Path template substitution tests
+
+TEST(ApiRequestTest, BuildHttpRequestWithPathParams) {
+    ApiRequest req{
+        .method = "GET",
+        .path = "/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}",
+        .host = "api.polygon.io",
+        .port = 443,
+        .path_params = {{"ticker", "AAPL"}, {"start", "2024-01-01"}, {"end", "2024-01-31"}},
+        .query_params = {{"apiKey", "test123"}},
+        .form_params = {},
+    };
+
+    std::string result = req.BuildHttpRequest("api.polygon.io", "my_api_key");
+
+    EXPECT_TRUE(result.find("GET /v2/aggs/ticker/AAPL/range/1/day/2024-01-01/2024-01-31?") != std::string::npos);
+    EXPECT_TRUE(result.find("apiKey=test123") != std::string::npos);
+    EXPECT_TRUE(result.find("Host: api.polygon.io") != std::string::npos);
+}
+
+TEST(ApiRequestTest, BuildHttpRequestWithoutPathParams) {
+    ApiRequest req{
+        .method = "GET",
+        .path = "/v0/metadata",
+        .host = "hist.databento.com",
+        .port = 443,
+        .path_params = {},
+        .query_params = {{"dataset", "GLBX.MDP3"}},
+        .form_params = {},
+    };
+
+    std::string result = req.BuildHttpRequest("hist.databento.com", "my_api_key");
+
+    EXPECT_TRUE(result.find("GET /v0/metadata?") != std::string::npos);
+    EXPECT_TRUE(result.find("dataset=GLBX.MDP3") != std::string::npos);
+}
+
+TEST(ApiRequestTest, BuildHttpRequestEmptyPathParams) {
+    ApiRequest req{
+        .method = "GET",
+        .path = "/v0/data",
+        .host = "example.com",
+        .port = 443,
+        .path_params = {},
+        .query_params = {},
+        .form_params = {},
+    };
+
+    std::string result = req.BuildHttpRequest("example.com", "key");
+
+    EXPECT_TRUE(result.find("GET /v0/data HTTP/1.1") != std::string::npos);
+}
+
 }  // namespace
 }  // namespace dbn_pipe
