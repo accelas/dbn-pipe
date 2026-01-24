@@ -41,13 +41,6 @@ cc_library(
 )
 
 cc_library(
-    name = "reactor",
-    srcs = ["reactor.cpp"],
-    hdrs = ["reactor.hpp"],
-    deps = [":event_loop"],
-)
-
-cc_library(
     name = "suspendable",
     hdrs = ["suspendable.hpp"],
 )
