@@ -49,6 +49,51 @@ public:
         return *this;
     }
 
+    // Set request path with parameter substitution
+    // Template syntax: {name} is replaced with corresponding value from params
+    // Missing params result in empty substitution
+    HttpRequestBuilder& PathTemplate(
+        std::string_view path_template,
+        std::span<const std::pair<std::string, std::string>> params
+    ) {
+        *out_++ = ' ';
+
+        size_t pos = 0;
+        while (pos < path_template.size()) {
+            size_t brace = path_template.find('{', pos);
+            if (brace == std::string_view::npos) {
+                out_ = fmt::format_to(out_, "{}", path_template.substr(pos));
+                break;
+            }
+
+            // Copy literal part before placeholder
+            if (brace > pos) {
+                out_ = fmt::format_to(out_, "{}", path_template.substr(pos, brace - pos));
+            }
+
+            // Find closing brace
+            size_t end_brace = path_template.find('}', brace);
+            if (end_brace == std::string_view::npos) {
+                // Malformed template, copy rest as-is
+                out_ = fmt::format_to(out_, "{}", path_template.substr(brace));
+                break;
+            }
+
+            // Extract param name and substitute
+            auto name = path_template.substr(brace + 1, end_brace - brace - 1);
+            for (const auto& [key, value] : params) {
+                if (key == name) {
+                    out_ = fmt::format_to(out_, "{}", value);
+                    break;
+                }
+            }
+
+            pos = end_brace + 1;
+        }
+
+        return *this;
+    }
+
     // Add a query parameter (URL-encoded)
     HttpRequestBuilder& QueryParam(std::string_view key, std::string_view value) {
         *out_++ = first_param_ ? '?' : '&';
