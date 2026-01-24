@@ -19,10 +19,12 @@ cc_library(
     else:
         include_dir = "/usr/include/postgresql"
 
-    # Symlink the libpq header
+    # Symlink the libpq headers
     repository_ctx.symlink(include_dir + "/libpq-fe.h", "include/libpq-fe.h")
     # Also include the postgres_ext.h which libpq-fe.h depends on
     repository_ctx.symlink(include_dir + "/postgres_ext.h", "include/postgres_ext.h")
+    # Also include pg_config_ext.h which postgres_ext.h depends on
+    repository_ctx.symlink(include_dir + "/pg_config_ext.h", "include/pg_config_ext.h")
 
 libpq_sys = repository_rule(
     implementation = _libpq_impl,
