@@ -7,7 +7,6 @@
 #include <unistd.h>
 
 #include "lib/stream/epoll_event_loop.hpp"
-#include "lib/stream/event.hpp"
 #include "lib/stream/timer.hpp"
 
 using namespace dbn_pipe;
@@ -23,7 +22,7 @@ TEST(ReactorTest, PollEmpty) {
     reactor.Poll(0);
 }
 
-TEST(ReactorTest, EventAddRemove) {
+TEST(ReactorTest, HandleAddRemove) {
     EpollEventLoop reactor;
 
     // Create an eventfd for testing
@@ -32,8 +31,11 @@ TEST(ReactorTest, EventAddRemove) {
 
     bool called = false;
     {
-        Event event(reactor, efd, true, false);  // want_read=true, want_write=false
-        event.OnEvent([&](uint32_t) { called = true; });
+        auto handle = reactor.Register(
+            efd, true, false,
+            [&]() { called = true; },
+            []() {},
+            [](int) {});
 
         // Write to make it readable
         uint64_t val = 1;
@@ -43,10 +45,10 @@ TEST(ReactorTest, EventAddRemove) {
         reactor.Poll(0);
         EXPECT_TRUE(called);
 
-        // Event goes out of scope, removes itself
+        // handle goes out of scope, removes itself
     }
 
-    // Verify no more callbacks after Event is gone
+    // Verify no more callbacks after handle is gone
     called = false;
     uint64_t val = 1;
     write(efd, &val, sizeof(val));
@@ -56,17 +58,18 @@ TEST(ReactorTest, EventAddRemove) {
     close(efd);
 }
 
-TEST(ReactorTest, EventModify) {
+TEST(ReactorTest, HandleModify) {
     EpollEventLoop reactor;
 
     int efd = eventfd(0, EFD_NONBLOCK);
     ASSERT_GE(efd, 0);
 
     int call_count = 0;
-    Event event(reactor, efd, true, false);  // want_read=true, want_write=false
-    event.OnEvent([&](uint32_t /*events*/) {
-        call_count++;
-    });
+    auto handle = reactor.Register(
+        efd, true, false,
+        [&]() { call_count++; },
+        [&]() { call_count++; },
+        [](int) {});
 
     // Write to trigger
     uint64_t val = 1;
@@ -78,7 +81,7 @@ TEST(ReactorTest, EventModify) {
     read(efd, &val, sizeof(val));
 
     // Update to also watch write (always ready for eventfd)
-    event.Update(true, true);  // want_read=true, want_write=true
+    handle->Update(true, true);
     reactor.Poll(0);
     EXPECT_EQ(call_count, 2);  // write readiness fires
 
@@ -91,10 +94,11 @@ TEST(ReactorTest, RunStop) {
     int efd = eventfd(0, EFD_NONBLOCK);
     ASSERT_GE(efd, 0);
 
-    Event event(reactor, efd, true, false);  // want_read=true, want_write=false
-    event.OnEvent([&](uint32_t) {
-        reactor.Stop();
-    });
+    auto handle = reactor.Register(
+        efd, true, false,
+        [&]() { reactor.Stop(); },
+        []() {},
+        [](int) {});
 
     // Write to trigger stop
     uint64_t val = 1;
