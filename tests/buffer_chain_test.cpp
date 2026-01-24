@@ -652,3 +652,80 @@ TEST(BufferChainTest, SizeIsCached) {
     chain.Clear();
     EXPECT_EQ(chain.Size(), 0);
 }
+
+TEST(BufferChainTest, WouldOverflow) {
+    BufferChain chain;
+
+    auto seg = std::make_shared<Segment>();
+    seg->size = 100;
+    chain.Append(seg);
+
+    // Current size is 100, limit is 200
+    EXPECT_FALSE(chain.WouldOverflow(50, 200));   // 100 + 50 = 150 <= 200
+    EXPECT_FALSE(chain.WouldOverflow(100, 200));  // 100 + 100 = 200 <= 200
+    EXPECT_TRUE(chain.WouldOverflow(101, 200));   // 100 + 101 = 201 > 200
+
+    // Edge case: exactly at limit
+    EXPECT_FALSE(chain.WouldOverflow(0, 100));    // 100 + 0 = 100 <= 100
+    EXPECT_TRUE(chain.WouldOverflow(1, 100));     // 100 + 1 = 101 > 100
+
+    // Empty chain
+    BufferChain empty;
+    EXPECT_FALSE(empty.WouldOverflow(100, 100));  // 0 + 100 = 100 <= 100
+    EXPECT_TRUE(empty.WouldOverflow(101, 100));   // 0 + 101 = 101 > 100
+}
+
+TEST(BufferChainTest, CompactAndSplice) {
+    BufferChain pending;
+    BufferChain data;
+
+    // Set up pending with partial consumption
+    auto seg1 = std::make_shared<Segment>();
+    const char* msg1 = "Hello";
+    std::memcpy(seg1->data.data(), msg1, 5);
+    seg1->size = 5;
+    pending.Append(seg1);
+    pending.Consume(2);  // Now partially consumed: "llo"
+
+    EXPECT_TRUE(pending.IsPartiallyConsumed());
+    EXPECT_EQ(pending.Size(), 3);
+
+    // Set up data
+    auto seg2 = std::make_shared<Segment>();
+    const char* msg2 = "World";
+    std::memcpy(seg2->data.data(), msg2, 5);
+    seg2->size = 5;
+    data.Append(seg2);
+
+    // CompactAndSplice should compact pending and splice data
+    pending.CompactAndSplice(data);
+
+    // pending should now have "lloWorld"
+    EXPECT_EQ(pending.Size(), 8);
+    EXPECT_FALSE(pending.IsPartiallyConsumed());
+    EXPECT_TRUE(data.Empty());
+
+    // Verify contents
+    std::byte buf[8];
+    pending.CopyTo(0, 8, buf);
+    EXPECT_EQ(std::memcmp(buf, "lloWorld", 8), 0);
+}
+
+TEST(BufferChainTest, CompactAndSplicePreservesRecycleCallback) {
+    int recycle_count = 0;
+    auto recycler = [&](std::shared_ptr<Segment>) { recycle_count++; };
+
+    BufferChain pending;
+    pending.SetRecycleCallback(recycler);
+
+    BufferChain data;
+    auto seg = std::make_shared<Segment>();
+    seg->size = 10;
+    data.Append(seg);
+
+    pending.CompactAndSplice(data);
+
+    // Consume and check recycler is called
+    pending.Consume(10);
+    EXPECT_EQ(recycle_count, 1);
+}

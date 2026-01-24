@@ -437,7 +437,7 @@ void TlsTransport<D>::Write(BufferChain data) {
     }
 
     // Check for buffer overflow (combined incoming + pending)
-    if (data.Size() > kMaxPendingWrite - write_pending_.Size()) {
+    if (write_pending_.WouldOverflow(data.Size(), kMaxPendingWrite)) {
         this->EmitError(*downstream_,
             Error{ErrorCode::BufferOverflow, "TLS write buffer overflow"});
         this->RequestClose();
@@ -446,14 +446,7 @@ void TlsTransport<D>::Write(BufferChain data) {
 
     // Prepend any pending write data
     if (!write_pending_.Empty()) {
-        // Compact both chains if partially consumed before splicing
-        if (write_pending_.IsPartiallyConsumed()) {
-            write_pending_.Compact();
-        }
-        if (data.IsPartiallyConsumed()) {
-            data.Compact();
-        }
-        write_pending_.Splice(std::move(data));
+        write_pending_.CompactAndSplice(data);
         data = std::move(write_pending_);
     }
 

@@ -346,21 +346,13 @@ void HttpClient<D>::OnData(BufferChain& data) {
 
     // If we have pending input, splice new data and process from pending
     if (!pending_input_.Empty()) {
-        // Check for overflow before splicing
-        if (data.Size() > kMaxPendingInput - pending_input_.Size()) {
+        if (pending_input_.WouldOverflow(data.Size(), kMaxPendingInput)) {
             this->EmitError(*downstream_,
                 Error{ErrorCode::BufferOverflow, "HTTP input buffer overflow"});
             this->RequestClose();
             return;
         }
-        // Compact both chains if partially consumed before splicing
-        if (pending_input_.IsPartiallyConsumed()) {
-            pending_input_.Compact();
-        }
-        if (data.IsPartiallyConsumed()) {
-            data.Compact();
-        }
-        pending_input_.Splice(std::move(data));
+        pending_input_.CompactAndSplice(data);
         ProcessPendingInput();
         return;
     }
