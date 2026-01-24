@@ -419,3 +419,13 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "timer_test",
+    srcs = ["timer_test.cpp"],
+    deps = [
+        "//lib/stream:epoll_event_loop",
+        "//lib/stream:timer",
+        "@googletest//:gtest_main",
+    ],
+)

@@ -163,3 +163,9 @@ cc_library(
         "@rapidjson",
     ],
 )
+
+cc_library(
+    name = "timer",
+    hdrs = ["timer.hpp"],
+    deps = [":event_loop"],
+)
