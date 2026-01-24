@@ -27,12 +27,6 @@ cc_library(
     deps = [":epoll_event_loop_internal"],
 )
 
-cc_library(
-    name = "event",
-    hdrs = ["event.hpp"],
-    deps = [":event_loop"],
-)
-
 # For tests that need direct access to EpollEventLoop
 cc_library(
     name = "epoll_event_loop",
