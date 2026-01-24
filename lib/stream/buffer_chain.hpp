@@ -261,6 +261,19 @@ public:
         return consumed_offset_ > 0;
     }
 
+    // Check if adding 'bytes' would exceed 'limit'.
+    // Uses subtraction pattern to avoid size_t overflow with large values.
+    bool WouldOverflow(size_t bytes, size_t limit) const noexcept {
+        return bytes > limit - total_size_;
+    }
+
+    // Compact this chain if partially consumed, then splice from other.
+    // Note: Splice() already auto-compacts 'other' if needed.
+    void CompactAndSplice(BufferChain& other) {
+        if (IsPartiallyConsumed()) Compact();
+        Splice(std::move(other));
+    }
+
     // Compact the chain by removing consumed bytes from the first segment.
     // After this call, consumed_offset_ == 0 and the chain can be Splice'd.
     // If the first segment is shared, creates a new segment to avoid corruption.

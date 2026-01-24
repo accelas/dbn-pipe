@@ -187,43 +187,27 @@ void ZstdDecompressor<D>::OnData(BufferChain& data) {
     if (!guard) return;
 
     if (this->IsSuspended()) {
-        // Use subtraction to avoid size_t overflow
-        if (data.Size() > kMaxPendingInput - pending_input_.Size()) {
+        if (pending_input_.WouldOverflow(data.Size(), kMaxPendingInput)) {
             this->EmitError(*downstream_,
                 Error{ErrorCode::DecompressionError,
                       "Decompressor input buffer overflow"});
             this->RequestClose();
             return;
         }
-        // Compact both chains if partially consumed before splicing
-        if (pending_input_.IsPartiallyConsumed()) {
-            pending_input_.Compact();
-        }
-        if (data.IsPartiallyConsumed()) {
-            data.Compact();
-        }
-        pending_input_.Splice(std::move(data));
+        pending_input_.CompactAndSplice(data);
         return;
     }
 
     // Process pending input first if any
     if (!pending_input_.Empty()) {
-        // Check for overflow before splicing (use subtraction to avoid overflow)
-        if (data.Size() > kMaxPendingInput - pending_input_.Size()) {
+        if (pending_input_.WouldOverflow(data.Size(), kMaxPendingInput)) {
             this->EmitError(*downstream_,
                 Error{ErrorCode::DecompressionError,
                       "Decompressor input buffer overflow"});
             this->RequestClose();
             return;
         }
-        // Compact both chains if partially consumed before splicing
-        if (pending_input_.IsPartiallyConsumed()) {
-            pending_input_.Compact();
-        }
-        if (data.IsPartiallyConsumed()) {
-            data.Compact();
-        }
-        pending_input_.Splice(std::move(data));
+        pending_input_.CompactAndSplice(data);
         if (!DecompressChain(pending_input_)) {
             return;
         }
