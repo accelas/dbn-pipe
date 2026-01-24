@@ -277,6 +277,7 @@ public:
             .path = "/v0/symbology.resolve",
             .host = kHostname,
             .port = kPort,
+            .path_params = {},
             .query_params = {},
             .form_params = {
                 {"dataset", dataset},

@@ -194,3 +194,86 @@ TEST(HttpRequestBuilderTest, ChainedBuilderWithConditionals) {
     EXPECT_TRUE(out.find("required=value") != std::string::npos);
     EXPECT_TRUE(out.find("optional=yes") != std::string::npos);
 }
+
+TEST(HttpRequestBuilderTest, PathTemplateSubstitution) {
+    std::string out;
+    std::vector<std::pair<std::string, std::string>> params = {
+        {"ticker", "AAPL"},
+        {"start", "2024-01-01"},
+        {"end", "2024-01-31"}
+    };
+
+    HttpRequestBuilder(std::back_inserter(out))
+        .Method("GET")
+        .PathTemplate("/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}", params)
+        .Host("api.polygon.io")
+        .Finish();
+
+    std::string expected =
+        "GET /v2/aggs/ticker/AAPL/range/1/day/2024-01-01/2024-01-31 HTTP/1.1\r\n"
+        "Host: api.polygon.io\r\n"
+        "\r\n";
+
+    EXPECT_EQ(out, expected);
+}
+
+TEST(HttpRequestBuilderTest, PathTemplateNoParams) {
+    std::string out;
+    std::vector<std::pair<std::string, std::string>> params;
+
+    HttpRequestBuilder(std::back_inserter(out))
+        .Method("GET")
+        .PathTemplate("/v0/data", params)
+        .Host("example.com")
+        .Finish();
+
+    std::string expected =
+        "GET /v0/data HTTP/1.1\r\n"
+        "Host: example.com\r\n"
+        "\r\n";
+
+    EXPECT_EQ(out, expected);
+}
+
+TEST(HttpRequestBuilderTest, PathTemplateMissingParam) {
+    std::string out;
+    std::vector<std::pair<std::string, std::string>> params = {
+        {"ticker", "AAPL"}
+        // "date" is missing
+    };
+
+    HttpRequestBuilder(std::back_inserter(out))
+        .Method("GET")
+        .PathTemplate("/v2/ticker/{ticker}/date/{date}", params)
+        .Host("example.com")
+        .Finish();
+
+    // Missing param results in empty substitution
+    std::string expected =
+        "GET /v2/ticker/AAPL/date/ HTTP/1.1\r\n"
+        "Host: example.com\r\n"
+        "\r\n";
+
+    EXPECT_EQ(out, expected);
+}
+
+TEST(HttpRequestBuilderTest, PathTemplateWithQueryParams) {
+    std::string out;
+    std::vector<std::pair<std::string, std::string>> path_params = {
+        {"symbol", "SPY"}
+    };
+
+    HttpRequestBuilder(std::back_inserter(out))
+        .Method("GET")
+        .PathTemplate("/v1/quote/{symbol}", path_params)
+        .QueryParam("apiKey", "test123")
+        .Host("api.example.com")
+        .Finish();
+
+    std::string expected =
+        "GET /v1/quote/SPY?apiKey=test123 HTTP/1.1\r\n"
+        "Host: api.example.com\r\n"
+        "\r\n";
+
+    EXPECT_EQ(out, expected);
+}
