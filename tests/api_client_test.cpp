@@ -55,6 +55,7 @@ TEST(ApiClientTest, ApiRequestBuildsCorrectly) {
         .path = "/v1/test",
         .host = "api.example.com",
         .port = 443,
+        .path_params = {},
         .query_params = {{"key", "value"}},
         .form_params = {},
     };
@@ -72,6 +73,7 @@ TEST(ApiClientTest, PostRequestWithFormParams) {
         .path = "/v1/submit",
         .host = "api.example.com",
         .port = 443,
+        .path_params = {},
         .query_params = {},
         .form_params = {{"field1", "value1"}, {"field2", "value2"}},
     };

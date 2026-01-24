@@ -30,6 +30,7 @@ struct ApiRequest {
     std::string path;
     std::string host = "hist.databento.com";
     uint16_t port = 443;
+    std::vector<std::pair<std::string, std::string>> path_params;
     std::vector<std::pair<std::string, std::string>> query_params;
     std::vector<std::pair<std::string, std::string>> form_params;  // For POST
 
@@ -43,8 +44,13 @@ struct ApiRequest {
         out.reserve(512);
 
         auto builder = HttpRequestBuilder(std::back_inserter(out))
-            .Method(method)
-            .Path(path);
+            .Method(method);
+
+        if (path_params.empty()) {
+            builder.Path(path);
+        } else {
+            builder.PathTemplate(path, path_params);
+        }
 
         for (const auto& [key, value] : query_params) {
             builder.QueryParam(key, value);
