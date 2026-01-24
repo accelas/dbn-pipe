@@ -271,14 +271,19 @@ void EpollEventLoop::Poll(int timeout_ms) {
 }
 
 void EpollEventLoop::Run() {
-    running_.store(true);
-    while (running_.load()) {
-        Poll(100);  // 100ms timeout to check running_ periodically
+    // Only run if we're in Idle state (not already Stopped)
+    State expected = State::Idle;
+    if (!state_.compare_exchange_strong(expected, State::Running)) {
+        return;  // Already running or stopped
+    }
+    while (state_.load() == State::Running) {
+        Poll(100);  // 100ms timeout to check state_ periodically
     }
 }
 
 void EpollEventLoop::Stop() {
-    running_.store(false);
+    state_.store(State::Stopped);
+    Wake();  // Interrupt epoll_wait so Run() exits immediately
 }
 
 void EpollEventLoop::Wake() {

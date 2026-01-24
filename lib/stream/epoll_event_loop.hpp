@@ -97,9 +97,11 @@ private:
     void ProcessDeferredCallbacks();
     void HandleTimerExpired(int timer_fd);
 
+    enum class State { Idle, Running, Stopped };
+
     int epoll_fd_;
     int wake_fd_ = -1;
-    std::atomic<bool> running_{false};
+    std::atomic<State> state_{State::Idle};
     std::atomic<std::thread::id> loop_thread_id_{};
 
     std::mutex deferred_mutex_;
