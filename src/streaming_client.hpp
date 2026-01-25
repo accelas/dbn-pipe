@@ -310,19 +310,42 @@ private:
     void HandleError(const Error& e) {
         if (IsTerminal()) return;  // Already handled
         state_ = State::Error;
-        if (error_handler_) error_handler_(e);
         // Teardown pipeline to release sockets and protocol components
         if (sink_) sink_->Invalidate();
         if (pipeline_) pipeline_->Stop();
+        // CRITICAL: Defer user callback to ensure pipeline's callback stack has unwound.
+        // Without this, if the user's callback spawns a coroutine that destroys
+        // this client, the destruction happens while still on the OnError stack,
+        // causing use-after-free.
+        if (error_handler_) {
+            Error error_copy = e;  // Copy since e may be invalidated
+            std::weak_ptr<StreamingClient> weak_self = this->shared_from_this();
+            loop_.Defer([weak_self, error_copy = std::move(error_copy)]() {
+                if (auto self = weak_self.lock()) {
+                    if (self->error_handler_) self->error_handler_(error_copy);
+                }
+            });
+        }
     }
 
     void HandleComplete() {
         if (IsTerminal()) return;  // Already handled
         state_ = State::Done;
-        if (complete_handler_) complete_handler_();
         // Teardown pipeline to release sockets and protocol components
         if (sink_) sink_->Invalidate();
         if (pipeline_) pipeline_->Stop();
+        // CRITICAL: Defer user callback to ensure pipeline's callback stack has unwound.
+        // Without this, if the user's callback spawns a coroutine that destroys
+        // this client (e.g., calling client_.reset()), the destruction happens
+        // while still on the OnDone stack, causing use-after-free.
+        if (complete_handler_) {
+            std::weak_ptr<StreamingClient> weak_self = this->shared_from_this();
+            loop_.Defer([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    if (self->complete_handler_) self->complete_handler_();
+                }
+            });
+        }
     }
 
     IEventLoop& loop_;
