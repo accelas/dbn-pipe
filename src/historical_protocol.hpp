@@ -148,7 +148,7 @@ struct HistoricalProtocol {
         const std::string& GetApiKey() const override { return api_key_; }
 
     private:
-        IEventLoop& loop_;
+        [[maybe_unused]] IEventLoop& loop_;
         std::string api_key_;
         std::shared_ptr<ParserType> parser_;
         std::shared_ptr<ZstdType> zstd_;
