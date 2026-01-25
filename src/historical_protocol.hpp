@@ -86,8 +86,7 @@ struct HistoricalProtocol {
         using HeadType = TcpSocket<TlsType>;
 
         ChainImpl(IEventLoop& loop, StreamRecordSink& sink, const std::string& api_key)
-            : loop_(loop)
-            , api_key_(api_key)
+            : api_key_(api_key)
             , parser_(std::make_shared<ParserType>(sink))
             , zstd_(ZstdType::Create(loop, parser_))
             , http_(HttpType::Create(loop, zstd_))
@@ -148,7 +147,6 @@ struct HistoricalProtocol {
         const std::string& GetApiKey() const override { return api_key_; }
 
     private:
-        IEventLoop& loop_;
         std::string api_key_;
         std::shared_ptr<ParserType> parser_;
         std::shared_ptr<ZstdType> zstd_;
