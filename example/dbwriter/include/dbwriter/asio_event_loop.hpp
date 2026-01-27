@@ -4,6 +4,7 @@
 
 #include "lib/stream/event_loop.hpp"
 #include <asio.hpp>
+#include <poll.h>
 #include <atomic>
 #include <chrono>
 #include <functional>
@@ -15,6 +16,12 @@ namespace dbwriter {
 // Shared state for AsioEventHandle to avoid use-after-free in async handlers.
 // Handlers capture shared_ptr<State> instead of raw this pointer.
 // The stream_descriptor is also owned by the state to ensure it outlives handlers.
+//
+// IMPORTANT: ASIO's epoll_reactor uses EPOLLET (edge-triggered epoll). The
+// one-shot async_wait pattern creates a race: between handler dequeue and
+// re-arm, edge events are silently consumed with no pending handler. We use
+// poll() after each callback to catch data that arrived during the window.
+// See: https://github.com/accelas/mango-data/issues/188
 struct AsioEventHandleState : public std::enable_shared_from_this<AsioEventHandleState> {
     asio::posix::stream_descriptor stream;
     std::function<void()> on_read;
@@ -22,31 +29,52 @@ struct AsioEventHandleState : public std::enable_shared_from_this<AsioEventHandl
     std::function<void(int)> on_error;
     bool want_read = false;
     bool want_write = false;
+    bool in_read_callback = false;
+    bool in_write_callback = false;
+    bool read_wait_pending = false;
+    bool write_wait_pending = false;
     std::atomic<bool> destroyed{false};  // Set when handle is destroyed
 
     explicit AsioEventHandleState(asio::io_context& ctx, int fd)
         : stream(ctx, fd) {}
 
     void start_waiting() {
-        if (want_read) {
+        if (want_read && !in_read_callback && !read_wait_pending) {
             start_read_wait();
         }
-        if (want_write) {
+        if (want_write && !in_write_callback && !write_wait_pending) {
             start_write_wait();
         }
     }
 
     void start_read_wait() {
-        // Capture weak_ptr to avoid preventing destruction
+        if (read_wait_pending || destroyed) return;
+        read_wait_pending = true;
         std::weak_ptr<AsioEventHandleState> weak_self = shared_from_this();
+        int fd_num = stream.native_handle();
         stream.async_wait(
             asio::posix::stream_descriptor::wait_read,
-            [weak_self](std::error_code ec) {
+            [weak_self, fd_num](std::error_code ec) {
                 auto self = weak_self.lock();
-                if (!self || self->destroyed) return;  // Handle was destroyed
+                if (!self || self->destroyed) return;
+                self->read_wait_pending = false;
                 if (!ec) {
-                    if (self->on_read) self->on_read();
+                    // Re-arm before callback so any edge events during the
+                    // callback have a pending handler to receive them.
                     if (self->want_read && !self->destroyed) {
+                        self->start_read_wait();
+                    }
+
+                    // Loop with poll() to drain data available after callback
+                    // execution, and avoid leaving readable data unprocessed.
+                    self->in_read_callback = true;
+                    do {
+                        if (self->on_read) self->on_read();
+                    } while (self->want_read && !self->destroyed &&
+                             fd_readable(fd_num));
+                    self->in_read_callback = false;
+
+                    if (self->want_read && !self->destroyed && !self->read_wait_pending) {
                         self->start_read_wait();
                     }
                 } else if (ec != asio::error::operation_aborted && self->on_error) {
@@ -56,22 +84,45 @@ struct AsioEventHandleState : public std::enable_shared_from_this<AsioEventHandl
     }
 
     void start_write_wait() {
-        // Capture weak_ptr to avoid preventing destruction
+        if (write_wait_pending || destroyed) return;
+        write_wait_pending = true;
         std::weak_ptr<AsioEventHandleState> weak_self = shared_from_this();
+        int fd_num = stream.native_handle();
         stream.async_wait(
             asio::posix::stream_descriptor::wait_write,
-            [weak_self](std::error_code ec) {
+            [weak_self, fd_num](std::error_code ec) {
                 auto self = weak_self.lock();
-                if (!self || self->destroyed) return;  // Handle was destroyed
+                if (!self || self->destroyed) return;
+                self->write_wait_pending = false;
                 if (!ec) {
-                    if (self->on_write) self->on_write();
                     if (self->want_write && !self->destroyed) {
+                        self->start_write_wait();
+                    }
+
+                    self->in_write_callback = true;
+                    do {
+                        if (self->on_write) self->on_write();
+                    } while (self->want_write && !self->destroyed &&
+                             fd_writable(fd_num));
+                    self->in_write_callback = false;
+
+                    if (self->want_write && !self->destroyed && !self->write_wait_pending) {
                         self->start_write_wait();
                     }
                 } else if (ec != asio::error::operation_aborted && self->on_error) {
                     self->on_error(ec.value());
                 }
             });
+    }
+
+    static bool fd_readable(int fd) {
+        struct pollfd pfd = {fd, POLLIN, 0};
+        return ::poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN);
+    }
+
+    static bool fd_writable(int fd) {
+        struct pollfd pfd = {fd, POLLOUT, 0};
+        return ::poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLOUT);
     }
 };
 
@@ -105,8 +156,11 @@ public:
     void Update(bool want_read, bool want_write) override {
         state_->want_read = want_read;
         state_->want_write = want_write;
-        // Cancel current waits and restart
+        // Cancel current waits and restart. start_waiting() skips re-arm
+        // if we're inside a callback (the callback loop handles it).
         state_->stream.cancel();
+        state_->read_wait_pending = false;
+        state_->write_wait_pending = false;
         state_->start_waiting();
     }
 
