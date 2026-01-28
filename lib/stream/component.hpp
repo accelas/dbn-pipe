@@ -224,19 +224,6 @@ public:
         return IsSuspended();
     }
 
-    // Check buffer size and emit overflow error if exceeded.
-    // Returns true if overflow detected (caller should return).
-    // NOTE: This helper is deprecated - use subtraction pattern before append instead.
-    template<TerminalDownstream D>
-    bool CheckOverflow(D& downstream, size_t current, size_t limit,
-                       const char* buffer_name = "Buffer") {
-        if (current <= limit) return false;
-        EmitError(downstream, Error{ErrorCode::BufferOverflow,
-                  std::string(buffer_name) + " overflow"});
-        static_cast<Derived*>(this)->RequestClose();
-        return true;
-    }
-
     // Propagate upstream error to downstream (common OnError pattern).
     // Handles guard check, emits error, and requests close.
     template<typename D>
