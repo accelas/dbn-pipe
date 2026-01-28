@@ -21,3 +21,45 @@ cc_library(
         ":fixed_string",
     ],
 )
+
+cc_library(
+    name = "trades",
+    hdrs = ["trades.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [":table"],
+)
+
+cc_library(
+    name = "mbp1",
+    hdrs = ["mbp1.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [":table"],
+)
+
+cc_library(
+    name = "ohlcv",
+    hdrs = ["ohlcv.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [":table"],
+)
+
+cc_library(
+    name = "definitions",
+    hdrs = ["definitions.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [":table"],
+)
+
+cc_library(
+    name = "statistics",
+    hdrs = ["statistics.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [":table"],
+)
+
+cc_library(
+    name = "status",
+    hdrs = ["status.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [":table"],
+)

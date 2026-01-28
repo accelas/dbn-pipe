@@ -26,3 +26,57 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "trades_test",
+    srcs = ["trades_test.cpp"],
+    deps = [
+        "//src/table:trades",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "mbp1_test",
+    srcs = ["mbp1_test.cpp"],
+    deps = [
+        "//src/table:mbp1",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "ohlcv_test",
+    srcs = ["ohlcv_test.cpp"],
+    deps = [
+        "//src/table:ohlcv",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "definitions_test",
+    srcs = ["definitions_test.cpp"],
+    deps = [
+        "//src/table:definitions",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "statistics_test",
+    srcs = ["statistics_test.cpp"],
+    deps = [
+        "//src/table:statistics",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "status_test",
+    srcs = ["status_test.cpp"],
+    deps = [
+        "//src/table:status",
+        "@googletest//:gtest_main",
+    ],
+)
