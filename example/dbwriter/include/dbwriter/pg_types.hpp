@@ -5,6 +5,7 @@
 #include "dbwriter/types.hpp"
 #include "src/table/column_type.hpp"
 #include <cstdint>
+#include <cstring>
 
 namespace dbwriter::pg {
 
@@ -78,6 +79,26 @@ struct Text {
     }
 };
 
+// PostgreSQL BOOLEAN (1 byte)
+struct Boolean {
+    static constexpr const char* pg_type_name() { return "BOOLEAN"; }
+    static void encode(bool val, ByteBuffer& buf) {
+        buf.put_int32_be(1);
+        buf.put_byte(val ? std::byte{1} : std::byte{0});
+    }
+};
+
+// PostgreSQL DOUBLE PRECISION (8 bytes, IEEE 754)
+struct DoublePrecision {
+    static constexpr const char* pg_type_name() { return "DOUBLE PRECISION"; }
+    static void encode(double val, ByteBuffer& buf) {
+        buf.put_int32_be(8);
+        uint64_t bits;
+        std::memcpy(&bits, &val, sizeof(bits));
+        buf.put_int64_be(static_cast<int64_t>(bits));
+    }
+};
+
 // Map dbn_pipe logical types to PG encoding types.
 template <typename LogicalType>
 struct PgTypeFor;
@@ -87,6 +108,8 @@ template <> struct PgTypeFor<dbn_pipe::Int32>     { using type = Integer;     st
 template <> struct PgTypeFor<dbn_pipe::Int16>     { using type = SmallInt;    static constexpr const char* name() { return "SMALLINT"; } };
 template <> struct PgTypeFor<dbn_pipe::Char>      { using type = Char;        static constexpr const char* name() { return "CHAR(1)"; } };
 template <> struct PgTypeFor<dbn_pipe::Timestamp> { using type = Timestamptz; static constexpr const char* name() { return "TIMESTAMPTZ"; } };
-template <> struct PgTypeFor<dbn_pipe::Text>      { using type = Text;        static constexpr const char* name() { return "TEXT"; } };
+template <> struct PgTypeFor<dbn_pipe::Text>      { using type = Text;            static constexpr const char* name() { return "TEXT"; } };
+template <> struct PgTypeFor<dbn_pipe::Bool>      { using type = Boolean;         static constexpr const char* name() { return "BOOLEAN"; } };
+template <> struct PgTypeFor<dbn_pipe::Float64>   { using type = DoublePrecision; static constexpr const char* name() { return "DOUBLE PRECISION"; } };
 
 }  // namespace dbwriter::pg

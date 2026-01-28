@@ -97,6 +97,47 @@ TEST(TimestamptzTest, Encode_WritesFromUnixNanoseconds) {
     EXPECT_EQ(view[11], std::byte{0x00});
 }
 
+TEST(BooleanTest, Encode_WritesTrue) {
+    ByteBuffer buf;
+    Boolean::encode(true, buf);
+
+    auto view = buf.view();
+    ASSERT_EQ(view.size(), 5);  // 4 (len) + 1 (data)
+
+    // Length = 1
+    EXPECT_EQ(view[3], std::byte{0x01});
+    // Value = 1
+    EXPECT_EQ(view[4], std::byte{0x01});
+}
+
+TEST(BooleanTest, Encode_WritesFalse) {
+    ByteBuffer buf;
+    Boolean::encode(false, buf);
+
+    auto view = buf.view();
+    ASSERT_EQ(view.size(), 5);  // 4 (len) + 1 (data)
+
+    EXPECT_EQ(view[3], std::byte{0x01});
+    EXPECT_EQ(view[4], std::byte{0x00});
+}
+
+TEST(DoublePrecisionTest, Encode_WritesLengthAndValue) {
+    ByteBuffer buf;
+    DoublePrecision::encode(1.0, buf);
+
+    auto view = buf.view();
+    ASSERT_EQ(view.size(), 12);  // 4 (len) + 8 (data)
+
+    // Length = 8
+    EXPECT_EQ(view[3], std::byte{0x08});
+
+    // IEEE 754: 1.0 = 0x3FF0000000000000 in big-endian
+    EXPECT_EQ(view[4], std::byte{0x3F});
+    EXPECT_EQ(view[5], std::byte{0xF0});
+    EXPECT_EQ(view[6], std::byte{0x00});
+    EXPECT_EQ(view[11], std::byte{0x00});
+}
+
 TEST(NullTest, Encode_WritesMinusOne) {
     ByteBuffer buf;
     Null::encode(buf);

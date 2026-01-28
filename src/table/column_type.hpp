@@ -24,7 +24,7 @@ struct Float64   { using cpp_type = double; };
 // Concept: a backend that can encode all logical types.
 // Consumers implement this (e.g., PgBackend, ArrowBackend).
 template <typename B>
-concept ColumnBackend = requires(B b) {
+concept ColumnBackend = requires(B& b) {
     { b.template encode<Int64>(int64_t{}) };
     { b.template encode<Int32>(int32_t{}) };
     { b.template encode<Int16>(int16_t{}) };
