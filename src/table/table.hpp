@@ -2,20 +2,23 @@
 
 #pragma once
 
-#include "dbwriter/fixed_string.hpp"
+#include "src/table/column_type.hpp"
+#include "src/table/fixed_string.hpp"
 #include <array>
 #include <string_view>
 #include <tuple>
 #include <utility>
 
-namespace dbwriter {
+namespace dbn_pipe {
 
-// Column definition
-template <FixedString Name, typename CppType, typename PgType>
+// Format-agnostic column definition.
+// Name: compile-time string (column name in the table)
+// LogicalType: one of Int64, Int32, Int16, Char, Timestamp, Text, Bool, Float64
+template <FixedString Name, typename LogicalType>
 struct Column {
     static constexpr auto name = Name;
-    using cpp_type = CppType;
-    using pg_type = PgType;
+    using type = LogicalType;
+    using cpp_type = typename LogicalType::cpp_type;
 };
 
 // Row storage with named access
@@ -56,7 +59,7 @@ private:
     Storage data_{};
 };
 
-// Table definition - stores table name as member, not template parameter
+// Table definition - format-agnostic, no PG coupling
 template <typename... Columns>
 class Table {
 public:
@@ -73,15 +76,10 @@ public:
         return {Columns::name.view()...};
     }
 
-    std::array<const char*, kColumnCount> column_pg_types() const {
-        return {Columns::pg_type::pg_type_name()...};
-    }
-
     using RowType = Row<Columns...>;
     using ColumnsTuple = std::tuple<Columns...>;
 
 private:
-    // Internal storage for table name - use largest reasonable size
     static constexpr std::size_t kMaxNameSize = 128;
 
     struct NameStorage {
@@ -104,4 +102,4 @@ private:
 template <std::size_t N, typename... Columns>
 Table(const char (&)[N], Columns...) -> Table<Columns...>;
 
-}  // namespace dbwriter
+}  // namespace dbn_pipe

@@ -6,8 +6,8 @@
 #include "dbwriter/asio_event_loop.hpp"
 #include "dbwriter/batch_writer.hpp"
 #include "dbwriter/pg_types.hpp"
-#include "dbwriter/table.hpp"
 #include "dbwriter/transform.hpp"
+#include "src/table/table.hpp"
 #include "test/mock_libpq.hpp"
 #include <gtest/gtest.h>
 #include <atomic>
@@ -32,11 +32,11 @@ struct TestRecord {
 };
 
 // Table schema
-constexpr auto test_table = Table{"trades",
-    Column<"ts_event", int64_t, pg::BigInt>{},
-    Column<"instrument_id", int32_t, pg::Integer>{},
-    Column<"price", int64_t, pg::BigInt>{},
-    Column<"size", int32_t, pg::Integer>{},
+constexpr auto test_table = dbn_pipe::Table{"trades",
+    dbn_pipe::Column<"ts_event", dbn_pipe::Int64>{},
+    dbn_pipe::Column<"instrument_id", dbn_pipe::Int32>{},
+    dbn_pipe::Column<"price", dbn_pipe::Int64>{},
+    dbn_pipe::Column<"size", dbn_pipe::Int32>{},
 };
 
 // Transform function

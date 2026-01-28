@@ -6,10 +6,11 @@
 namespace dbn_pipe {
 namespace {
 
-TEST(ColumnTest, HasNameAndTypes) {
+TEST(ColumnTest, HasNameAndType) {
     using Col = Column<"price", Int64>;
 
     EXPECT_EQ(Col::name.view(), "price");
+    static_assert(std::is_same_v<Col::type, Int64>);
     static_assert(std::is_same_v<Col::cpp_type, int64_t>);
 }
 
@@ -36,20 +37,50 @@ TEST(TableTest, ColumnNames) {
     EXPECT_EQ(names[1], "b");
 }
 
-TEST(TableTest, RowType_HasNamedMembers) {
+TEST(TableTest, RowNamedAccess) {
     constexpr auto table = Table{"test",
         Column<"id", Int64>{},
         Column<"name", Text>{},
     };
 
-    using Row = decltype(table)::RowType;
+    using RowT = decltype(table)::RowType;
 
-    Row row{};
+    RowT row{};
     row.template get<"id">() = 42;
     row.template get<"name">() = "hello";
 
     EXPECT_EQ(row.template get<"id">(), 42);
     EXPECT_EQ(row.template get<"name">(), "hello");
+}
+
+TEST(TableTest, RowAsTuple) {
+    constexpr auto table = Table{"test",
+        Column<"x", Int32>{},
+        Column<"y", Int64>{},
+    };
+
+    using RowT = decltype(table)::RowType;
+    RowT row{};
+    row.template get<"x">() = 10;
+    row.template get<"y">() = 20;
+
+    auto& [x, y] = row.as_tuple();
+    EXPECT_EQ(x, 10);
+    EXPECT_EQ(y, 20);
+}
+
+TEST(TableTest, TimestampColumn) {
+    constexpr auto table = Table{"test",
+        Column<"ts", Timestamp>{},
+    };
+
+    using RowT = decltype(table)::RowType;
+    RowT row{};
+    row.template get<"ts">() = 1706300000000000000LL;  // unix nanos
+
+    // Timestamp is just int64_t — no PG conversion
+    static_assert(std::is_same_v<Timestamp::cpp_type, int64_t>);
+    EXPECT_EQ(row.template get<"ts">(), 1706300000000000000LL);
 }
 
 }  // namespace

@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <string_view>
 
-namespace dbwriter {
+namespace dbn_pipe {
 
 // Compile-time string for use as template parameter
 template <std::size_t N>
@@ -19,11 +19,13 @@ struct FixedString {
     constexpr std::string_view view() const { return {data, N}; }
     constexpr std::size_t size() const { return N; }
 
-    constexpr bool operator==(const FixedString& other) const {
+    template <std::size_t M>
+    constexpr bool operator==(const FixedString<M>& other) const {
         return view() == other.view();
     }
 
-    constexpr auto operator<=>(const FixedString& other) const {
+    template <std::size_t M>
+    constexpr auto operator<=>(const FixedString<M>& other) const {
         return view() <=> other.view();
     }
 };
@@ -32,4 +34,4 @@ struct FixedString {
 template <std::size_t N>
 FixedString(const char (&)[N]) -> FixedString<N - 1>;
 
-}  // namespace dbwriter
+}  // namespace dbn_pipe

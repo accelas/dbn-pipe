@@ -4,6 +4,7 @@
 
 #include "dbwriter/database.hpp"
 #include "dbwriter/pg_types.hpp"
+#include "src/table/table.hpp"
 #include <asio/awaitable.hpp>
 #include <cctype>
 #include <sstream>
@@ -71,6 +72,12 @@ inline std::string quote_identifier(std::string_view ident) {
 }
 }  // namespace detail
 
+// Helper: extract PG type name strings from a dbn_pipe::Table (format-agnostic columns).
+template <typename... Columns>
+std::array<const char*, sizeof...(Columns)> pg_type_names(const dbn_pipe::Table<Columns...>&) {
+    return { pg::PgTypeFor<typename Columns::type>::name()... };
+}
+
 // Template implementations
 
 template <typename Table>
@@ -79,7 +86,7 @@ std::string SchemaValidator::create_table_sql(const Table& table) {
     ss << "CREATE TABLE IF NOT EXISTS " << detail::quote_identifier(table.name()) << " (";
 
     auto columns = table.column_names();
-    auto types = table.column_pg_types();
+    auto types = pg_type_names(table);
 
     for (size_t i = 0; i < columns.size(); ++i) {
         if (i > 0) ss << ", ";
@@ -119,7 +126,7 @@ asio::awaitable<std::vector<SchemaMismatch>> SchemaValidator::validate(
     auto result = co_await db.query(sql.str());
 
     auto expected_columns = table.column_names();
-    auto expected_types = table.column_pg_types();
+    auto expected_types = pg_type_names(table);
 
     // Check if table exists - empty result means table doesn't exist
     if (result.empty()) {

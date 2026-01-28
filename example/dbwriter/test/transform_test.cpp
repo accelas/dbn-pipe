@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "dbwriter/transform.hpp"
-#include "dbwriter/table.hpp"
-#include "dbwriter/pg_types.hpp"
+#include "src/table/table.hpp"
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
@@ -23,13 +22,13 @@ struct TradeRecord {
 };
 
 // Target table
-constexpr auto trades_table = Table{"trades",
-    Column<"ts_event_ns", int64_t, pg::BigInt>{},
-    Column<"ts_event", Timestamp, pg::Timestamptz>{},
-    Column<"instrument_id", int32_t, pg::Integer>{},
-    Column<"underlying_id", int32_t, pg::Integer>{},
-    Column<"price", int64_t, pg::BigInt>{},
-    Column<"size", int32_t, pg::Integer>{},
+constexpr auto trades_table = dbn_pipe::Table{"trades",
+    dbn_pipe::Column<"ts_event_ns", dbn_pipe::Int64>{},
+    dbn_pipe::Column<"ts_event", dbn_pipe::Timestamp>{},
+    dbn_pipe::Column<"instrument_id", dbn_pipe::Int32>{},
+    dbn_pipe::Column<"underlying_id", dbn_pipe::Int32>{},
+    dbn_pipe::Column<"price", dbn_pipe::Int64>{},
+    dbn_pipe::Column<"size", dbn_pipe::Int32>{},
 };
 
 using TradesRow = decltype(trades_table)::RowType;
@@ -42,7 +41,7 @@ struct Transform<TradeRecord, decltype(trades_table)> {
     TradesRow operator()(const TradeRecord& rec) const {
         TradesRow row;
         row.get<"ts_event_ns">() = rec.ts_event_ns;
-        row.get<"ts_event">() = Timestamp::from_unix_ns(rec.ts_event_ns);
+        row.get<"ts_event">() = rec.ts_event_ns;  // raw int64_t unix nanoseconds
         row.get<"instrument_id">() = rec.instrument_id;
         row.get<"underlying_id">() = instruments.underlying(rec.instrument_id).value_or(0);
         row.get<"price">() = rec.price;
@@ -89,8 +88,8 @@ TEST(TransformTest, DerivesTimestamp) {
     TradeRecord rec{.ts_event_ns = pg_epoch_ns, .instrument_id = 0, .price = 0, .size = 0};
     auto row = transform(rec);
 
-    // ts_event should be 0 (PG epoch)
-    EXPECT_EQ(row.get<"ts_event">().to_pg_timestamp(), 0);
+    // ts_event is raw int64_t unix nanoseconds
+    EXPECT_EQ(row.get<"ts_event">(), pg_epoch_ns);
 }
 
 TEST(TransformTest, LookupFailure_ReturnsZero) {
