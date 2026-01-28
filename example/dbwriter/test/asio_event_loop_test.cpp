@@ -62,7 +62,12 @@ TEST(AsioEventLoopTest, RegisterFdForRead) {
         pipefd[0],  // read end
         true,       // want read
         false,      // no write
-        [&] { read_called = true; },
+        [&] {
+            read_called = true;
+            // Consume data so the poll drain loop terminates
+            char buf;
+            ::read(pipefd[0], &buf, 1);
+        },
         [] {},
         [](int) {});
 
@@ -89,12 +94,17 @@ TEST(AsioEventLoopTest, RegisterFdForWrite) {
     ASSERT_EQ(pipe(pipefd), 0);
 
     bool write_called = false;
-    auto handle = loop.Register(
+    std::unique_ptr<dbn_pipe::IEventHandle> handle;
+    handle = loop.Register(
         pipefd[1],  // write end
         false,      // no read
         true,       // want write
         [] {},
-        [&] { write_called = true; },
+        [&] {
+            write_called = true;
+            // Stop wanting writes so the poll drain loop terminates
+            handle->Update(false, false);
+        },
         [](int) {});
 
     // Run event loop briefly - write end should be immediately writable
@@ -116,23 +126,25 @@ TEST(AsioEventLoopTest, EventHandleUpdate) {
 
     int read_count = 0;
     int write_count = 0;
-    auto handle = loop.Register(
+    std::unique_ptr<dbn_pipe::IEventHandle> handle;
+    handle = loop.Register(
         pipefd[1],
         false, true,  // Initially want write only
         [&] { read_count++; },
-        [&] { write_count++; },
+        [&] {
+            write_count++;
+            // Stop wanting writes so the poll drain loop terminates
+            handle->Update(false, false);
+        },
         [](int) {});
 
     ctx.run_for(std::chrono::milliseconds(10));
     EXPECT_GT(write_count, 0);
 
-    // Update to disable write
-    handle->Update(false, false);
-
     int prev_write_count = write_count;
     ctx.run_for(std::chrono::milliseconds(10));
-    // Write count should not increase significantly after disabling
-    EXPECT_LE(write_count, prev_write_count + 1);
+    // Write count should not increase after disabling
+    EXPECT_EQ(write_count, prev_write_count);
 
     close(pipefd[0]);
     close(pipefd[1]);
