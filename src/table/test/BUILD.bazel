@@ -1,0 +1,10 @@
+load("@rules_cc//cc:defs.bzl", "cc_test")
+
+cc_test(
+    name = "fixed_string_test",
+    srcs = ["fixed_string_test.cpp"],
+    deps = [
+        "//src/table:fixed_string",
+        "@googletest//:gtest_main",
+    ],
+)
