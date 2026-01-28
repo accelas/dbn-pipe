@@ -11,3 +11,13 @@ cc_library(
     hdrs = ["column_type.hpp"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "table",
+    hdrs = ["table.hpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":column_type",
+        ":fixed_string",
+    ],
+)
