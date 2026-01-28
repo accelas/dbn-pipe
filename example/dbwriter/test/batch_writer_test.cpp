@@ -2,7 +2,7 @@
 
 #include "dbwriter/batch_writer.hpp"
 #include "dbwriter/pg_types.hpp"
-#include "dbwriter/table.hpp"
+#include "src/table/table.hpp"
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>
@@ -19,9 +19,9 @@ struct TestRecord {
 };
 
 // Test table schema
-constexpr auto test_table = Table{"test",
-    Column<"id", int64_t, pg::BigInt>{},
-    Column<"value", int32_t, pg::Integer>{},
+constexpr auto test_table = dbn_pipe::Table{"test",
+    dbn_pipe::Column<"id", dbn_pipe::Int64>{},
+    dbn_pipe::Column<"value", dbn_pipe::Int32>{},
 };
 
 // Transform function

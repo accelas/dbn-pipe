@@ -2,11 +2,16 @@
 
 #pragma once
 
-#include "dbwriter/table.hpp"
+#include "dbwriter/pg_types.hpp"
 #include "dbwriter/types.hpp"
+#include "src/table/table.hpp"
 #include <tuple>
 
 namespace dbwriter {
+
+// dbn_pipe columns expose ::type (logical type); legacy dbwriter columns expose ::pg_type.
+template <typename C>
+concept LogicalColumn = requires { typename C::type; };
 
 template <typename Table>
 class Mapper {
@@ -53,15 +58,20 @@ private:
 
     template <std::size_t I>
     void encode_field(const RowType& row, ByteBuffer& buf) const {
-        // Get the Column definition which contains the PgType
         using ColumnsTuple = typename Table::ColumnsTuple;
         using Column = std::tuple_element_t<I, ColumnsTuple>;
-        using PgType = typename Column::pg_type;
 
         const auto& value = std::get<I>(row.as_tuple());
 
-        // Use the PgType's encode method
-        PgType::encode(value, buf);
+        if constexpr (LogicalColumn<Column>) {
+            // dbn_pipe Column: map logical type to PG encoder
+            using PgType = typename pg::PgTypeFor<typename Column::type>::type;
+            PgType::encode(value, buf);
+        } else {
+            // Legacy dbwriter Column: use pg_type directly
+            using PgType = typename Column::pg_type;
+            PgType::encode(value, buf);
+        }
     }
 };
 

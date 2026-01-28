@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: MIT
 
-#include "dbwriter/table.hpp"
-#include "dbwriter/pg_types.hpp"
-#include "dbwriter/types.hpp"
+#include "src/table/table.hpp"
 #include <gtest/gtest.h>
 
-namespace dbwriter {
+namespace dbn_pipe {
 namespace {
 
 TEST(ColumnTest, HasNameAndTypes) {
-    using Col = Column<"price", int64_t, pg::BigInt>;
+    using Col = Column<"price", Int64>;
 
     EXPECT_EQ(Col::name.view(), "price");
     static_assert(std::is_same_v<Col::cpp_type, int64_t>);
@@ -17,9 +15,9 @@ TEST(ColumnTest, HasNameAndTypes) {
 
 TEST(TableTest, HasNameAndColumns) {
     constexpr auto table = Table{"trades",
-        Column<"id", int64_t, pg::BigInt>{},
-        Column<"price", int64_t, pg::BigInt>{},
-        Column<"size", int32_t, pg::Integer>{},
+        Column<"id", Int64>{},
+        Column<"price", Int64>{},
+        Column<"size", Int32>{},
     };
 
     EXPECT_EQ(table.name(), "trades");
@@ -28,8 +26,8 @@ TEST(TableTest, HasNameAndColumns) {
 
 TEST(TableTest, ColumnNames) {
     constexpr auto table = Table{"test",
-        Column<"a", int64_t, pg::BigInt>{},
-        Column<"b", int32_t, pg::Integer>{},
+        Column<"a", Int64>{},
+        Column<"b", Int32>{},
     };
 
     auto names = table.column_names();
@@ -40,8 +38,8 @@ TEST(TableTest, ColumnNames) {
 
 TEST(TableTest, RowType_HasNamedMembers) {
     constexpr auto table = Table{"test",
-        Column<"id", int64_t, pg::BigInt>{},
-        Column<"name", std::string_view, pg::Text>{},
+        Column<"id", Int64>{},
+        Column<"name", Text>{},
     };
 
     using Row = decltype(table)::RowType;
@@ -55,4 +53,4 @@ TEST(TableTest, RowType_HasNamedMembers) {
 }
 
 }  // namespace
-}  // namespace dbwriter
+}  // namespace dbn_pipe
