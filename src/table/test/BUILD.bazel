@@ -8,3 +8,12 @@ cc_test(
         "@googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "column_type_test",
+    srcs = ["column_type_test.cpp"],
+    deps = [
+        "//src/table:column_type",
+        "@googletest//:gtest_main",
+    ],
+)

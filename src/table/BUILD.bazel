@@ -5,3 +5,9 @@ cc_library(
     hdrs = ["fixed_string.hpp"],
     visibility = ["//visibility:public"],
 )
+
+cc_library(
+    name = "column_type",
+    hdrs = ["column_type.hpp"],
+    visibility = ["//visibility:public"],
+)
