@@ -40,7 +40,7 @@ bazel test //tests/...
 using namespace dbn_pipe;
 
 int main() {
-    Reactor reactor;
+    EpollEventLoop reactor;
     auto client = LiveClient::Create(reactor, "your-api-key");
 
     client->SetRequest({
@@ -73,7 +73,7 @@ int main() {
 using namespace dbn_pipe;
 
 int main() {
-    Reactor reactor;
+    EpollEventLoop reactor;
     auto client = HistoricalClient::Create(reactor, "your-api-key");
 
     client->SetRequest({
@@ -157,7 +157,10 @@ See [docs/libuv-integration.md](docs/libuv-integration.md) for complete adapter 
 ## Documentation
 
 - **[Getting Started](docs/getting-started.md)** - Complete guide with all features
+- **[API Guide](docs/api-guide.md)** - Symbol resolution, storage, table definitions, retry policy
 - **[libuv Integration](docs/libuv-integration.md)** - Integrate with existing libuv event loop
+- **[REST API Example](example/rest_api/README.md)** - Coroutine-based REST API pipeline
+- **[dbWriter Design](example/dbwriter/DESIGN.md)** - PostgreSQL COPY sink with object mapping
 
 ## Architecture
 
@@ -179,7 +182,10 @@ API Pipeline (Metadata/Symbology):
 | Component | Description |
 |-----------|-------------|
 | `IEventLoop` | Event loop interface for custom integrations (libuv, asio) |
-| `Reactor` | Built-in epoll-based event loop with timers |
+| `EpollEventLoop` | Built-in epoll-based event loop |
+| `Timer` | Periodic and one-shot timers on any `IEventLoop` |
+| `Event` | Low-level fd monitoring on any `IEventLoop` |
+| `RestApiPipeline` | Coroutine-based REST API client with `PathTemplate` |
 | `Pipeline<Protocol>` | Generic pipeline template with state machine |
 | `LiveClient` | Alias for `Pipeline<LiveProtocol>` |
 | `HistoricalClient` | Alias for `Pipeline<HistoricalProtocol>` |
