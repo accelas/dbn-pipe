@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 
 #include "dbwriter/schema_validator.hpp"
-#include "dbwriter/table.hpp"
 #include "dbwriter/pg_types.hpp"
+#include "src/table/table.hpp"
 #include <gtest/gtest.h>
 #include <asio.hpp>
 
 namespace dbwriter {
 namespace {
 
-constexpr auto test_table = Table{"test",
-    Column<"id", int64_t, pg::BigInt>{},
-    Column<"name", std::string_view, pg::Text>{},
+constexpr auto test_table = dbn_pipe::Table{"test",
+    dbn_pipe::Column<"id", dbn_pipe::Int64>{},
+    dbn_pipe::Column<"name", dbn_pipe::Text>{},
 };
 
 // Simple row implementation for testing
@@ -174,8 +174,8 @@ TEST(SchemaValidatorTest, TableNameEscaped) {
     SchemaValidator validator;
 
     // Table with SQL injection attempt in name
-    constexpr auto evil_table = Table{"test'; DROP TABLE users; --",
-        Column<"id", int64_t, pg::BigInt>{},
+    constexpr auto evil_table = dbn_pipe::Table{"test'; DROP TABLE users; --",
+        dbn_pipe::Column<"id", dbn_pipe::Int64>{},
     };
 
     db.set_result({});  // Table doesn't exist

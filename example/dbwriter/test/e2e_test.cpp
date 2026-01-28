@@ -24,10 +24,10 @@
 
 #include "dbwriter/postgres.hpp"
 #include "dbwriter/mapper.hpp"
-#include "dbwriter/table.hpp"
 #include "dbwriter/pg_types.hpp"
 #include "dbwriter/types.hpp"
 #include "dbwriter/asio_event_loop.hpp"
+#include "src/table/table.hpp"
 
 #include "src/client.hpp"
 
@@ -136,12 +136,12 @@ protected:
 };
 
 // Define the trades table schema matching what we'll store
-constexpr auto trades_table = Table{"trades",
-    Column<"ts_event_ns", int64_t, pg::BigInt>{},
-    Column<"ts_event", Timestamp, pg::Timestamptz>{},
-    Column<"instrument_id", int32_t, pg::Integer>{},
-    Column<"price", int64_t, pg::BigInt>{},
-    Column<"size", int32_t, pg::Integer>{},
+constexpr auto trades_table = dbn_pipe::Table{"trades",
+    dbn_pipe::Column<"ts_event_ns", dbn_pipe::Int64>{},
+    dbn_pipe::Column<"ts_event", dbn_pipe::Timestamp>{},
+    dbn_pipe::Column<"instrument_id", dbn_pipe::Int32>{},
+    dbn_pipe::Column<"price", dbn_pipe::Int64>{},
+    dbn_pipe::Column<"size", dbn_pipe::Int32>{},
 };
 
 using TradesRow = decltype(trades_table)::RowType;
@@ -286,7 +286,7 @@ TEST_F(E2ETest, DownloadAndWriteTrades) {
 
         TradesRow row;
         row.get<"ts_event_ns">() = static_cast<int64_t>(ts_ns);
-        row.get<"ts_event">() = Timestamp::from_unix_ns(static_cast<int64_t>(ts_ns));
+        row.get<"ts_event">() = static_cast<int64_t>(ts_ns);  // raw int64_t unix nanoseconds
         row.get<"instrument_id">() = ref.Header().instrument_id;
         row.get<"price">() = 0;  // Would need TradeMsg cast for real price
         row.get<"size">() = 0;

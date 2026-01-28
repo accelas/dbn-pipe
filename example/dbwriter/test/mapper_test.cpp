@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 
 #include "dbwriter/mapper.hpp"
-#include "dbwriter/table.hpp"
 #include "dbwriter/pg_types.hpp"
 #include "dbwriter/types.hpp"
+#include "src/table/table.hpp"
 #include <gtest/gtest.h>
 
 namespace dbwriter {
 namespace {
 
-constexpr auto test_table = Table{"test",
-    Column<"id", int64_t, pg::BigInt>{},
-    Column<"value", int32_t, pg::Integer>{},
+constexpr auto test_table = dbn_pipe::Table{"test",
+    dbn_pipe::Column<"id", dbn_pipe::Int64>{},
+    dbn_pipe::Column<"value", dbn_pipe::Int32>{},
 };
 
 TEST(MapperTest, EncodeRow_WritesFieldCount) {

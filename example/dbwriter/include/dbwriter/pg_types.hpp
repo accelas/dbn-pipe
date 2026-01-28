@@ -3,7 +3,9 @@
 #pragma once
 
 #include "dbwriter/types.hpp"
+#include "src/table/column_type.hpp"
 #include <cstdint>
+#include <cstring>
 
 namespace dbwriter::pg {
 
@@ -46,6 +48,14 @@ struct Char {
 // PostgreSQL TIMESTAMPTZ (8 bytes, microseconds since 2000-01-01)
 struct Timestamptz {
     static constexpr const char* pg_type_name() { return "TIMESTAMPTZ"; }
+    // Encode from unix nanoseconds (dbn_pipe::Timestamp::cpp_type)
+    static void encode(int64_t unix_ns, ByteBuffer& buf) {
+        constexpr int64_t kPgEpochOffsetUsec = 946684800000000LL;
+        int64_t pg_usec = unix_ns / 1000 - kPgEpochOffsetUsec;
+        buf.put_int32_be(8);
+        buf.put_int64_be(pg_usec);
+    }
+    // Legacy overload: encode from dbwriter::Timestamp (already PG epoch)
     static void encode(Timestamp val, ByteBuffer& buf) {
         buf.put_int32_be(8);
         buf.put_int64_be(val.to_pg_timestamp());
@@ -68,5 +78,38 @@ struct Text {
         buf.put_bytes({reinterpret_cast<const std::byte*>(val.data()), val.size()});
     }
 };
+
+// PostgreSQL BOOLEAN (1 byte)
+struct Boolean {
+    static constexpr const char* pg_type_name() { return "BOOLEAN"; }
+    static void encode(bool val, ByteBuffer& buf) {
+        buf.put_int32_be(1);
+        buf.put_byte(val ? std::byte{1} : std::byte{0});
+    }
+};
+
+// PostgreSQL DOUBLE PRECISION (8 bytes, IEEE 754)
+struct DoublePrecision {
+    static constexpr const char* pg_type_name() { return "DOUBLE PRECISION"; }
+    static void encode(double val, ByteBuffer& buf) {
+        buf.put_int32_be(8);
+        uint64_t bits;
+        std::memcpy(&bits, &val, sizeof(bits));
+        buf.put_int64_be(static_cast<int64_t>(bits));
+    }
+};
+
+// Map dbn_pipe logical types to PG encoding types.
+template <typename LogicalType>
+struct PgTypeFor;
+
+template <> struct PgTypeFor<dbn_pipe::Int64>     { using type = BigInt;      static constexpr const char* name() { return "BIGINT"; } };
+template <> struct PgTypeFor<dbn_pipe::Int32>     { using type = Integer;     static constexpr const char* name() { return "INTEGER"; } };
+template <> struct PgTypeFor<dbn_pipe::Int16>     { using type = SmallInt;    static constexpr const char* name() { return "SMALLINT"; } };
+template <> struct PgTypeFor<dbn_pipe::Char>      { using type = Char;        static constexpr const char* name() { return "CHAR(1)"; } };
+template <> struct PgTypeFor<dbn_pipe::Timestamp> { using type = Timestamptz; static constexpr const char* name() { return "TIMESTAMPTZ"; } };
+template <> struct PgTypeFor<dbn_pipe::Text>      { using type = Text;            static constexpr const char* name() { return "TEXT"; } };
+template <> struct PgTypeFor<dbn_pipe::Bool>      { using type = Boolean;         static constexpr const char* name() { return "BOOLEAN"; } };
+template <> struct PgTypeFor<dbn_pipe::Float64>   { using type = DoublePrecision; static constexpr const char* name() { return "DOUBLE PRECISION"; } };
 
 }  // namespace dbwriter::pg

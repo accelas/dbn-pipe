@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-#include "dbwriter/fixed_string.hpp"
+#include "src/table/fixed_string.hpp"
 #include <gtest/gtest.h>
 
-namespace dbwriter {
+namespace dbn_pipe {
 namespace {
 
 TEST(FixedStringTest, ConstructFromLiteral) {
@@ -41,4 +41,4 @@ TEST(FixedStringTest, UsableAsTemplateParameter) {
 }
 
 }  // namespace
-}  // namespace dbwriter
+}  // namespace dbn_pipe
