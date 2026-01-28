@@ -2,12 +2,41 @@
 
 #include "dbwriter/postgres.hpp"
 #include <climits>
+#include <poll.h>
 #include <sstream>
 #include <stdexcept>
 
 namespace dbwriter {
 
 namespace {
+
+bool fd_ready(int fd, short events) {
+    struct pollfd pfd = {fd, events, 0};
+    int rc = ::poll(&pfd, 1, 0);
+    if (rc <= 0) return false;
+    return (pfd.revents & (events | POLLERR | POLLHUP)) != 0;
+}
+
+bool fd_readable(int fd) {
+    return fd_ready(fd, POLLIN);
+}
+
+bool fd_writable(int fd) {
+    return fd_ready(fd, POLLOUT);
+}
+
+asio::awaitable<void> wait_fd_readable(asio::posix::stream_descriptor& socket, int fd) {
+    while (!fd_readable(fd)) {
+        co_await socket.async_wait(asio::posix::stream_descriptor::wait_read, asio::use_awaitable);
+    }
+}
+
+asio::awaitable<void> wait_fd_writable(asio::posix::stream_descriptor& socket, int fd) {
+    while (!fd_writable(fd)) {
+        co_await socket.async_wait(asio::posix::stream_descriptor::wait_write, asio::use_awaitable);
+    }
+}
+
 // Quote a PostgreSQL identifier to prevent SQL injection.
 // Doubles any embedded double-quotes and wraps in double-quotes.
 std::string quote_identifier(std::string_view ident) {
@@ -198,6 +227,7 @@ asio::awaitable<void> PostgresCopyWriter::start() {
     }
 
     // Flush command to server (required for nonblocking mode)
+    int fd = socket_.native_handle();
     while (true) {
         check_valid();
         int flush_result = pq->flush(conn);
@@ -206,22 +236,19 @@ asio::awaitable<void> PostgresCopyWriter::start() {
             throw std::runtime_error(pq->errorMessage(conn));
         }
         // flush_result == 1: More to flush, wait for writable
-        co_await socket_.async_wait(
-            asio::posix::stream_descriptor::wait_write,
-            asio::use_awaitable);
+        co_await wait_fd_writable(socket_, fd);
     }
 
     // Wait for result: consume → check busy → wait if needed
-    do {
+    while (pq->isBusy(conn)) {
         check_valid();
+        if (!fd_readable(fd)) {
+            co_await wait_fd_readable(socket_, fd);
+        }
         if (!pq->consumeInput(conn)) {
             throw std::runtime_error(pq->errorMessage(conn));
         }
-        if (!pq->isBusy(conn)) break;
-        co_await socket_.async_wait(
-            asio::posix::stream_descriptor::wait_read,
-            asio::use_awaitable);
-    } while (pq->isBusy(conn));
+    }
 
     PGresult* res = pq->getResult(conn);
     if (!res) {
@@ -315,16 +342,16 @@ asio::awaitable<void> PostgresCopyWriter::finish() {
     // This ensures destructor will attempt cleanup if we throw before completion.
 
     // Wait for result: consume → check busy → wait if needed
-    do {
+    int fd = socket_.native_handle();
+    while (pq->isBusy(conn)) {
         check_valid();
+        if (!fd_readable(fd)) {
+            co_await wait_fd_readable(socket_, fd);
+        }
         if (!pq->consumeInput(conn)) {
             throw std::runtime_error(pq->errorMessage(conn));
         }
-        if (!pq->isBusy(conn)) break;
-        co_await socket_.async_wait(
-            asio::posix::stream_descriptor::wait_read,
-            asio::use_awaitable);
-    } while (pq->isBusy(conn));
+    }
 
     PGresult* res = pq->getResult(conn);
     if (!res) {
@@ -400,16 +427,16 @@ asio::awaitable<void> PostgresCopyWriter::abort() {
         }
 
         // Wait for result: consume → check busy → wait if needed
-        do {
-            if (!state_->valid) break;  // Connection gone
+        int fd = socket_.native_handle();
+        while (state_->valid && pq->isBusy(conn)) {
+            if (fd >= 0 && !fd_readable(fd)) {
+                co_await wait_fd_readable(socket_, fd);
+            }
+            if (!state_->valid) break;
             if (!pq->consumeInput(conn)) {
                 break;  // Connection error, can't do more
             }
-            if (!pq->isBusy(conn)) break;
-            co_await socket_.async_wait(
-                asio::posix::stream_descriptor::wait_read,
-                asio::use_awaitable);
-        } while (state_->valid && pq->isBusy(conn));
+        }
 
         // Drain all results
         if (state_->valid) {
@@ -424,9 +451,12 @@ asio::awaitable<void> PostgresCopyWriter::abort() {
 }
 
 asio::awaitable<void> PostgresCopyWriter::wait_writable() {
-    co_await socket_.async_wait(
-        asio::posix::stream_descriptor::wait_write,
-        asio::use_awaitable);
+    int fd = socket_.native_handle();
+    if (fd < 0) {
+        co_await socket_.async_wait(asio::posix::stream_descriptor::wait_write, asio::use_awaitable);
+        co_return;
+    }
+    co_await wait_fd_writable(socket_, fd);
 }
 
 asio::awaitable<void> PostgresCopyWriter::send_data(std::span<const std::byte> data) {
@@ -566,9 +596,7 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
             throw std::runtime_error(pq_.errorMessage(conn));
         }
         // flush_result == 1: More to flush, wait for writable
-        co_await socket.async_wait(
-            asio::posix::stream_descriptor::wait_write,
-            asio::use_awaitable);
+        co_await wait_fd_writable(socket, fd);
     }
 
     // Wait for result: consume → check busy → wait if needed
@@ -588,15 +616,12 @@ asio::awaitable<QueryResult> PostgresDatabase::query(std::string_view sql) {
         ~ScopeGuard() { fn(); }
     } scope_guard{cleanup};
 
-    do {
-        if (!pq_.consumeInput(conn)) {
-            throw std::runtime_error(pq_.errorMessage(conn));
+    while (pq_.isBusy(conn)) {
+        if (!fd_readable(fd)) {
+            co_await wait_fd_readable(socket, fd);
         }
-        if (!pq_.isBusy(conn)) break;
-        co_await socket.async_wait(
-            asio::posix::stream_descriptor::wait_read,
-            asio::use_awaitable);
-    } while (pq_.isBusy(conn));
+        pq_.consumeInput(conn);
+    }
 
     PGresult* res = pq_.getResult(conn);
     if (!res) {
@@ -674,9 +699,7 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
             throw std::runtime_error(pq_.errorMessage(conn));
         }
         // flush_result == 1: More to flush, wait for writable
-        co_await socket.async_wait(
-            asio::posix::stream_descriptor::wait_write,
-            asio::use_awaitable);
+        co_await wait_fd_writable(socket, fd);
     }
 
     // Wait for result: consume → check busy → wait if needed
@@ -696,15 +719,12 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
         ~ScopeGuard() { fn(); }
     } scope_guard{cleanup};
 
-    do {
-        if (!pq_.consumeInput(conn)) {
-            throw std::runtime_error(pq_.errorMessage(conn));
+    while (pq_.isBusy(conn)) {
+        if (!fd_readable(fd)) {
+            co_await wait_fd_readable(socket, fd);
         }
-        if (!pq_.isBusy(conn)) break;
-        co_await socket.async_wait(
-            asio::posix::stream_descriptor::wait_read,
-            asio::use_awaitable);
-    } while (pq_.isBusy(conn));
+        pq_.consumeInput(conn);
+    }
 
     PGresult* res = pq_.getResult(conn);
     if (!res) {
