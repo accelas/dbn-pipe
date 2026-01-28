@@ -1,6 +1,6 @@
 # Getting Started
 
-Use dbn-pipe with the built-in `Reactor`. For libuv or asio integration, see [libuv-integration.md](libuv-integration.md).
+Use dbn-pipe with the built-in `EpollEventLoop`. For libuv or asio integration, see [libuv-integration.md](libuv-integration.md).
 
 ## Overview
 
@@ -20,7 +20,7 @@ Both use zero-copy pipelines with backpressure.
 #include "src/client.hpp"
 
 int main() {
-    dbn_pipe::Reactor reactor;
+    dbn_pipe::EpollEventLoop reactor;
     auto client = dbn_pipe::LiveClient::Create(reactor, "your-api-key");
 
     client->SetRequest({
@@ -50,7 +50,7 @@ int main() {
 #include "src/client.hpp"
 
 int main() {
-    dbn_pipe::Reactor reactor;
+    dbn_pipe::EpollEventLoop reactor;
     auto client = dbn_pipe::HistoricalClient::Create(reactor, "your-api-key");
 
     client->SetRequest({
@@ -222,7 +222,7 @@ Created -> Connecting -> Ready -> Started -> TornDown
 ## Timers
 
 ```cpp
-dbn_pipe::Reactor reactor;
+dbn_pipe::EpollEventLoop reactor;
 dbn_pipe::Timer stats_timer(reactor);
 
 // Periodic: print stats every 5 seconds
@@ -247,7 +247,7 @@ reactor.Run();
 Monitor custom file descriptors:
 
 ```cpp
-dbn_pipe::Reactor reactor;
+dbn_pipe::EpollEventLoop reactor;
 int my_fd = /* ... */;
 dbn_pipe::Event event(reactor, my_fd, EPOLLIN);
 
@@ -278,10 +278,10 @@ client->Connect(*addr);
 
 ## Multiple Clients
 
-One reactor drives many clients:
+One event loop drives many clients:
 
 ```cpp
-dbn_pipe::Reactor reactor;
+dbn_pipe::EpollEventLoop reactor;
 
 auto es = dbn_pipe::LiveClient::Create(reactor, api_key);
 es->SetRequest({.dataset = "GLBX.MDP3", .symbols = "ESZ4", .schema = "mbp-1"});
@@ -308,14 +308,14 @@ reactor.Run();
 
 ## Deferred Execution
 
-`Defer()` schedules a callback on the event loop thread—the only thread-safe reactor method.
+`Defer()` schedules a callback on the event loop thread—the only thread-safe event loop method.
 
 ### Signal Handler
 
-Signal handlers run in interrupt context; call `Defer()` to reach the reactor thread:
+Signal handlers run in interrupt context; call `Defer()` to reach the event loop thread:
 
 ```cpp
-dbn_pipe::Reactor* g_reactor = nullptr;
+dbn_pipe::EpollEventLoop* g_reactor = nullptr;
 
 void signal_handler(int) {
     if (g_reactor) {
@@ -359,10 +359,10 @@ client->OnError([&](const dbn_pipe::Error& e) {
 #include <csignal>
 #include <databento/record.hpp>
 #include "src/client.hpp"
-#include "src/reactor.hpp"
+#include "src/stream.hpp"
 
 std::atomic<bool> g_shutdown{false};
-dbn_pipe::Reactor* g_reactor = nullptr;
+dbn_pipe::EpollEventLoop* g_reactor = nullptr;
 
 void signal_handler(int) {
     g_shutdown = true;
@@ -372,7 +372,7 @@ void signal_handler(int) {
 }
 
 int main() {
-    dbn_pipe::Reactor reactor;
+    dbn_pipe::EpollEventLoop reactor;
     g_reactor = &reactor;
 
     std::signal(SIGINT, signal_handler);
@@ -423,7 +423,7 @@ int main() {
 
 | Method | Thread-safe |
 |--------|-------------|
-| `Reactor::Defer()` | Yes |
+| `EpollEventLoop::Defer()` | Yes |
 | `Pipeline::IsSuspended()` | Yes |
 | All others | No—event loop thread only |
 
@@ -438,6 +438,8 @@ int main() {
 
 ## Next Steps
 
-- [api-guide.md](api-guide.md) — symbol resolution, storage, retry policy
+- [api-guide.md](api-guide.md) — symbol resolution, storage, table definitions, retry policy
 - [libuv-integration.md](libuv-integration.md) — libuv adapter
+- [REST API example](../example/rest_api/README.md) — coroutine-based REST API pipeline
+- [dbWriter design](../example/dbwriter/DESIGN.md) — PostgreSQL COPY sink
 - [Databento Docs](https://docs.databento.com/) — API reference

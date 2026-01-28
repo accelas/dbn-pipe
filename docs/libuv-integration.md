@@ -1,10 +1,10 @@
 # Libuv Integration Guide
 
-This guide shows how to integrate the databento-async library with an existing libuv event loop.
+This guide shows how to integrate the dbn-pipe library with an existing libuv event loop.
 
 ## Overview
 
-The `IEventLoop` interface allows you to integrate databento-async with any event loop system. This guide demonstrates how to create a libuv adapter that wraps an existing `uv_loop_t*` without taking ownership.
+The `IEventLoop` interface allows you to integrate dbn-pipe with any event loop system. This guide demonstrates how to create a libuv adapter that wraps an existing `uv_loop_t*` without taking ownership.
 
 Key design principles:
 - **Non-owning adapter**: Wraps your existing `uv_loop_t*` - you retain full control
@@ -448,4 +448,4 @@ LibuvEventHandle::~LibuvEventHandle() {
 | Cross-thread wakeup | eventfd | `uv_async_t` |
 | Platform | Linux only | Cross-platform (via libuv) |
 
-Choose `EpollEventLoop` when you want databento-async to manage the event loop. Choose `LibuvEventLoop` when integrating into an existing libuv-based application.
+Choose `EpollEventLoop` when you want dbn-pipe to manage the event loop. Choose `LibuvEventLoop` when integrating into an existing libuv-based application.
