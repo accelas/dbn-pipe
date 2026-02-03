@@ -44,6 +44,9 @@ TEST(StreamingClientTest, StartBeforeConnectEmitsError) {
     client->SetRequest(req);
     client->Start();  // Should emit error - not connected
 
+    // Error callback is deferred via loop.Defer(), need to run event loop
+    loop.Poll(0);
+
     EXPECT_TRUE(error_received);
 }
 
