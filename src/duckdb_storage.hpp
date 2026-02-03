@@ -17,8 +17,8 @@
 
 #include <duckdb.hpp>
 
-#include "storage.hpp"
-#include "trading_date.hpp"
+#include "dbn_pipe/storage.hpp"
+#include "dbn_pipe/trading_date.hpp"
 
 namespace dbn_pipe {
 

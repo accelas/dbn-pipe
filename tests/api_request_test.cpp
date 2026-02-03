@@ -5,7 +5,7 @@
 
 #include <string>
 
-#include "src/api_protocol.hpp"
+#include "dbn_pipe/api_protocol.hpp"
 
 namespace dbn_pipe {
 namespace {

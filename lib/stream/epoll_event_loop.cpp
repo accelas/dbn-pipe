@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-#include "lib/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
 
 #include <sys/eventfd.h>
 #include <sys/socket.h>

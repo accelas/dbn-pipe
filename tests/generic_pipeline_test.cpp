@@ -3,8 +3,8 @@
 // tests/generic_pipeline_test.cpp
 #include <gtest/gtest.h>
 
-#include "lib/stream/pipeline.hpp"
-#include "lib/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/pipeline.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
 
 using namespace dbn_pipe;
 

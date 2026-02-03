@@ -12,8 +12,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/sink.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/sink.hpp"
 
 namespace dbn_pipe {
 

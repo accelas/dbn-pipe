@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/error.hpp"
 
 using namespace dbn_pipe;
 

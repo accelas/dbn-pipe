@@ -3,9 +3,9 @@
 // src/client.hpp
 #pragma once
 
-#include "streaming_client.hpp"
-#include "live_protocol.hpp"
-#include "historical_protocol.hpp"
+#include "dbn_pipe/streaming_client.hpp"
+#include "dbn_pipe/live_protocol.hpp"
+#include "dbn_pipe/historical_protocol.hpp"
 
 namespace dbn_pipe {
 

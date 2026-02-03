@@ -2,7 +2,7 @@
 
 // tests/trading_date_test.cpp
 #include <gtest/gtest.h>
-#include "src/trading_date.hpp"
+#include "dbn_pipe/trading_date.hpp"
 
 using namespace dbn_pipe;
 

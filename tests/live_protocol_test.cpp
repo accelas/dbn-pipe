@@ -3,9 +3,9 @@
 // tests/live_protocol_test.cpp
 #include <gtest/gtest.h>
 
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/protocol.hpp"
-#include "src/live_protocol.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/protocol.hpp"
+#include "dbn_pipe/live_protocol.hpp"
 
 using namespace dbn_pipe;
 

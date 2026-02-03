@@ -13,8 +13,8 @@
 #include <rapidjson/error/en.h>
 #include <rapidjson/reader.h>
 
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/error.hpp"
 
 namespace dbn_pipe {
 

@@ -65,7 +65,7 @@ Update all references in the file.
 **Step 5: Update test file references**
 
 In `tests/cram_auth_test.cpp`:
-- Change include: `#include "src/live_protocol_handler.hpp"` → `#include "src/cram_auth.hpp"`
+- Change include: `#include "dbn_pipe/live_protocol_handler.hpp"` → `#include "dbn_pipe/cram_auth.hpp"`
 - Replace all `LiveProtocolHandler` → `CramAuth`
 - Replace all `LiveProtocolState` → `CramAuthState`
 - Replace test class name: `LiveProtocolHandlerTest` → `CramAuthTest`
@@ -108,9 +108,9 @@ Create `tests/pipeline_base_test.cpp`:
 // tests/pipeline_base_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/pipeline_base.hpp"
-#include "src/error.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/pipeline_base.hpp"
+#include "dbn_pipe/error.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 
@@ -312,9 +312,9 @@ Create `tests/protocol_driver_test.cpp`:
 #include <memory>
 #include <string>
 
-#include "src/protocol_driver.hpp"
-#include "src/reactor.hpp"
-#include "src/pipeline_base.hpp"
+#include "dbn_pipe/protocol_driver.hpp"
+#include "dbn_pipe/reactor.hpp"
+#include "dbn_pipe/pipeline_base.hpp"
 
 using namespace dbn_pipe;
 
@@ -494,10 +494,10 @@ Create `tests/live_protocol_test.cpp`:
 // tests/live_protocol_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/live_protocol.hpp"
-#include "src/protocol_driver.hpp"
-#include "src/pipeline_base.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/live_protocol.hpp"
+#include "dbn_pipe/protocol_driver.hpp"
+#include "dbn_pipe/pipeline_base.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 
@@ -670,9 +670,9 @@ Create `tests/historical_protocol_test.cpp`:
 // tests/historical_protocol_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/historical_protocol.hpp"
-#include "src/protocol_driver.hpp"
-#include "src/pipeline_base.hpp"
+#include "dbn_pipe/historical_protocol.hpp"
+#include "dbn_pipe/protocol_driver.hpp"
+#include "dbn_pipe/pipeline_base.hpp"
 
 using namespace dbn_pipe;
 
@@ -926,9 +926,9 @@ Create `tests/unified_pipeline_test.cpp`:
 // tests/unified_pipeline_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/unified_pipeline.hpp"
-#include "src/live_protocol.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/unified_pipeline.hpp"
+#include "dbn_pipe/live_protocol.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 
@@ -1059,8 +1059,8 @@ Create `tests/client_test.cpp`:
 // tests/client_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/client.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/client.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 
@@ -1141,8 +1141,8 @@ Create integration tests that verify the full pipeline works end-to-end.
 // tests/pipeline_integration_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/client.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/client.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 

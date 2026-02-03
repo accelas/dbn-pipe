@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "src/table/table.hpp"
+#include "dbn_pipe/table/table.hpp"
 
 namespace dbn_pipe {
 

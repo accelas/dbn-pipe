@@ -5,7 +5,7 @@
 #include <cstring>
 #include <memory>
 
-#include "lib/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
 
 using namespace dbn_pipe;
 

@@ -4,8 +4,8 @@
 // Tests for StreamingClient (the unified pipeline wrapper)
 #include <gtest/gtest.h>
 
-#include "lib/stream/epoll_event_loop.hpp"
-#include "src/client.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/client.hpp"
 
 using namespace dbn_pipe;
 

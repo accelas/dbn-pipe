@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 #include <iterator>
 #include <string>
-#include "lib/stream/url_encode.hpp"
+#include "dbn_pipe/stream/url_encode.hpp"
 
 namespace dbn_pipe {
 namespace {

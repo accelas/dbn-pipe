@@ -9,10 +9,10 @@
 #include <memory>
 #include <string>
 
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/protocol.hpp"
-#include "lib/stream/suspendable.hpp"
-#include "src/dns_resolver.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/protocol.hpp"
+#include "dbn_pipe/stream/suspendable.hpp"
+#include "dbn_pipe/dns_resolver.hpp"
 
 namespace dbn_pipe {
 

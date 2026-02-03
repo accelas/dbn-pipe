@@ -27,9 +27,9 @@
 #include "dbwriter/pg_types.hpp"
 #include "dbwriter/types.hpp"
 #include "dbwriter/asio_event_loop.hpp"
-#include "src/table/table.hpp"
+#include "dbn_pipe/table/table.hpp"
 
-#include "src/client.hpp"
+#include "dbn_pipe/client.hpp"
 
 #include <gtest/gtest.h>
 #include <iostream>

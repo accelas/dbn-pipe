@@ -157,8 +157,8 @@ Create `tests/event_test.cpp`:
 #include <sys/eventfd.h>
 #include <unistd.h>
 
-#include "lib/stream/epoll_event_loop.hpp"
-#include "lib/stream/event.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/event.hpp"
 
 using namespace dbn_pipe;
 
@@ -260,7 +260,7 @@ Create `lib/stream/event.hpp`:
 #include <functional>
 #include <memory>
 
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 
 namespace dbn_pipe {
 
@@ -348,8 +348,8 @@ Create `tests/timer_test.cpp`:
 
 #include <gtest/gtest.h>
 
-#include "lib/stream/epoll_event_loop.hpp"
-#include "lib/stream/timer.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/timer.hpp"
 
 using namespace dbn_pipe;
 
@@ -444,7 +444,7 @@ Create `lib/stream/timer.hpp`:
 #include <functional>
 #include <memory>
 
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 
 namespace dbn_pipe {
 
@@ -546,12 +546,12 @@ git commit -m "feat(timer): add portable Timer class using IEventLoop"
 
 **Step 1: Update test file**
 
-Replace `#include "lib/stream/reactor.hpp"` with:
+Replace `#include "dbn_pipe/stream/reactor.hpp"` with:
 
 ```cpp
-#include "lib/stream/epoll_event_loop.hpp"
-#include "lib/stream/event.hpp"
-#include "lib/stream/timer.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/event.hpp"
+#include "dbn_pipe/stream/timer.hpp"
 ```
 
 Replace all `Reactor` with `EpollEventLoop`.
@@ -599,12 +599,12 @@ git commit -m "refactor(tests): migrate reactor_test to EpollEventLoop/Event/Tim
 
 **Step 1: Update includes and usage**
 
-Replace `#include "lib/stream/reactor.hpp"` with:
+Replace `#include "dbn_pipe/stream/reactor.hpp"` with:
 
 ```cpp
-#include "lib/stream/epoll_event_loop.hpp"
-#include "lib/stream/event.hpp"
-#include "lib/stream/timer.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/event.hpp"
+#include "dbn_pipe/stream/timer.hpp"
 ```
 
 Replace `Reactor reactor_` with `EpollEventLoop reactor_`.

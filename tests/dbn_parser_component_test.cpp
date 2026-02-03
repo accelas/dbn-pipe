@@ -9,10 +9,10 @@
 #include <databento/constants.hpp>
 #include <databento/record.hpp>
 
-#include "lib/stream/buffer_chain.hpp"
-#include "src/dbn_parser_component.hpp"
-#include "lib/stream/component.hpp"
-#include "src/record_batch.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/dbn_parser_component.hpp"
+#include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/record_batch.hpp"
 
 // Mock sink that receives RecordBatch
 struct MockSink {

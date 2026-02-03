@@ -8,8 +8,8 @@
 #include <expected>
 #include <functional>
 
-#include "lib/stream/error.hpp"
-#include "src/record_batch.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/record_batch.hpp"
 
 namespace dbn_pipe {
 

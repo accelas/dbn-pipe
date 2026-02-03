@@ -5,10 +5,10 @@
 #include <iterator>
 #include <string>
 
-#include "lib/stream/protocol.hpp"
-#include "lib/stream/url_encode.hpp"
-#include "src/historical_protocol.hpp"
-#include "src/record_batch.hpp"
+#include "dbn_pipe/stream/protocol.hpp"
+#include "dbn_pipe/stream/url_encode.hpp"
+#include "dbn_pipe/historical_protocol.hpp"
+#include "dbn_pipe/record_batch.hpp"
 
 using namespace dbn_pipe;
 

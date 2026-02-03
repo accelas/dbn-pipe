@@ -45,12 +45,12 @@ The following are moved without modification:
 // src/stream.hpp
 #pragma once
 
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/component.hpp"
-#include "lib/stream/error.hpp"
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/reactor.hpp"
-#include "lib/stream/tcp_socket.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/reactor.hpp"
+#include "dbn_pipe/stream/tcp_socket.hpp"
 ```
 
 Note: Concepts (`Suspendable`, `Downstream`, etc.) are defined in `component.hpp`.
@@ -96,8 +96,8 @@ Internal src/ files:
 #include "pipeline_component.hpp"
 
 // After
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/component.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/component.hpp"
 ```
 
 ## Documentation Updates
@@ -109,7 +109,7 @@ Update `docs/libuv-integration.md`:
 #include "event_loop.hpp"
 
 // After
-#include "src/stream.hpp"
+#include "dbn_pipe/stream.hpp"
 ```
 
 Error handling unchanged - `dbn_pipe::Error` stays the same.

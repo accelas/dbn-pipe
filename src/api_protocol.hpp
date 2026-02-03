@@ -13,14 +13,14 @@
 #include <utility>
 #include <vector>
 
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/http_client.hpp"
-#include "lib/stream/http_request_builder.hpp"
-#include "lib/stream/json_parser.hpp"
-#include "lib/stream/sink.hpp"
-#include "lib/stream/tcp_socket.hpp"
-#include "lib/stream/tls_transport.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/http_client.hpp"
+#include "dbn_pipe/stream/http_request_builder.hpp"
+#include "dbn_pipe/stream/json_parser.hpp"
+#include "dbn_pipe/stream/sink.hpp"
+#include "dbn_pipe/stream/tcp_socket.hpp"
+#include "dbn_pipe/stream/tls_transport.hpp"
 
 namespace dbn_pipe {
 

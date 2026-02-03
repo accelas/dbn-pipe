@@ -3,7 +3,7 @@
 #pragma once
 
 #include "dbwriter/types.hpp"
-#include "src/table/column_type.hpp"
+#include "dbn_pipe/table/column_type.hpp"
 #include <cstdint>
 #include <cstring>
 

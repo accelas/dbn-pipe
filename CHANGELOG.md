@@ -6,7 +6,7 @@ All notable changes to dbn-pipe are documented here.
 
 ### Breaking Changes
 
-- **Reactor removed** — `Reactor` has been replaced by `EpollEventLoop` + `Event` + `Timer`. Update `#include "src/reactor.hpp"` to `#include "src/stream.hpp"` and replace `Reactor` with `EpollEventLoop` in all code. (#70)
+- **Reactor removed** — `Reactor` has been replaced by `EpollEventLoop` + `Event` + `Timer`. Update `#include "dbn_pipe/reactor.hpp"` to `#include "dbn_pipe/stream.hpp"` and replace `Reactor` with `EpollEventLoop` in all code. (#70)
 - **Event class removed** — The standalone `Event` class was replaced by `IEventLoop::Register()` returning `IEventHandle`. (#71)
 - **User callbacks deferred** — Record and error callbacks are now deferred to prevent use-after-free when callbacks destroy the pipeline. If your code relied on synchronous callback execution order, verify behavior after upgrading. (#75)
 - **RecordRef replaces DbnRecord** — Per-record callbacks now receive `const RecordRef&` instead of `DbnRecord`. (#32)

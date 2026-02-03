@@ -6,8 +6,8 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 
-#include "lib/stream/epoll_event_loop.hpp"
-#include "lib/stream/timer.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/timer.hpp"
 
 using namespace dbn_pipe;
 

@@ -3,7 +3,7 @@
 // tests/metadata_client_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/api/metadata_client.hpp"
+#include "dbn_pipe/api/metadata_client.hpp"
 
 namespace dbn_pipe {
 namespace {

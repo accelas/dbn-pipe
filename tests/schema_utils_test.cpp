@@ -2,7 +2,7 @@
 
 // tests/schema_utils_test.cpp
 #include <gtest/gtest.h>
-#include "src/schema_utils.hpp"
+#include "dbn_pipe/schema_utils.hpp"
 
 using namespace dbn_pipe;
 

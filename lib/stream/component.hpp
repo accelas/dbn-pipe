@@ -11,9 +11,9 @@
 #include <optional>
 #include <string>
 
-#include "lib/stream/error.hpp"
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/suspendable.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/suspendable.hpp"
 
 namespace dbn_pipe {
 

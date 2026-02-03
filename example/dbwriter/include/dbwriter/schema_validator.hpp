@@ -4,7 +4,7 @@
 
 #include "dbwriter/database.hpp"
 #include "dbwriter/pg_types.hpp"
-#include "src/table/table.hpp"
+#include "dbn_pipe/table/table.hpp"
 #include <asio/awaitable.hpp>
 #include <cctype>
 #include <sstream>

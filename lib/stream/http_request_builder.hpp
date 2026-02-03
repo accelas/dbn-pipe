@@ -12,7 +12,7 @@
 
 #include <fmt/format.h>
 
-#include "url_encode.hpp"
+#include "dbn_pipe/stream/url_encode.hpp"
 
 namespace dbn_pipe {
 

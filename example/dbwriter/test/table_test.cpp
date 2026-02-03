@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-#include "src/table/table.hpp"
+#include "dbn_pipe/table/table.hpp"
 #include <gtest/gtest.h>
 
 namespace dbn_pipe {

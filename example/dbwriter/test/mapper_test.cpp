@@ -3,7 +3,7 @@
 #include "dbwriter/mapper.hpp"
 #include "dbwriter/pg_types.hpp"
 #include "dbwriter/types.hpp"
-#include "src/table/table.hpp"
+#include "dbn_pipe/table/table.hpp"
 #include <gtest/gtest.h>
 
 namespace dbwriter {

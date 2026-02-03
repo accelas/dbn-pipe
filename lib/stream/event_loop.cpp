@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
 
 namespace dbn_pipe {
 

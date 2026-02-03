@@ -8,7 +8,7 @@
 
 #include <databento/record.hpp>
 
-#include "src/symbol_map.hpp"
+#include "dbn_pipe/symbol_map.hpp"
 
 using namespace dbn_pipe;
 

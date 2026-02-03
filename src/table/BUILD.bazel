@@ -1,20 +1,32 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
+filegroup(
+    name = "public_headers",
+    srcs = glob(["*.hpp"]),
+    visibility = ["//visibility:public"],
+)
+
 cc_library(
     name = "fixed_string",
     hdrs = ["fixed_string.hpp"],
+    strip_include_prefix = "/src/table",
+    include_prefix = "dbn_pipe/table",
     visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "column_type",
     hdrs = ["column_type.hpp"],
+    strip_include_prefix = "/src/table",
+    include_prefix = "dbn_pipe/table",
     visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "table",
     hdrs = ["table.hpp"],
+    strip_include_prefix = "/src/table",
+    include_prefix = "dbn_pipe/table",
     visibility = ["//visibility:public"],
     deps = [
         ":column_type",
@@ -25,6 +37,8 @@ cc_library(
 cc_library(
     name = "trades",
     hdrs = ["trades.hpp"],
+    strip_include_prefix = "/src/table",
+    include_prefix = "dbn_pipe/table",
     visibility = ["//visibility:public"],
     deps = [":table"],
 )
@@ -32,6 +46,8 @@ cc_library(
 cc_library(
     name = "mbp1",
     hdrs = ["mbp1.hpp"],
+    strip_include_prefix = "/src/table",
+    include_prefix = "dbn_pipe/table",
     visibility = ["//visibility:public"],
     deps = [":table"],
 )
@@ -39,6 +55,8 @@ cc_library(
 cc_library(
     name = "ohlcv",
     hdrs = ["ohlcv.hpp"],
+    strip_include_prefix = "/src/table",
+    include_prefix = "dbn_pipe/table",
     visibility = ["//visibility:public"],
     deps = [":table"],
 )
@@ -46,6 +64,8 @@ cc_library(
 cc_library(
     name = "definitions",
     hdrs = ["definitions.hpp"],
+    strip_include_prefix = "/src/table",
+    include_prefix = "dbn_pipe/table",
     visibility = ["//visibility:public"],
     deps = [":table"],
 )
@@ -53,6 +73,8 @@ cc_library(
 cc_library(
     name = "statistics",
     hdrs = ["statistics.hpp"],
+    strip_include_prefix = "/src/table",
+    include_prefix = "dbn_pipe/table",
     visibility = ["//visibility:public"],
     deps = [":table"],
 )
@@ -60,6 +82,8 @@ cc_library(
 cc_library(
     name = "status",
     hdrs = ["status.hpp"],
+    strip_include_prefix = "/src/table",
+    include_prefix = "dbn_pipe/table",
     visibility = ["//visibility:public"],
     deps = [":table"],
 )

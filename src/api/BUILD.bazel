@@ -1,8 +1,16 @@
 package(default_visibility = ["//visibility:public"])
 
+filegroup(
+    name = "public_headers",
+    srcs = glob(["*.hpp"]),
+    visibility = ["//visibility:public"],
+)
+
 cc_library(
     name = "metadata_client",
     hdrs = ["metadata_client.hpp"],
+    strip_include_prefix = "/src/api",
+    include_prefix = "dbn_pipe/api",
     visibility = ["//visibility:public"],
     deps = [
         "//lib/stream:pipeline",
@@ -15,6 +23,8 @@ cc_library(
 cc_library(
     name = "symbology_client",
     hdrs = ["symbology_client.hpp"],
+    strip_include_prefix = "/src/api",
+    include_prefix = "dbn_pipe/api",
     visibility = ["//visibility:public"],
     deps = [
         "//lib/stream:pipeline",

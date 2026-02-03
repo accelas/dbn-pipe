@@ -193,7 +193,7 @@ Create `tests/api_protocol_test.cpp`:
 // tests/api_protocol_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/api_protocol.hpp"
+#include "dbn_pipe/api_protocol.hpp"
 
 namespace dbn_pipe {
 namespace {
@@ -507,11 +507,11 @@ Create `example/rest_api/include/rest_api/rest_api_pipeline.hpp`:
 #include <asio.hpp>
 
 #include "dbwriter/asio_event_loop.hpp"
-#include "lib/stream/error.hpp"
-#include "lib/stream/json_parser.hpp"
-#include "lib/stream/pipeline.hpp"
-#include "src/api_protocol.hpp"
-#include "src/dns_resolver.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/json_parser.hpp"
+#include "dbn_pipe/stream/pipeline.hpp"
+#include "dbn_pipe/api_protocol.hpp"
+#include "dbn_pipe/dns_resolver.hpp"
 
 namespace rest_api {
 

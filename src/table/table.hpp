@@ -2,8 +2,8 @@
 
 #pragma once
 
-#include "src/table/column_type.hpp"
-#include "src/table/fixed_string.hpp"
+#include "dbn_pipe/table/column_type.hpp"
+#include "dbn_pipe/table/fixed_string.hpp"
 #include <array>
 #include <string_view>
 #include <tuple>

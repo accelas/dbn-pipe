@@ -18,10 +18,10 @@
 // kUndefPrice from databento constants
 constexpr std::int64_t kUndefPrice = std::numeric_limits<std::int64_t>::max();
 
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/error.hpp"
-#include "lib/stream/component.hpp"
-#include "record_batch.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/record_batch.hpp"
 
 namespace dbn_pipe {
 

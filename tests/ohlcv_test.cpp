@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-#include "src/table/ohlcv.hpp"
+#include "dbn_pipe/table/ohlcv.hpp"
 #include <gtest/gtest.h>
 
 namespace dbn_pipe {

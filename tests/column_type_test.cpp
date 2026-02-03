@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-#include "src/table/column_type.hpp"
+#include "dbn_pipe/table/column_type.hpp"
 #include <gtest/gtest.h>
 
 namespace dbn_pipe {
