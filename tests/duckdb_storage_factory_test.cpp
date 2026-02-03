@@ -3,7 +3,7 @@
 // tests/duckdb_storage_factory_test.cpp
 #include <gtest/gtest.h>
 #include <filesystem>
-#include "src/duckdb_storage.hpp"
+#include "dbn_pipe/duckdb_storage.hpp"
 
 using namespace dbn_pipe;
 

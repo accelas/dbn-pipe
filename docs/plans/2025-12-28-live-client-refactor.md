@@ -195,9 +195,9 @@ Create `tests/dbn_parser_component_test.cpp`:
 
 #include <databento/record.hpp>
 
-#include "src/dbn_parser_component.hpp"
-#include "src/pipeline.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/dbn_parser_component.hpp"
+#include "dbn_pipe/pipeline.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 
@@ -580,9 +580,9 @@ Create `tests/live_protocol_handler_test.cpp`:
 #include <string>
 #include <vector>
 
-#include "src/live_protocol_handler.hpp"
-#include "src/pipeline.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/live_protocol_handler.hpp"
+#include "dbn_pipe/pipeline.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 
@@ -1471,8 +1471,8 @@ Update `tests/live_client_test.cpp` to work with new interface:
 
 #include <memory>
 
-#include "src/live_client.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/live_client.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 

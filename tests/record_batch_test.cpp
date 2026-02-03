@@ -11,7 +11,7 @@
 #include <databento/enums.hpp>
 #include <databento/record.hpp>
 
-#include "src/record_batch.hpp"
+#include "dbn_pipe/record_batch.hpp"
 
 using namespace databento;
 using namespace dbn_pipe;

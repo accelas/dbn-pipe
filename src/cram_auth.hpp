@@ -19,11 +19,11 @@
 
 #include <fmt/format.h>
 
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/error.hpp"
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/component.hpp"
-#include "lib/stream/tls_transport.hpp"  // For Suspendable
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/tls_transport.hpp"  // For Suspendable
 
 namespace dbn_pipe {
 

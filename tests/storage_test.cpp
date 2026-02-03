@@ -2,8 +2,8 @@
 
 // tests/storage_test.cpp
 #include <gtest/gtest.h>
-#include "src/storage.hpp"
-#include "src/trading_date.hpp"
+#include "dbn_pipe/storage.hpp"
+#include "dbn_pipe/trading_date.hpp"
 
 using namespace dbn_pipe;
 

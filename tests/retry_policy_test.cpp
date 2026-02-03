@@ -2,8 +2,8 @@
 
 // tests/retry_policy_test.cpp
 #include <gtest/gtest.h>
-#include "lib/stream/error.hpp"
-#include "src/retry_policy.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/retry_policy.hpp"
 
 using namespace dbn_pipe;
 

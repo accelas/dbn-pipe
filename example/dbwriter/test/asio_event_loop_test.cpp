@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "dbwriter/asio_event_loop.hpp"
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 #include <gtest/gtest.h>
 #include <sys/socket.h>
 #include <unistd.h>

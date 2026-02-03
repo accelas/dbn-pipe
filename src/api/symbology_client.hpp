@@ -15,11 +15,11 @@
 
 #include <fmt/format.h>
 
-#include "lib/stream/pipeline.hpp"
-#include "src/api_protocol.hpp"
-#include "src/dns_resolver.hpp"
-#include "src/retry_policy.hpp"
-#include "src/stype.hpp"
+#include "dbn_pipe/stream/pipeline.hpp"
+#include "dbn_pipe/api_protocol.hpp"
+#include "dbn_pipe/dns_resolver.hpp"
+#include "dbn_pipe/retry_policy.hpp"
+#include "dbn_pipe/stype.hpp"
 
 namespace dbn_pipe {
 

@@ -6,8 +6,8 @@
 #include <expected>
 #include <string>
 
-#include "lib/stream/protocol.hpp"
-#include "src/api_protocol.hpp"
+#include "dbn_pipe/stream/protocol.hpp"
+#include "dbn_pipe/api_protocol.hpp"
 
 using namespace dbn_pipe;
 

@@ -6,7 +6,7 @@
 #include <iterator>
 #include <string>
 
-#include "lib/stream/http_request_builder.hpp"
+#include "dbn_pipe/stream/http_request_builder.hpp"
 
 using namespace dbn_pipe;
 

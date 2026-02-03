@@ -3,8 +3,8 @@
 // tests/duckdb_storage_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/duckdb_storage.hpp"
-#include "src/trading_date.hpp"
+#include "dbn_pipe/duckdb_storage.hpp"
+#include "dbn_pipe/trading_date.hpp"
 
 using namespace dbn_pipe;
 

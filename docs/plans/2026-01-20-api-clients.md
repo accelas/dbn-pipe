@@ -89,7 +89,7 @@ Create `tests/url_encode_test.cpp`:
 ```cpp
 #include <gtest/gtest.h>
 #include <sstream>
-#include "src/api/url_encode.hpp"
+#include "dbn_pipe/api/url_encode.hpp"
 
 namespace dbn_pipe {
 namespace {
@@ -275,7 +275,7 @@ Create `tests/api_error_test.cpp`:
 
 ```cpp
 #include <gtest/gtest.h>
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/error.hpp"
 
 namespace dbn_pipe {
 namespace {
@@ -381,7 +381,7 @@ git commit -m "feat: add API error codes and retry_after field"
 Add to `tests/retry_policy_test.cpp`:
 
 ```cpp
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/error.hpp"
 
 TEST(RetryPolicyTest, ShouldNotRetryUnauthorized) {
     RetryPolicy policy;
@@ -484,7 +484,7 @@ Modify `src/retry_policy.hpp`:
 #include <optional>
 #include <random>
 
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/error.hpp"
 
 namespace dbn_pipe {
 
@@ -629,9 +629,9 @@ Create `tests/json_parser_test.cpp`:
 #include <optional>
 #include <string>
 
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/event_loop.hpp"
-#include "src/api/json_parser.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/api/json_parser.hpp"
 
 namespace dbn_pipe {
 namespace {
@@ -823,8 +823,8 @@ Create `src/api/json_parser.hpp`:
 
 #include <rapidjson/reader.h>
 
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/error.hpp"
 
 namespace dbn_pipe {
 
@@ -1050,7 +1050,7 @@ Create `tests/api_pipeline_test.cpp`:
 #include <optional>
 #include <string>
 
-#include "src/api/api_pipeline.hpp"
+#include "dbn_pipe/api/api_pipeline.hpp"
 
 namespace dbn_pipe {
 namespace {
@@ -1183,7 +1183,7 @@ Create `src/api/api_pipeline.hpp`:
 
 #include "json_parser.hpp"
 #include "url_encode.hpp"
-#include "lib/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
 
 namespace dbn_pipe {
 
@@ -1353,7 +1353,7 @@ Create `tests/metadata_client_test.cpp`:
 
 ```cpp
 #include <gtest/gtest.h>
-#include "src/api/metadata_client.hpp"
+#include "dbn_pipe/api/metadata_client.hpp"
 
 namespace dbn_pipe {
 namespace {
@@ -1483,8 +1483,8 @@ Create `src/api/metadata_client.hpp`:
 #include <string>
 
 #include "api_pipeline.hpp"
-#include "src/dns_resolver.hpp"
-#include "src/retry_policy.hpp"
+#include "dbn_pipe/dns_resolver.hpp"
+#include "dbn_pipe/retry_policy.hpp"
 
 namespace dbn_pipe {
 
@@ -1749,7 +1749,7 @@ Create `tests/symbology_client_test.cpp`:
 
 ```cpp
 #include <gtest/gtest.h>
-#include "src/api/symbology_client.hpp"
+#include "dbn_pipe/api/symbology_client.hpp"
 
 namespace dbn_pipe {
 namespace {
@@ -1921,8 +1921,8 @@ Create `src/api/symbology_client.hpp`:
 #include <vector>
 
 #include "api_pipeline.hpp"
-#include "src/dns_resolver.hpp"
-#include "src/stype.hpp"
+#include "dbn_pipe/dns_resolver.hpp"
+#include "dbn_pipe/stype.hpp"
 
 namespace dbn_pipe {
 
@@ -2207,7 +2207,7 @@ Add to `docs/api-guide.md`:
 Query data availability and cost before downloading:
 
 ```cpp
-#include "src/api/metadata_client.hpp"
+#include "dbn_pipe/api/metadata_client.hpp"
 
 // Create client
 MetadataClient client(loop, "db-your-api-key");
@@ -2250,7 +2250,7 @@ client.GetDatasetRange("GLBX.MDP3", [](auto result) {
 Resolve symbols to instrument IDs with date ranges:
 
 ```cpp
-#include "src/api/symbology_client.hpp"
+#include "dbn_pipe/api/symbology_client.hpp"
 
 SymbologyClient client(loop, "db-your-api-key");
 
@@ -2277,7 +2277,7 @@ client.Resolve(
 ## Error Handling with RetryPolicy
 
 ```cpp
-#include "src/retry_policy.hpp"
+#include "dbn_pipe/retry_policy.hpp"
 
 RetryPolicy retry;
 

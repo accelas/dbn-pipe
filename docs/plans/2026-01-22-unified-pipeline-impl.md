@@ -24,8 +24,8 @@
 // tests/sink_test.cpp
 #include <gtest/gtest.h>
 
-#include "lib/stream/sink.hpp"
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/sink.hpp"
+#include "dbn_pipe/stream/error.hpp"
 
 using namespace dbn_pipe;
 
@@ -59,7 +59,7 @@ Expected: FAIL with "No such file or directory" for sink.hpp
 #include <concepts>
 #include <functional>
 
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/error.hpp"
 
 namespace dbn_pipe {
 
@@ -99,7 +99,7 @@ git commit -m "feat(sink): add Sink concept for lifecycle methods"
 Add to `tests/sink_test.cpp`:
 
 ```cpp
-#include "src/record_batch.hpp"
+#include "dbn_pipe/record_batch.hpp"
 
 // A type that should satisfy StreamingSink
 struct MockStreamingSink {
@@ -205,7 +205,7 @@ Expected: FAIL with "RecordSink is not defined"
 Add to `lib/stream/sink.hpp`:
 
 ```cpp
-#include "src/record_batch.hpp"
+#include "dbn_pipe/record_batch.hpp"
 
 // RecordSink - concrete streaming sink implementation
 class RecordSink {
@@ -423,10 +423,10 @@ git commit -m "feat(pipeline): add forward declaration header"
 // tests/protocol_concept_test.cpp
 #include <gtest/gtest.h>
 
-#include "lib/stream/protocol.hpp"
-#include "lib/stream/sink.hpp"
-#include "lib/stream/error.hpp"
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/protocol.hpp"
+#include "dbn_pipe/stream/sink.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 
 using namespace dbn_pipe;
 
@@ -490,8 +490,8 @@ Expected: FAIL with "No such file or directory" for protocol.hpp
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/sink.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/sink.hpp"
 
 namespace dbn_pipe {
 
@@ -573,8 +573,8 @@ git commit -m "feat(protocol): add Protocol concept for static factory interface
 // tests/generic_pipeline_test.cpp
 #include <gtest/gtest.h>
 
-#include "lib/stream/pipeline.hpp"
-#include "lib/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/pipeline.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
 
 using namespace dbn_pipe;
 
@@ -673,10 +673,10 @@ Expected: FAIL with "No such file or directory" for pipeline.hpp
 #include <memory>
 #include <string>
 
-#include "lib/stream/component.hpp"
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/protocol.hpp"
-#include "src/dns_resolver.hpp"
+#include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/protocol.hpp"
+#include "dbn_pipe/dns_resolver.hpp"
 
 namespace dbn_pipe {
 
@@ -1015,8 +1015,8 @@ git commit -m "refactor: move json_parser.hpp to lib/stream/"
 // tests/historical_protocol_create_test.cpp
 #include <gtest/gtest.h>
 
-#include "lib/stream/epoll_event_loop.hpp"
-#include "src/historical_protocol.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/historical_protocol.hpp"
 
 using namespace dbn_pipe;
 
@@ -1057,8 +1057,8 @@ Expected: FAIL with "Create is not a member of HistoricalProtocol"
 Add to `src/historical_protocol.hpp` after existing `ChainImpl`:
 
 ```cpp
-#include "lib/stream/pipeline.hpp"
-#include "lib/stream/sink.hpp"
+#include "dbn_pipe/stream/pipeline.hpp"
+#include "dbn_pipe/stream/sink.hpp"
 
 // Add SinkType alias
 using SinkType = RecordSink;
@@ -1120,8 +1120,8 @@ git commit -m "feat(historical): add Create() factory for new Pipeline design"
 // tests/live_protocol_create_test.cpp
 #include <gtest/gtest.h>
 
-#include "lib/stream/epoll_event_loop.hpp"
-#include "src/live_protocol.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/live_protocol.hpp"
 
 using namespace dbn_pipe;
 
@@ -1175,9 +1175,9 @@ git commit -m "feat(live): add Create() factory for new Pipeline design"
 // tests/api_protocol_test.cpp
 #include <gtest/gtest.h>
 
-#include "lib/stream/epoll_event_loop.hpp"
-#include "src/api_protocol.hpp"
-#include "src/api/metadata_client.hpp"  // For a real builder
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/api_protocol.hpp"
+#include "dbn_pipe/api/metadata_client.hpp"  // For a real builder
 
 using namespace dbn_pipe;
 
@@ -1234,14 +1234,14 @@ TEST(ApiProtocolTest, CreateReturnsPipeline) {
 #include <memory>
 #include <string>
 
-#include "lib/stream/http_client.hpp"
-#include "lib/stream/json_parser.hpp"
-#include "lib/stream/pipeline.hpp"
-#include "lib/stream/pipeline_fwd.hpp"
-#include "lib/stream/sink.hpp"
-#include "lib/stream/tcp_socket.hpp"
-#include "lib/stream/tls_transport.hpp"
-#include "src/api/api_pipeline.hpp"  // For ApiRequest
+#include "dbn_pipe/stream/http_client.hpp"
+#include "dbn_pipe/stream/json_parser.hpp"
+#include "dbn_pipe/stream/pipeline.hpp"
+#include "dbn_pipe/stream/pipeline_fwd.hpp"
+#include "dbn_pipe/stream/sink.hpp"
+#include "dbn_pipe/stream/tcp_socket.hpp"
+#include "dbn_pipe/stream/tls_transport.hpp"
+#include "dbn_pipe/api/api_pipeline.hpp"  // For ApiRequest
 
 namespace dbn_pipe {
 

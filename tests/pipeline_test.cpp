@@ -4,8 +4,8 @@
 // Tests for StreamingClient (the unified pipeline wrapper)
 #include <gtest/gtest.h>
 
-#include "lib/stream/epoll_event_loop.hpp"
-#include "src/client.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/client.hpp"
 
 using namespace dbn_pipe;
 
@@ -43,6 +43,9 @@ TEST(StreamingClientTest, StartBeforeConnectEmitsError) {
     LiveRequest req{"GLBX.MDP3", "ESZ4", "mbp-1"};
     client->SetRequest(req);
     client->Start();  // Should emit error - not connected
+
+    // Error callback is deferred via loop.Defer(), need to run event loop
+    loop.Poll(0);
 
     EXPECT_TRUE(error_received);
 }

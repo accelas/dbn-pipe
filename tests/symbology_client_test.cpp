@@ -3,7 +3,7 @@
 // tests/symbology_client_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/api/symbology_client.hpp"
+#include "dbn_pipe/api/symbology_client.hpp"
 
 namespace dbn_pipe {
 namespace {

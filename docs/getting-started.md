@@ -17,7 +17,7 @@ Both use zero-copy pipelines with backpressure.
 
 ```cpp
 #include <iostream>
-#include "src/client.hpp"
+#include "dbn_pipe/client.hpp"
 
 int main() {
     dbn_pipe::EpollEventLoop reactor;
@@ -47,7 +47,7 @@ int main() {
 
 ```cpp
 #include <iostream>
-#include "src/client.hpp"
+#include "dbn_pipe/client.hpp"
 
 int main() {
     dbn_pipe::EpollEventLoop reactor;
@@ -358,8 +358,8 @@ client->OnError([&](const dbn_pipe::Error& e) {
 #include <iostream>
 #include <csignal>
 #include <databento/record.hpp>
-#include "src/client.hpp"
-#include "src/stream.hpp"
+#include "dbn_pipe/client.hpp"
+#include "dbn_pipe/stream.hpp"
 
 std::atomic<bool> g_shutdown{false};
 dbn_pipe::EpollEventLoop* g_reactor = nullptr;

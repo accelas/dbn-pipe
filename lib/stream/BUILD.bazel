@@ -2,14 +2,24 @@ load("@rules_cc//cc:defs.bzl", "cc_library")
 
 package(default_visibility = ["//visibility:public"])
 
+filegroup(
+    name = "public_headers",
+    srcs = glob(["*.hpp"]),
+    visibility = ["//visibility:public"],
+)
+
 cc_library(
     name = "error",
     hdrs = ["error.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
 )
 
 cc_library(
     name = "buffer_chain",
     hdrs = ["buffer_chain.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
 )
 
 # Internal epoll implementation
@@ -17,6 +27,8 @@ cc_library(
     name = "epoll_event_loop_internal",
     srcs = ["epoll_event_loop.cpp"],
     hdrs = ["epoll_event_loop.hpp", "event_loop.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
 )
 
 # Public event loop interface + type-erased wrapper
@@ -24,6 +36,8 @@ cc_library(
     name = "event_loop",
     srcs = ["event_loop.cpp"],
     hdrs = ["event_loop.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [":epoll_event_loop_internal"],
 )
 
@@ -31,17 +45,23 @@ cc_library(
 cc_library(
     name = "epoll_event_loop",
     hdrs = ["epoll_event_loop.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [":epoll_event_loop_internal"],
 )
 
 cc_library(
     name = "suspendable",
     hdrs = ["suspendable.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
 )
 
 cc_library(
     name = "component",
     hdrs = ["component.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [
         ":error",
         ":event_loop",
@@ -52,6 +72,8 @@ cc_library(
 cc_library(
     name = "tcp_socket",
     hdrs = ["tcp_socket.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [
         ":buffer_chain",
         ":component",
@@ -63,6 +85,8 @@ cc_library(
 cc_library(
     name = "sink",
     hdrs = ["sink.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [
         ":error",
         "//src:record_batch",
@@ -72,6 +96,8 @@ cc_library(
 cc_library(
     name = "protocol",
     hdrs = ["protocol.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [
         ":event_loop",
         ":sink",
@@ -81,6 +107,8 @@ cc_library(
 cc_library(
     name = "pipeline",
     hdrs = ["pipeline.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [
         ":event_loop",
         ":protocol",
@@ -92,12 +120,16 @@ cc_library(
 cc_library(
     name = "url_encode",
     hdrs = ["url_encode.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = ["@fmt"],
 )
 
 cc_library(
     name = "http_request_builder",
     hdrs = ["http_request_builder.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [
         ":url_encode",
         "@fmt",
@@ -107,6 +139,8 @@ cc_library(
 cc_library(
     name = "tls_transport",
     hdrs = ["tls_transport.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [
         ":buffer_chain",
         ":component",
@@ -120,6 +154,8 @@ cc_library(
 cc_library(
     name = "http_client",
     hdrs = ["http_client.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [
         ":component",
         ":error",
@@ -132,6 +168,8 @@ cc_library(
 cc_library(
     name = "zstd_decompressor",
     hdrs = ["zstd_decompressor.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [
         ":buffer_chain",
         ":component",
@@ -144,6 +182,8 @@ cc_library(
 cc_library(
     name = "json_parser",
     hdrs = ["json_parser.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [
         ":buffer_chain",
         ":error",
@@ -154,5 +194,7 @@ cc_library(
 cc_library(
     name = "timer",
     hdrs = ["timer.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
     deps = [":event_loop"],
 )

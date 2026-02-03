@@ -10,14 +10,14 @@
 #include <memory>
 #include <string>
 
-#include "dns_resolver.hpp"
-#include "lib/stream/error.hpp"
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/pipeline.hpp"
-#include "lib/stream/protocol.hpp"
-#include "lib/stream/sink.hpp"
-#include "lib/stream/suspendable.hpp"
-#include "record_batch.hpp"
+#include "dbn_pipe/dns_resolver.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/pipeline.hpp"
+#include "dbn_pipe/stream/protocol.hpp"
+#include "dbn_pipe/stream/sink.hpp"
+#include "dbn_pipe/stream/suspendable.hpp"
+#include "dbn_pipe/record_batch.hpp"
 
 namespace dbn_pipe {
 

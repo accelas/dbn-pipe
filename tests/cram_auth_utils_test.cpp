@@ -3,7 +3,7 @@
 // tests/cram_auth_utils_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/cram_auth.hpp"
+#include "dbn_pipe/cram_auth.hpp"
 
 using namespace dbn_pipe;
 

@@ -1,14 +1,24 @@
 load("@rules_cc//cc:defs.bzl", "cc_library")
 
+filegroup(
+    name = "public_headers",
+    srcs = glob(["*.hpp"]),
+    visibility = ["//visibility:public"],
+)
+
 cc_library(
     name = "trading_date",
     hdrs = ["trading_date.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "storage",
     hdrs = ["storage.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         ":trading_date",
@@ -18,6 +28,8 @@ cc_library(
 cc_library(
     name = "instrument_map",
     hdrs = ["instrument_map.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         ":storage",
@@ -29,6 +41,8 @@ cc_library(
 cc_library(
     name = "dbn_parser_component",
     hdrs = ["dbn_parser_component.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         "//lib/stream:buffer_chain",
@@ -43,6 +57,8 @@ cc_library(
 cc_library(
     name = "cram_auth",
     hdrs = ["cram_auth.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         "//lib/stream:buffer_chain",
@@ -58,6 +74,8 @@ cc_library(
 cc_library(
     name = "symbol_map",
     hdrs = ["symbol_map.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         "@databento_cpp//:databento_headers",
@@ -67,12 +85,16 @@ cc_library(
 cc_library(
     name = "dns_resolver",
     hdrs = ["dns_resolver.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "record_batch",
     hdrs = ["record_batch.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         "@databento_cpp//:databento_headers",
@@ -83,6 +105,8 @@ cc_library(
 cc_library(
     name = "live_protocol",
     hdrs = ["live_protocol.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     deps = [
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
@@ -98,6 +122,8 @@ cc_library(
 cc_library(
     name = "historical_protocol",
     hdrs = ["historical_protocol.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     deps = [
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
@@ -116,6 +142,8 @@ cc_library(
 cc_library(
     name = "streaming_client",
     hdrs = ["streaming_client.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     deps = [
         "//lib/stream:error",
         "//lib/stream:event_loop",
@@ -132,6 +160,8 @@ cc_library(
 cc_library(
     name = "client",
     hdrs = ["client.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     deps = [
         ":streaming_client",
         ":live_protocol",
@@ -143,6 +173,8 @@ cc_library(
 cc_library(
     name = "retry_policy",
     hdrs = ["retry_policy.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         "//lib/stream:error",
@@ -152,6 +184,8 @@ cc_library(
 cc_library(
     name = "schema_utils",
     hdrs = ["schema_utils.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         "@databento_cpp//:databento_headers",
@@ -161,12 +195,16 @@ cc_library(
 cc_library(
     name = "stype",
     hdrs = ["stype.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "duckdb_storage",
     hdrs = ["duckdb_storage.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         ":storage",
@@ -179,6 +217,8 @@ cc_library(
 cc_library(
     name = "api_protocol",
     hdrs = ["api_protocol.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         "//lib/stream:buffer_chain",
@@ -196,6 +236,8 @@ cc_library(
 cc_library(
     name = "api_client",
     hdrs = ["api_client.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
     visibility = ["//visibility:public"],
     deps = [
         "//lib/stream:error",

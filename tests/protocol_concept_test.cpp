@@ -3,10 +3,10 @@
 // tests/protocol_concept_test.cpp
 #include <gtest/gtest.h>
 
-#include "lib/stream/protocol.hpp"
-#include "lib/stream/sink.hpp"
-#include "lib/stream/error.hpp"
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/protocol.hpp"
+#include "dbn_pipe/stream/sink.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 
 using namespace dbn_pipe;
 

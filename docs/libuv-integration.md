@@ -26,7 +26,7 @@ Implements `IEventHandle` using `uv_poll_t` for fd monitoring:
 #include <mutex>
 #include <vector>
 
-#include "src/stream.hpp"
+#include "dbn_pipe/stream.hpp"
 
 namespace dbn_pipe {
 
@@ -276,7 +276,7 @@ Here is how to use the libuv adapter with `LiveClient`:
 #include <uv.h>
 #include <iostream>
 
-#include "src/client.hpp"
+#include "dbn_pipe/client.hpp"
 
 // Include the libuv adapter implementation
 #include "libuv_event_loop.hpp"
@@ -346,7 +346,7 @@ If your application already has a libuv event loop with other handlers:
 
 ```cpp
 #include <uv.h>
-#include "src/client.hpp"
+#include "dbn_pipe/client.hpp"
 #include "libuv_event_loop.hpp"
 
 class MyApplication {

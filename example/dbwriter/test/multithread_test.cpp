@@ -7,7 +7,7 @@
 #include "dbwriter/batch_writer.hpp"
 #include "dbwriter/pg_types.hpp"
 #include "dbwriter/transform.hpp"
-#include "src/table/table.hpp"
+#include "dbn_pipe/table/table.hpp"
 #include "test/mock_libpq.hpp"
 #include <gtest/gtest.h>
 #include <atomic>

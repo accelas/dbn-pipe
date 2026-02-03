@@ -35,7 +35,7 @@ bazel test //tests/...
 #### Live Streaming
 
 ```cpp
-#include "src/client.hpp"
+#include "dbn_pipe/client.hpp"
 
 using namespace dbn_pipe;
 
@@ -68,7 +68,7 @@ int main() {
 #### Historical Download
 
 ```cpp
-#include "src/client.hpp"
+#include "dbn_pipe/client.hpp"
 
 using namespace dbn_pipe;
 
@@ -106,7 +106,7 @@ For applications with an existing event loop, implement the `IEventLoop` interfa
 
 ```cpp
 #include <uv.h>
-#include "src/client.hpp"
+#include "dbn_pipe/client.hpp"
 #include "libuv_event_loop.hpp"  // Your adapter implementation
 
 int main() {

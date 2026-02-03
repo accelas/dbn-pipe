@@ -2,7 +2,7 @@
 
 // tests/stype_test.cpp
 #include <gtest/gtest.h>
-#include "src/stype.hpp"
+#include "dbn_pipe/stype.hpp"
 
 using namespace dbn_pipe;
 

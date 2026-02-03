@@ -9,8 +9,8 @@
 
 #include <databento/record.hpp>
 
-#include "src/instrument_map.hpp"
-#include "src/trading_date.hpp"
+#include "dbn_pipe/instrument_map.hpp"
+#include "dbn_pipe/trading_date.hpp"
 
 using namespace dbn_pipe;
 

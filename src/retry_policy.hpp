@@ -8,7 +8,7 @@
 #include <optional>
 #include <random>
 
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/error.hpp"
 
 namespace dbn_pipe {
 

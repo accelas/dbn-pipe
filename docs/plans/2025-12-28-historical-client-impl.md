@@ -30,7 +30,7 @@ Create `tests/pipeline_test.cpp`:
 #include <optional>
 #include <vector>
 
-#include "src/pipeline.hpp"
+#include "dbn_pipe/pipeline.hpp"
 
 using namespace dbn_pipe;
 
@@ -154,7 +154,7 @@ git commit -m "feat(pipeline): add Downstream/Upstream concepts"
 Add to `tests/pipeline_test.cpp`:
 
 ```cpp
-#include "src/reactor.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 // Test component using PipelineComponent
 class TestComponent
@@ -377,9 +377,9 @@ Create `tests/tls_socket_test.cpp`:
 #include <memory>
 #include <vector>
 
-#include "src/pipeline.hpp"
-#include "src/reactor.hpp"
-#include "src/tls_socket.hpp"
+#include "dbn_pipe/pipeline.hpp"
+#include "dbn_pipe/reactor.hpp"
+#include "dbn_pipe/tls_socket.hpp"
 
 using namespace dbn_pipe;
 
@@ -783,9 +783,9 @@ Create `tests/http_client_test.cpp`:
 #include <string>
 #include <vector>
 
-#include "src/http_client.hpp"
-#include "src/pipeline.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/http_client.hpp"
+#include "dbn_pipe/pipeline.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 
@@ -1188,9 +1188,9 @@ Create `tests/zstd_decompressor_test.cpp`:
 #include <string>
 #include <vector>
 
-#include "src/pipeline.hpp"
-#include "src/reactor.hpp"
-#include "src/zstd_decompressor.hpp"
+#include "dbn_pipe/pipeline.hpp"
+#include "dbn_pipe/reactor.hpp"
+#include "dbn_pipe/zstd_decompressor.hpp"
 
 using namespace dbn_pipe;
 
@@ -1562,8 +1562,8 @@ Create `tests/historical_client_test.cpp`:
 
 #include <memory>
 
-#include "src/historical_client.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/historical_client.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 

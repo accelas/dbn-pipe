@@ -1,4 +1,7 @@
-# Root BUILD file for mango-PROJECT_NAME
+# Root BUILD file for dbn-pipe
+
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_files", "strip_prefix")
 
 # Export configuration files
 exports_files([
@@ -6,5 +9,45 @@ exports_files([
     ".bazelrc",
 ])
 
-# Add package-level visibility defaults if needed
-# package(default_visibility = ["//visibility:public"])
+# Collect headers with proper directory structure
+pkg_files(
+    name = "headers_src",
+    srcs = ["//src:public_headers"],
+    prefix = "dbn_pipe",
+    strip_prefix = strip_prefix.files_only(),
+)
+
+pkg_files(
+    name = "headers_api",
+    srcs = ["//src/api:public_headers"],
+    prefix = "dbn_pipe/api",
+    strip_prefix = strip_prefix.files_only(),
+)
+
+pkg_files(
+    name = "headers_table",
+    srcs = ["//src/table:public_headers"],
+    prefix = "dbn_pipe/table",
+    strip_prefix = strip_prefix.files_only(),
+)
+
+pkg_files(
+    name = "headers_stream",
+    srcs = ["//lib/stream:public_headers"],
+    prefix = "dbn_pipe/stream",
+    strip_prefix = strip_prefix.files_only(),
+)
+
+# Header tarball
+pkg_tar(
+    name = "dbn_pipe_headers",
+    srcs = [
+        ":headers_api",
+        ":headers_src",
+        ":headers_stream",
+        ":headers_table",
+    ],
+    extension = "tar.gz",
+    package_dir = "include",
+    visibility = ["//visibility:public"],
+)

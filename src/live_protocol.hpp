@@ -6,13 +6,13 @@
 #include <memory>
 #include <string>
 
-#include "lib/stream/buffer_chain.hpp"
-#include "cram_auth.hpp"
-#include "dbn_parser_component.hpp"
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/component.hpp"
-#include "lib/stream/sink.hpp"
-#include "lib/stream/tcp_socket.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/cram_auth.hpp"
+#include "dbn_pipe/dbn_parser_component.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/sink.hpp"
+#include "dbn_pipe/stream/tcp_socket.hpp"
 
 namespace dbn_pipe {
 

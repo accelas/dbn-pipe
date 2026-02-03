@@ -8,11 +8,11 @@
 #include <memory>
 #include <string>
 
-#include "lib/stream/error.hpp"
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/pipeline.hpp"
-#include "src/api_protocol.hpp"
-#include "src/dns_resolver.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/pipeline.hpp"
+#include "dbn_pipe/api_protocol.hpp"
+#include "dbn_pipe/dns_resolver.hpp"
 
 namespace dbn_pipe {
 

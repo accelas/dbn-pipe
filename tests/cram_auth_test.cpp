@@ -8,10 +8,10 @@
 #include <string>
 #include <vector>
 
-#include "lib/stream/buffer_chain.hpp"
-#include "src/cram_auth.hpp"
-#include "lib/stream/epoll_event_loop.hpp"
-#include "lib/stream/component.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/cram_auth.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/component.hpp"
 
 using namespace dbn_pipe;
 

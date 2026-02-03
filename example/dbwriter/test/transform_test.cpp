@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "dbwriter/transform.hpp"
-#include "src/table/table.hpp"
+#include "dbn_pipe/table/table.hpp"
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 

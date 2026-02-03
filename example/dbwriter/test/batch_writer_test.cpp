@@ -2,7 +2,7 @@
 
 #include "dbwriter/batch_writer.hpp"
 #include "dbwriter/pg_types.hpp"
-#include "src/table/table.hpp"
+#include "dbn_pipe/table/table.hpp"
 #include <gtest/gtest.h>
 #include <atomic>
 #include <chrono>

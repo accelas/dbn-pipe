@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 #include <asio.hpp>
 #include <poll.h>
 #include <atomic>

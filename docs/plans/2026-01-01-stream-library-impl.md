@@ -85,7 +85,7 @@ Actually, let's just update the header path in src/error.hpp to re-export:
 ```cpp
 // src/error.hpp - Re-export from lib/stream
 #pragma once
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/error.hpp"
 ```
 
 **Step 3: Update src/error.hpp to re-export**
@@ -94,7 +94,7 @@ Replace contents of `src/error.hpp` with:
 ```cpp
 // src/error.hpp - Re-export from lib/stream
 #pragma once
-#include "lib/stream/error.hpp"
+#include "dbn_pipe/stream/error.hpp"
 ```
 
 **Step 4: Update src/BUILD.bazel error target**
@@ -154,7 +154,7 @@ Expected: SUCCESS
 ```cpp
 // src/buffer_chain.hpp - Re-export from lib/stream
 #pragma once
-#include "lib/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
 ```
 
 **Step 5: Update src/BUILD.bazel buffer_chain target**
@@ -238,7 +238,7 @@ Expected: SUCCESS
 ```cpp
 // src/event_loop.hpp - Re-export from lib/stream
 #pragma once
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 ```
 
 **Step 5: Update src/epoll_event_loop.hpp to re-export**
@@ -246,7 +246,7 @@ Expected: SUCCESS
 ```cpp
 // src/epoll_event_loop.hpp - Re-export from lib/stream
 #pragma once
-#include "lib/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
 ```
 
 **Step 6: Update src/BUILD.bazel event loop targets**
@@ -320,7 +320,7 @@ cp src/reactor.cpp lib/stream/
 
 The reactor.hpp includes `"event_loop.hpp"`. Update to:
 ```cpp
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 ```
 
 Wait - since both are in lib/stream/, we can use relative includes. Check if it uses quotes or angle brackets. If quotes, `"event_loop.hpp"` should work within the same directory.
@@ -335,7 +335,7 @@ Change line:
 ```
 to:
 ```cpp
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 ```
 
 **Step 3: Add reactor to lib/stream/BUILD.bazel**
@@ -359,7 +359,7 @@ Expected: SUCCESS
 ```cpp
 // src/reactor.hpp - Re-export from lib/stream
 #pragma once
-#include "lib/stream/reactor.hpp"
+#include "dbn_pipe/stream/reactor.hpp"
 ```
 
 **Step 6: Update src/BUILD.bazel reactor target**
@@ -413,8 +413,8 @@ Change:
 ```
 to:
 ```cpp
-#include "lib/stream/error.hpp"
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 ```
 
 **Step 3: Add to lib/stream/BUILD.bazel**
@@ -440,7 +440,7 @@ Expected: SUCCESS
 ```cpp
 // src/pipeline_component.hpp - Re-export from lib/stream
 #pragma once
-#include "lib/stream/component.hpp"
+#include "dbn_pipe/stream/component.hpp"
 ```
 
 **Step 6: Update src/BUILD.bazel pipeline_component target**
@@ -491,10 +491,10 @@ Change:
 ```
 to:
 ```cpp
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/error.hpp"
-#include "lib/stream/component.hpp"
-#include "lib/stream/event_loop.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
 ```
 
 **Step 3: Add to lib/stream/BUILD.bazel**
@@ -522,7 +522,7 @@ Expected: SUCCESS
 ```cpp
 // src/tcp_socket.hpp - Re-export from lib/stream
 #pragma once
-#include "lib/stream/tcp_socket.hpp"
+#include "dbn_pipe/stream/tcp_socket.hpp"
 ```
 
 **Step 6: Update src/BUILD.bazel tcp_socket target**
@@ -563,12 +563,12 @@ git commit -m "refactor: move tcp_socket to lib/stream"
 // src/stream.hpp - Re-export all lib/stream components
 #pragma once
 
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/component.hpp"
-#include "lib/stream/error.hpp"
-#include "lib/stream/event_loop.hpp"
-#include "lib/stream/reactor.hpp"
-#include "lib/stream/tcp_socket.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/reactor.hpp"
+#include "dbn_pipe/stream/tcp_socket.hpp"
 ```
 
 **Step 2: Add to src/BUILD.bazel**
@@ -639,7 +639,7 @@ Change:
 ```
 to:
 ```cpp
-#include "src/stream.hpp"
+#include "dbn_pipe/stream.hpp"
 ```
 
 **Step 2: Commit**

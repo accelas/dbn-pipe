@@ -7,8 +7,8 @@
 #include <optional>
 #include <string>
 
-#include "lib/stream/json_parser.hpp"
-#include "src/api_client.hpp"
+#include "dbn_pipe/stream/json_parser.hpp"
+#include "dbn_pipe/api_client.hpp"
 
 using namespace dbn_pipe;
 

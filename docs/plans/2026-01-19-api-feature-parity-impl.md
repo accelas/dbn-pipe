@@ -25,7 +25,7 @@
 ```cpp
 // tests/trading_date_test.cpp
 #include <gtest/gtest.h>
-#include "src/trading_date.hpp"
+#include "dbn_pipe/trading_date.hpp"
 
 using namespace dbn_pipe;
 
@@ -323,8 +323,8 @@ git commit -m "feat: add TradingDate::FromNanoseconds with EST timezone"
 ```cpp
 // tests/storage_test.cpp
 #include <gtest/gtest.h>
-#include "src/storage.hpp"
-#include "src/trading_date.hpp"
+#include "dbn_pipe/storage.hpp"
+#include "dbn_pipe/trading_date.hpp"
 
 using namespace dbn_pipe;
 
@@ -475,8 +475,8 @@ git commit -m "feat: add IStorage interface and NoOpStorage implementation"
 ```cpp
 // tests/instrument_map_test.cpp
 #include <gtest/gtest.h>
-#include "src/instrument_map.hpp"
-#include "src/trading_date.hpp"
+#include "dbn_pipe/instrument_map.hpp"
+#include "dbn_pipe/trading_date.hpp"
 
 using namespace dbn_pipe;
 
@@ -830,7 +830,7 @@ git commit -m "feat: add InstrumentMap::OnSymbolMappingMsg for DBN stream popula
 ```cpp
 // tests/retry_policy_test.cpp
 #include <gtest/gtest.h>
-#include "src/retry_policy.hpp"
+#include "dbn_pipe/retry_policy.hpp"
 
 using namespace dbn_pipe;
 
@@ -1069,7 +1069,7 @@ git commit -m "test: add RetryPolicy delay calculation tests"
 ```cpp
 // tests/schema_utils_test.cpp
 #include <gtest/gtest.h>
-#include "src/schema_utils.hpp"
+#include "dbn_pipe/schema_utils.hpp"
 
 using namespace dbn_pipe;
 
@@ -1331,7 +1331,7 @@ git commit -m "test: add SchemaToRType and DatasetToSchemaName tests"
 ```cpp
 // tests/stype_test.cpp
 #include <gtest/gtest.h>
-#include "src/stype.hpp"
+#include "dbn_pipe/stype.hpp"
 
 using namespace dbn_pipe;
 

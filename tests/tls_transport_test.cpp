@@ -6,10 +6,10 @@
 #include <memory>
 #include <vector>
 
-#include "lib/stream/buffer_chain.hpp"
-#include "lib/stream/epoll_event_loop.hpp"
-#include "lib/stream/component.hpp"
-#include "lib/stream/tls_transport.hpp"
+#include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/tls_transport.hpp"
 
 using namespace dbn_pipe;
 

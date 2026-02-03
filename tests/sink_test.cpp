@@ -6,9 +6,9 @@
 #include <expected>
 #include <string>
 
-#include "lib/stream/sink.hpp"
-#include "lib/stream/error.hpp"
-#include "src/record_batch.hpp"
+#include "dbn_pipe/stream/sink.hpp"
+#include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/record_batch.hpp"
 
 using namespace dbn_pipe;
 

@@ -97,7 +97,7 @@ git commit -m "build: replace libuv with llhttp and zstd deps"
 // tests/error_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/error.hpp"
+#include "dbn_pipe/error.hpp"
 
 using namespace dbn_pipe;
 
@@ -283,7 +283,7 @@ git commit -m "feat: add error types"
 #include <sys/eventfd.h>
 #include <unistd.h>
 
-#include "src/reactor.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace dbn_pipe;
 
@@ -588,7 +588,7 @@ git commit -m "feat: add Reactor epoll wrapper"
 
 #include <databento/record.hpp>
 
-#include "src/data_source.hpp"
+#include "dbn_pipe/data_source.hpp"
 
 using namespace databento;
 using namespace dbn_pipe;
@@ -832,8 +832,8 @@ git commit -m "feat: add DataSource base class with backpressure"
 
 #include <thread>
 
-#include "src/reactor.hpp"
-#include "src/tcp_socket.hpp"
+#include "dbn_pipe/reactor.hpp"
+#include "dbn_pipe/tcp_socket.hpp"
 
 using namespace dbn_pipe;
 
@@ -1293,7 +1293,7 @@ Check databento-cpp source at `~/work/databento-cpp` for exact CRAM format:
 // tests/cram_auth_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/cram_auth.hpp"
+#include "dbn_pipe/cram_auth.hpp"
 
 using namespace dbn_pipe;
 
@@ -1530,8 +1530,8 @@ git commit -m "feat: add CRAM authentication"
 
 #include <thread>
 
-#include "src/live_client.hpp"
-#include "src/reactor.hpp"
+#include "dbn_pipe/live_client.hpp"
+#include "dbn_pipe/reactor.hpp"
 
 using namespace databento;
 using namespace dbn_pipe;

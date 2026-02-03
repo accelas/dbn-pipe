@@ -3,8 +3,8 @@
 // tests/client_test.cpp
 #include <gtest/gtest.h>
 
-#include "src/client.hpp"
-#include "lib/stream/epoll_event_loop.hpp"
+#include "dbn_pipe/client.hpp"
+#include "dbn_pipe/stream/epoll_event_loop.hpp"
 
 using namespace dbn_pipe;
 

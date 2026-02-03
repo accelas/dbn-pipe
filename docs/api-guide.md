@@ -9,7 +9,7 @@ This guide covers dbn-pipe's utilities beyond the core streaming clients. For li
 Use `SymbologyClient` to map symbol names to instrument IDs (or vice versa) for a given date range.
 
 ```cpp
-#include "src/api/symbology_client.hpp"
+#include "dbn_pipe/api/symbology_client.hpp"
 
 auto client = dbn_pipe::SymbologyClient::Create(loop, "db-your-api-key");
 
@@ -42,8 +42,8 @@ Retries automatically on transient errors (connection failures, rate limiting, s
 OPRA options recycle instrument IDs daily. `InstrumentMap` tracks which symbol an ID maps to on a given date, backed by a persistent DuckDB cache.
 
 ```cpp
-#include "src/instrument_map.hpp"
-#include "src/duckdb_storage.hpp"
+#include "dbn_pipe/instrument_map.hpp"
+#include "dbn_pipe/duckdb_storage.hpp"
 
 // Create a persistent cache (or omit path for in-memory)
 auto storage = std::make_shared<dbn_pipe::DuckDbStorage>("cache.db", 50000);
@@ -93,7 +93,7 @@ When the cache reaches `max_mappings`, DuckDbStorage evicts the oldest 10% by ac
 Use `MetadataClient` to check record counts, cost estimates, and dataset date ranges before downloading.
 
 ```cpp
-#include "src/api/metadata_client.hpp"
+#include "dbn_pipe/api/metadata_client.hpp"
 
 auto client = dbn_pipe::MetadataClient::Create(loop, "db-your-api-key");
 
@@ -130,7 +130,7 @@ Retries automatically on transient errors.
 `RetryPolicy` provides exponential backoff with jitter for your own retry loops. The metadata and symbology clients use it internally, but you can use it directly for custom API calls.
 
 ```cpp
-#include "src/retry_policy.hpp"
+#include "dbn_pipe/retry_policy.hpp"
 
 // Default: 3 retries, 1s initial delay, 30s max, 2x backoff, 0.1 jitter
 dbn_pipe::RetryPolicy policy;
@@ -171,7 +171,7 @@ if (result) {
 `TradingDate` converts nanosecond timestamps to calendar dates in a given timezone. This matters for exchanges like CME where the trading day rolls over at 5 PM CT, not midnight UTC.
 
 ```cpp
-#include "src/trading_date.hpp"
+#include "dbn_pipe/trading_date.hpp"
 
 // From ISO string
 auto date = dbn_pipe::TradingDate::FromIsoString("2025-01-15");
@@ -239,7 +239,7 @@ dbn-pipe ships with table definitions for all major Databento schemas:
 ### Defining a custom table
 
 ```cpp
-#include "src/table/table.hpp"
+#include "dbn_pipe/table/table.hpp"
 
 using namespace dbn_pipe;
 
@@ -391,8 +391,8 @@ For architecture details, schema definition, and testing strategy, see [example/
 Convert between Databento schema names, enums, and record types:
 
 ```cpp
-#include "src/schema_utils.hpp"
-#include "src/stype.hpp"
+#include "dbn_pipe/schema_utils.hpp"
+#include "dbn_pipe/stype.hpp"
 
 // Schema
 dbn_pipe::Schema schema = dbn_pipe::Schema::Trades;
