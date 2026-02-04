@@ -405,10 +405,6 @@ void HttpClient<D>::OnDone() {
     if (!pending_input_.Empty()) {
         llhttp_resume(&parser_);
         ProcessPendingInput();
-        if (this->IsSuspended()) {
-            this->DeferOnDone();
-            return;
-        }
     }
 
     if (!message_complete_) {
@@ -426,13 +422,12 @@ void HttpClient<D>::OnDone() {
         return;
     }
 
-    // If suspended, defer OnDone until Resume()
+    // Covers suspension from ProcessPendingInput callbacks or pre-existing
     if (this->IsSuspended()) {
         this->DeferOnDone();
         return;
     }
 
-    // Flush pending data and complete - only close if completion happened
     if (this->CompleteWithFlush(*downstream_, pending_chain_)) {
         this->RequestClose();
     }
@@ -520,10 +515,6 @@ int HttpClient<D>::OnBody(llhttp_t* parser, const char* at, size_t len) {
     if (self->status_code_ >= 300) {
         size_t remaining = kMaxErrorBodySize - self->error_body_.size();
         self->error_body_.append(at, std::min(len, remaining));
-        // Still respect backpressure even for error responses
-        if (self->IsSuspended()) {
-            llhttp_pause(parser);
-        }
         return 0;
     }
 
@@ -534,16 +525,9 @@ int HttpClient<D>::OnBody(llhttp_t* parser, const char* at, size_t len) {
         return HPE_USER;  // Overflow - error already emitted
     }
 
-    // If suspended, pause parser and wait for resume
-    if (self->IsSuspended()) {
-        llhttp_pause(parser);
-        return 0;
-    }
-
     // Forward to downstream
     self->downstream_->OnData(self->pending_chain_);
 
-    // Check if downstream suspended us during the OnData call
     if (self->IsSuspended()) {
         llhttp_pause(parser);
         return 0;
@@ -562,11 +546,6 @@ int HttpClient<D>::OnMessageComplete(llhttp_t* parser) {
         self->EmitHttpStatusError();
         return HPE_USER;  // Stop parsing immediately after error
     } else {
-        // Check suspend before completion (even for zero-body responses)
-        if (self->IsSuspended()) {
-            llhttp_pause(parser);
-            return 0;
-        }
         // Flush any remaining body data before completing
         if (!self->pending_chain_.Empty()) {
             self->downstream_->OnData(self->pending_chain_);
@@ -584,6 +563,13 @@ int HttpClient<D>::OnMessageComplete(llhttp_t* parser) {
                 self->RequestClose();
                 return HPE_USER;
             }
+        }
+        // Defer completion if suspended (e.g. keep-alive: previous message
+        // caused downstream to suspend, and this zero-body response arrived
+        // in the same parser pass)
+        if (self->IsSuspended()) {
+            llhttp_pause(parser);
+            return 0;
         }
         // Success - emit done and reset for potential keep-alive
         self->EmitDone(*self->downstream_);
