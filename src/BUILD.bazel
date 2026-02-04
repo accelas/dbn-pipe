@@ -175,6 +175,49 @@ cc_library(
         ":streaming_client",
         ":live_protocol",
         ":historical_protocol",
+        ":retry_policy",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "api",
+    hdrs = ["api.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
+    deps = [
+        "//src/api:metadata_client",
+        "//src/api:symbology_client",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "symbols",
+    hdrs = ["symbols.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
+    deps = [
+        ":symbol_map",
+        ":schema_utils",
+        ":stype",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "tables",
+    hdrs = ["tables.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
+    deps = [
+        "//src/table:table",
+        "//src/table:trades",
+        "//src/table:mbp1",
+        "//src/table:ohlcv",
+        "//src/table:definitions",
+        "//src/table:statistics",
+        "//src/table:status",
     ],
     visibility = ["//visibility:public"],
 )
