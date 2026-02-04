@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "dbn_pipe/to_nanos.hpp"
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/http_request_builder.hpp"
 #include "dbn_pipe/dbn_parser_component.hpp"
@@ -26,8 +27,8 @@ struct HistoricalRequest {
     std::string dataset;   // Dataset to query (e.g., "GLBX.MDP3")
     std::string symbols;   // Symbol(s) to query (e.g., "ESZ4")
     std::string schema;    // Schema for data (e.g., "mbp-1")
-    uint64_t start;        // Start time in nanoseconds since Unix epoch
-    uint64_t end;          // End time in nanoseconds since Unix epoch
+    Timestamp start;       // Start time (chrono types or raw nanoseconds)
+    Timestamp end;         // End time (chrono types or raw nanoseconds)
     std::string stype_in;  // Input symbology type: "raw_symbol" (default), "parent", etc.
     std::string stype_out; // Output symbology type: triggers SymbolMappingMsg when set
 };
@@ -182,8 +183,8 @@ struct HistoricalProtocol {
             .QueryParam("dataset", request.dataset)
             .QueryParam("symbols", request.symbols)
             .QueryParam("schema", request.schema)
-            .QueryParam("start", request.start)
-            .QueryParam("end", request.end)
+            .QueryParam("start", request.start.nanos)
+            .QueryParam("end", request.end.nanos)
             .QueryParam("encoding", "dbn")
             .QueryParam("compression", "zstd");
 

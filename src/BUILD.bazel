@@ -7,6 +7,14 @@ filegroup(
 )
 
 cc_library(
+    name = "to_nanos",
+    hdrs = ["to_nanos.hpp"],
+    strip_include_prefix = "/src",
+    include_prefix = "dbn_pipe",
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
     name = "trading_date",
     hdrs = ["trading_date.hpp"],
     strip_include_prefix = "/src",
@@ -125,6 +133,7 @@ cc_library(
     strip_include_prefix = "/src",
     include_prefix = "dbn_pipe",
     deps = [
+        ":to_nanos",
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
         "//lib/stream:event_loop",
