@@ -13,8 +13,9 @@
 
 namespace dbn_pipe {
 
-// Base sink concept - lifecycle methods required for all sinks
-// Named BasicSink to avoid conflict with legacy Sink<Record> template class
+/// Concept for the minimal sink lifecycle: error, completion, and invalidation.
+///
+/// Every sink must support OnError, OnComplete, and Invalidate.
 template<typename S>
 concept BasicSink = requires(S& s, const Error& e) {
     { s.OnError(e) } -> std::same_as<void>;
@@ -22,16 +23,26 @@ concept BasicSink = requires(S& s, const Error& e) {
     { s.Invalidate() } -> std::same_as<void>;
 };
 
-// Streaming sink - receives batches of records
+/// Concept for a streaming sink that receives batches of records.
+///
+/// Refines BasicSink by adding an OnData callback for RecordBatch delivery.
 template<typename S>
 concept StreamingSink = BasicSink<S> && requires(S& s, RecordBatch&& batch) {
     { s.OnData(std::move(batch)) } -> std::same_as<void>;
 };
 
-// StreamRecordSink - concrete streaming sink implementation
-// Named to avoid conflict with the RecordSink concept in component.hpp
+/// Concrete streaming sink that dispatches records through user-provided callbacks.
+///
+/// All callbacks are guarded by an atomic validity flag: once Invalidate()
+/// is called, subsequent OnData / OnError / OnComplete calls are silently
+/// dropped, preventing use-after-free when the downstream consumer is torn
+/// down before the producer.
 class StreamRecordSink {
 public:
+    /// Construct with callbacks for data, error, and completion events.
+    /// @param on_data      Invoked for each incoming RecordBatch.
+    /// @param on_error     Invoked when the stream encounters an error.
+    /// @param on_complete  Invoked when the stream ends normally.
     StreamRecordSink(
         std::function<void(RecordBatch&&)> on_data,
         std::function<void(const Error&)> on_error,
@@ -40,18 +51,22 @@ public:
         on_error_(std::move(on_error)),
         on_complete_(std::move(on_complete)) {}
 
+    /// Deliver a batch of records to the downstream consumer.
     void OnData(RecordBatch&& batch) {
         if (valid_.load(std::memory_order_acquire)) on_data_(std::move(batch));
     }
 
+    /// Report an error to the downstream consumer.
     void OnError(const Error& e) {
         if (valid_.load(std::memory_order_acquire)) on_error_(e);
     }
 
+    /// Signal normal stream completion.
     void OnComplete() {
         if (valid_.load(std::memory_order_acquire)) on_complete_();
     }
 
+    /// Atomically disable all future callback dispatches.
     void Invalidate() { valid_.store(false, std::memory_order_release); }
 
 private:

@@ -7,22 +7,25 @@
 
 namespace dbn_pipe {
 
-// Format-agnostic logical column types.
-// Each type carries its C++ representation type.
-// Consumers implement ColumnBackend to map these to their format
-// (e.g., PostgreSQL, Arrow/Parquet, CSV).
+/// @name Logical column types
+/// Format-agnostic logical column types.  Each type carries a @c cpp_type
+/// alias for its C++ representation.  Consumers implement ColumnBackend to
+/// map these to a concrete format (e.g. PostgreSQL, Arrow/Parquet, CSV).
+/// @{
+struct Int64     { using cpp_type = int64_t; };           ///< 64-bit signed integer.
+struct Int32     { using cpp_type = int32_t; };           ///< 32-bit signed integer.
+struct Int16     { using cpp_type = int16_t; };           ///< 16-bit signed integer.
+struct Char      { using cpp_type = char; };              ///< Single ASCII character.
+struct Timestamp { using cpp_type = int64_t; };           ///< Unix timestamp in nanoseconds.
+struct Text      { using cpp_type = std::string_view; };  ///< Variable-length UTF-8 text.
+struct Bool      { using cpp_type = bool; };              ///< Boolean value.
+struct Float64   { using cpp_type = double; };            ///< 64-bit IEEE 754 floating point.
+/// @}
 
-struct Int64     { using cpp_type = int64_t; };
-struct Int32     { using cpp_type = int32_t; };
-struct Int16     { using cpp_type = int16_t; };
-struct Char      { using cpp_type = char; };
-struct Timestamp { using cpp_type = int64_t; };  // unix nanoseconds
-struct Text      { using cpp_type = std::string_view; };
-struct Bool      { using cpp_type = bool; };
-struct Float64   { using cpp_type = double; };
-
-// Concept: a backend that can encode all logical types.
-// Consumers implement this (e.g., PgBackend, ArrowBackend).
+/// Concept for a backend that can encode every logical column type.
+///
+/// Consumers implement this (e.g. PgBackend, ArrowBackend) to convert
+/// logical values into their storage-specific representation.
 template <typename B>
 concept ColumnBackend = requires(B& b) {
     { b.template encode<Int64>(int64_t{}) };

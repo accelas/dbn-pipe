@@ -10,39 +10,53 @@
 
 namespace dbn_pipe {
 
-// Timer using IEventLoop::Schedule()
-// Portable - works with any IEventLoop implementation
+/// One-shot or periodic timer built on IEventLoop::Schedule().
+///
+/// Works with any IEventLoop implementation (epoll, libuv adapter, etc.).
+/// Safe to destroy while armed — pending callbacks are silently discarded.
+///
+/// @code
+/// Timer heartbeat(loop);
+/// heartbeat.OnTimer([] { send_ping(); });
+/// heartbeat.Start(0, 5000);  // fire immediately, repeat every 5s
+/// @endcode
 class Timer {
 public:
     using Callback = std::function<void()>;
 
+    /// @param loop  Event loop that drives this timer
     explicit Timer(IEventLoop& loop)
         : loop_(loop), alive_(std::make_shared<bool>(true)) {}
 
     ~Timer() {
-        *alive_ = false;  // Invalidate any pending callbacks
+        *alive_ = false;
         armed_ = false;
     }
 
-    // Non-copyable, non-movable
     Timer(const Timer&) = delete;
     Timer& operator=(const Timer&) = delete;
     Timer(Timer&&) = delete;
     Timer& operator=(Timer&&) = delete;
 
+    /// Set the callback invoked on each timer tick.
     void OnTimer(Callback cb) { callback_ = std::move(cb); }
 
+    /// Arm the timer.
+    /// @param delay_ms     Initial delay before first tick
+    /// @param interval_ms  Repeat interval (0 = one-shot)
     void Start(int delay_ms, int interval_ms = 0) {
         interval_ms_ = interval_ms;
         armed_ = true;
         ScheduleNext(delay_ms);
     }
 
+    /// Disarm the timer. No further callbacks will fire.
     void Stop() {
         armed_ = false;
         interval_ms_ = 0;
     }
 
+    /// Return true if the timer is armed.
     bool IsArmed() const { return armed_; }
 
 private:

@@ -21,38 +21,40 @@
 
 namespace dbn_pipe {
 
-// Client states (user-visible) - shared across all StreamingClient instantiations
+/// Client lifecycle states, shared across all StreamingClient instantiations.
 enum class ClientState {
-    Disconnected,  // Initial state, or after Stop()
-    Connecting,    // Connect() called
-    Connected,     // Ready for Start()
-    Streaming,     // Actively streaming
-    Stopping,      // Stop() called, tearing down
-    Done,          // Completed normally
-    Error          // Terminal error
+    Disconnected,  ///< Initial state, or after Stop()
+    Connecting,    ///< Connect() called, TCP/TLS handshake in progress
+    Connected,     ///< Protocol handshake complete, ready for Start()
+    Streaming,     ///< Actively receiving records
+    Stopping,      ///< Stop() called, tearing down
+    Done,          ///< Stream completed normally
+    Error          ///< Terminal error (see OnError callback)
 };
 
-// Concept: Request type has a dataset member
+/// @internal Concept: Request type has a dataset member.
 template <typename R>
 concept HasDataset = requires(const R& r) {
     { r.dataset } -> std::convertible_to<std::string>;
 };
 
-// StreamingClient<P> - User-facing client for streaming protocols
-//
-// Wraps Pipeline<Protocol> and provides:
-// - Callback registration (OnRecord, OnError, OnComplete)
-// - Request configuration (SetRequest)
-// - State machine for user visibility
-// - Backpressure (Suspend/Resume)
-//
-// Template parameter P must satisfy Protocol concept, use StreamRecordSink,
-// and have a Request type with a dataset member.
-//
-// Lifecycle: Single-use. For reconnect, create a new client instance.
-//
-// Thread safety: All public methods must be called from event loop thread.
-// IsSuspended() is the only exception - it's thread-safe.
+/// User-facing client for streaming protocols (Live and Historical).
+///
+/// Wraps Pipeline<Protocol> and provides callback registration, request
+/// configuration, a state machine, and backpressure propagation.
+///
+/// Lifecycle: single-use. For reconnect, create a new instance.
+///
+/// Thread safety: all public methods must be called from the event loop
+/// thread. IsSuspended() is the only exception (thread-safe).
+///
+/// @code
+/// auto client = LiveClient::Create(loop, "api-key");
+/// client->SetRequest({.dataset="GLBX.MDP3", .symbols="ESZ4", .schema="mbp-1"});
+/// client->OnRecord([](const RecordRef& r) { /* ... */ });
+/// client->Connect();
+/// client->Start();
+/// @endcode
 template <typename P>
     requires Protocol<P> && std::same_as<typename P::SinkType, StreamRecordSink> &&
              HasDataset<typename P::Request>
@@ -63,35 +65,31 @@ class StreamingClient : public Suspendable,
 public:
     using Request = typename P::Request;
     using PipelineType = Pipeline<P>;
-    using State = ClientState;  // Use shared enum
+    using State = ClientState;
 
-    // Factory method required for shared_from_this safety.
+    /// Create a new client. Factory method required for shared_from_this safety.
+    /// @param loop     Event loop that drives this client
+    /// @param api_key  Databento API key
     static std::shared_ptr<StreamingClient> Create(IEventLoop& loop, std::string api_key) {
         return std::make_shared<StreamingClient>(PrivateTag{}, loop, std::move(api_key));
     }
 
+    /// @internal
     StreamingClient(PrivateTag, IEventLoop& loop, std::string api_key)
         : loop_(loop), api_key_(std::move(api_key)) {}
 
-    // Destructor: Only invalidate sink to prevent callbacks during teardown.
-    // Pipeline's destructor handles actual cleanup. We avoid calling Stop()
-    // here because the destructor may run from any thread (when the last
-    // shared_ptr ref is released), and Stop() requires the event loop thread.
     ~StreamingClient() {
         if (sink_) sink_->Invalidate();
     }
 
-    // =========================================================================
-    // Setup methods - call before Connect()
-    // =========================================================================
-
+    /// Set request parameters. Must be called before Connect().
     void SetRequest(Request params) {
         assert(loop_.IsInEventLoopThread());
         request_ = std::move(params);
         request_set_ = true;
     }
 
-    // Set callback for record batches (efficient bulk delivery)
+    /// Set callback for record batches (efficient bulk delivery).
     template <typename H>
         requires std::invocable<H, RecordBatch&&>
     void OnRecord(H&& h) {
@@ -99,7 +97,7 @@ public:
         batch_handler_ = std::forward<H>(h);
     }
 
-    // Set callback for individual records
+    /// Set callback for individual records.
     template <typename H>
         requires std::invocable<H, const RecordRef&>
     void OnRecord(H&& h) {
@@ -107,22 +105,21 @@ public:
         record_handler_ = std::forward<H>(h);
     }
 
+    /// Set callback for errors. The Error struct contains code, message, and optional retry_after.
     template <typename H>
     void OnError(H&& h) {
         assert(loop_.IsInEventLoopThread());
         error_handler_ = std::forward<H>(h);
     }
 
+    /// Set callback for stream completion (historical downloads only).
     template <typename H>
     void OnComplete(H&& h) {
         assert(loop_.IsInEventLoopThread());
         complete_handler_ = std::forward<H>(h);
     }
 
-    // =========================================================================
-    // Control methods
-    // =========================================================================
-
+    /// Resolve hostname and connect. Requires SetRequest() first.
     void Connect() {
         assert(loop_.IsInEventLoopThread());
         if (IsTerminal()) return;
@@ -146,6 +143,7 @@ public:
         Connect(*addr);
     }
 
+    /// Connect to a pre-resolved address. Requires SetRequest() first.
     void Connect(const sockaddr_storage& addr) {
         assert(loop_.IsInEventLoopThread());
         if (IsTerminal() || connected_) return;
@@ -161,6 +159,7 @@ public:
         pipeline_->Connect(addr);
     }
 
+    /// Begin streaming. Sends the protocol request after connection is ready.
     void Start() {
         assert(loop_.IsInEventLoopThread());
         if (IsTerminal()) return;
@@ -179,6 +178,7 @@ public:
         }
     }
 
+    /// Tear down the connection and stop receiving records.
     void Stop() {
         assert(loop_.IsInEventLoopThread());
         if (IsTerminal()) return;
@@ -187,10 +187,7 @@ public:
         if (pipeline_) pipeline_->Stop();
     }
 
-    // =========================================================================
-    // Suspendable interface
-    // =========================================================================
-
+    /// Pause reading from the network (backpressure). Nestable.
     void Suspend() override {
         assert(loop_.IsInEventLoopThread());
         if (++suspend_count_ == 1 && pipeline_) {
@@ -198,6 +195,7 @@ public:
         }
     }
 
+    /// Resume reading after Suspend(). Must balance each Suspend() call.
     void Resume() override {
         assert(loop_.IsInEventLoopThread());
         assert(suspend_count_ > 0);
@@ -206,18 +204,17 @@ public:
         }
     }
 
+    /// Alias for Stop(). Satisfies Suspendable interface.
     void Close() override {
         Stop();
     }
 
+    /// Return true if currently suspended. Thread-safe.
     bool IsSuspended() const override {
         return suspend_count_.load(std::memory_order_acquire) > 0;
     }
 
-    // =========================================================================
-    // State accessors
-    // =========================================================================
-
+    /// Return the current client state.
     State GetState() const {
         assert(loop_.IsInEventLoopThread());
         return state_;

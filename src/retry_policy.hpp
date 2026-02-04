@@ -12,15 +12,15 @@
 
 namespace dbn_pipe {
 
+/// Configuration for exponential backoff retry behavior.
 struct RetryConfig {
-    uint32_t max_retries = 3;
-    std::chrono::milliseconds initial_delay{1000};
-    std::chrono::milliseconds max_delay{30000};
-    double backoff_multiplier = 2.0;
-    double jitter_factor = 0.1;  // +/- 10%
+    uint32_t max_retries = 3;                          ///< Maximum retry attempts
+    std::chrono::milliseconds initial_delay{1000};     ///< Delay before first retry
+    std::chrono::milliseconds max_delay{30000};        ///< Delay cap
+    double backoff_multiplier = 2.0;                   ///< Multiplier per attempt
+    double jitter_factor = 0.1;                        ///< Random jitter range (+/- fraction)
 
-    // Default config for API calls (metadata, symbology)
-    // Quick queries - fast retry, fewer attempts
+    /// Preset for API calls (metadata, symbology): fast retry, fewer attempts.
     static RetryConfig ApiDefaults() {
         return RetryConfig{
             .max_retries = 3,
@@ -31,8 +31,7 @@ struct RetryConfig {
         };
     }
 
-    // Default config for downloads (historical data)
-    // Long-running - more patience, more retries
+    /// Preset for downloads (historical data): more patience, more retries.
     static RetryConfig DownloadDefaults() {
         return RetryConfig{
             .max_retries = 5,
@@ -44,24 +43,32 @@ struct RetryConfig {
     }
 };
 
+/// Stateful retry policy with exponential backoff, jitter, and error classification.
+///
+/// Tracks attempt count and computes delays. Classifies ErrorCode as retryable
+/// or permanent to avoid wasting retries on non-transient failures.
 class RetryPolicy {
 public:
     explicit RetryPolicy(RetryConfig config = {})
         : config_(config), attempts_(0) {}
 
+    /// Return true if the retry budget has not been exhausted.
     bool ShouldRetry() const {
         return attempts_ < config_.max_retries;
     }
 
+    /// Increment the attempt counter.
     void RecordAttempt() {
         ++attempts_;
     }
 
+    /// Reset the attempt counter to zero.
     void Reset() {
         attempts_ = 0;
     }
 
-    // Calculate next delay with exponential backoff and jitter
+    /// Calculate next delay with exponential backoff and jitter.
+    /// @param retry_after  Server-specified delay (overrides backoff if present)
     std::chrono::milliseconds GetNextDelay(
         std::optional<std::chrono::seconds> retry_after = std::nullopt) const {
 
@@ -73,7 +80,8 @@ public:
         return CalculateBackoff();
     }
 
-    // Error-aware: classify error and check retry budget
+    /// Classify error and check retry budget.
+    /// @return false for permanent errors (Unauthorized, NotFound, etc.)
     bool ShouldRetry(const Error& e) const {
         if (!IsRetryable(e.code)) {
             return false;
@@ -81,7 +89,7 @@ public:
         return attempts_ < config_.max_retries;
     }
 
-    // Error-aware: use retry_after from error if present
+    /// Compute delay using Error::retry_after if present, else backoff.
     std::chrono::milliseconds GetNextDelay(const Error& e) const {
         if (e.retry_after.has_value()) {
             return *e.retry_after;
@@ -89,7 +97,7 @@ public:
         return CalculateBackoff();
     }
 
-    // Classify whether an error code is retryable
+    /// Return true if the error code represents a transient failure.
     static bool IsRetryable(ErrorCode code) {
         switch (code) {
             // Retryable errors (transient failures)
@@ -110,6 +118,7 @@ public:
         }
     }
 
+    /// Return the number of recorded attempts.
     uint32_t Attempts() const { return attempts_; }
 
 private:

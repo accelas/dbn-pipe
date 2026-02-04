@@ -16,57 +16,66 @@
 
 namespace dbn_pipe {
 
-// LiveRequest - Parameters for live data subscription
+/// Parameters for a live data subscription request.
 struct LiveRequest {
-    std::string dataset;   // Dataset to subscribe to (e.g., "GLBX.MDP3")
-    std::string symbols;   // Symbol(s) to subscribe to (e.g., "ESZ4")
-    std::string schema;    // Schema for data (e.g., "mbp-1")
+    std::string dataset;   ///< Dataset to subscribe to (e.g., "GLBX.MDP3").
+    std::string symbols;   ///< Symbol(s) to subscribe to (e.g., "ESZ4").
+    std::string schema;    ///< Schema for data (e.g., "mbp-1").
 };
 
-// Default live gateway port
+/// Default port for the Databento live streaming gateway.
 constexpr uint16_t kLivePort = 13000;
 
-// LiveProtocol - ProtocolDriver implementation for live streaming
-//
-// Satisfies the Protocol concept. Uses CramAuth for authentication
-// and subscription management.
-//
-// Chain: TcpSocket -> CramAuth -> DbnParserComponent -> Sink
-//
-// Live protocol is ready immediately on connect (OnConnect returns true).
-// SendRequest subscribes to the dataset/symbols/schema and starts streaming.
+/// ProtocolDriver implementation for live market-data streaming.
+///
+/// Satisfies the ProtocolDriver concept. Uses CramAuth for authentication
+/// and subscription management.
+///
+/// Chain: TcpSocket -> CramAuth -> DbnParserComponent -> Sink
+///
+/// The live protocol is ready immediately on connect (OnConnect returns true).
+/// SendRequest subscribes to the dataset/symbols/schema and starts streaming.
 struct LiveProtocol {
-    using Request = LiveRequest;
-    using SinkType = StreamRecordSink;
+    using Request = LiveRequest;         ///< Request type for this protocol.
+    using SinkType = StreamRecordSink;   ///< Sink type that receives parsed records.
 
-    // ChainType wraps the full pipeline including TcpSocket
-    // Type-erased wrapper to avoid exposing template parameters
+    /// @internal
+    /// Type-erased interface for the full pipeline including TcpSocket.
+    /// Hides concrete template parameters from callers.
     struct ChainType {
         virtual ~ChainType() = default;
 
-        // Network lifecycle
+        /// Initiate a TCP connection to the given address.
         virtual void Connect(const sockaddr_storage& addr) = 0;
+        /// Close the connection and release resources.
         virtual void Close() = 0;
 
-        // Ready callback - fires when chain is ready to send request
+        /// Register a callback that fires when the chain is ready to send
+        /// a request (immediately after connect for the live protocol).
         virtual void SetReadyCallback(std::function<void()> cb) = 0;
 
-        // Dataset - required for CRAM authentication
+        /// Set the dataset, required for CRAM authentication.
+        /// @param dataset  Dataset identifier (e.g., "GLBX.MDP3").
         virtual void SetDataset(const std::string& dataset) = 0;
 
-        // Backpressure
+        /// Pause reading from the socket (backpressure).
         virtual void Suspend() = 0;
+        /// Resume reading from the socket.
         virtual void Resume() = 0;
+        /// @return true if the chain is currently suspended.
         virtual bool IsSuspended() const = 0;
 
-        // Protocol-specific
+        /// Subscribe to the given symbols and schema.
+        /// @param symbols  Symbol filter string.
+        /// @param schema   Schema name (e.g., "mbp-1").
         virtual void Subscribe(std::string symbols, std::string schema) = 0;
+        /// Signal the gateway to begin streaming data.
         virtual void StartStreaming() = 0;
     };
 
-    // Concrete implementation of ChainType
-    // TcpSocket is the head, wrapping the rest of the chain
-    // Static dispatch within chain via template parameters
+    /// @internal
+    /// Concrete implementation of ChainType.
+    /// TcpSocket is the head; static dispatch within the chain via template parameters.
     struct ChainImpl : ChainType {
         using ParserType = DbnParserComponent<StreamRecordSink>;
         using CramType = CramAuth<ParserType>;
@@ -84,35 +93,39 @@ struct LiveProtocol {
             });
         }
 
-        // Network lifecycle
+        /// @copydoc ChainType::Connect
         void Connect(const sockaddr_storage& addr) override {
             head_->Connect(addr);
         }
 
+        /// @copydoc ChainType::Close
         void Close() override {
             head_->Close();
         }
 
-        // Ready callback
+        /// @copydoc ChainType::SetReadyCallback
         void SetReadyCallback(std::function<void()> cb) override {
             ready_cb_ = std::move(cb);
         }
 
-        // Dataset - pass to CramAuth for CRAM authentication
+        /// @copydoc ChainType::SetDataset
         void SetDataset(const std::string& dataset) override {
             cram_->SetDataset(dataset);
         }
 
-        // Backpressure - forward to head (TcpSocket)
+        /// @copydoc ChainType::Suspend
         void Suspend() override { head_->Suspend(); }
+        /// @copydoc ChainType::Resume
         void Resume() override { head_->Resume(); }
+        /// @copydoc ChainType::IsSuspended
         bool IsSuspended() const override { return head_->IsSuspended(); }
 
-        // Protocol-specific - forward to CramAuth
+        /// @copydoc ChainType::Subscribe
         void Subscribe(std::string symbols, std::string schema) override {
             cram_->Subscribe(std::move(symbols), std::move(schema));
         }
 
+        /// @copydoc ChainType::StartStreaming
         void StartStreaming() override {
             cram_->StartStreaming();
         }
@@ -124,7 +137,11 @@ struct LiveProtocol {
         std::function<void()> ready_cb_;
     };
 
-    // Build the component chain for live protocol
+    /// Build the component chain for the live protocol.
+    /// @param loop     Event loop that drives I/O.
+    /// @param sink     Destination for parsed record batches.
+    /// @param api_key  Databento API key for CRAM authentication.
+    /// @return Owning pointer to the newly created chain.
     static std::shared_ptr<ChainType> BuildChain(
         IEventLoop& loop,
         StreamRecordSink& sink,
@@ -133,8 +150,12 @@ struct LiveProtocol {
         return std::make_shared<ChainImpl>(loop, sink, api_key);
     }
 
-    // Send request - subscribe and start streaming
-    // Note: SetDataset must be called before Connect to set the dataset for CRAM auth
+    /// Subscribe to the requested symbols/schema and begin streaming.
+    ///
+    /// SetDataset must be called before Connect so that CRAM authentication
+    /// has the dataset available.
+    /// @param chain    Active chain (must be connected and ready).
+    /// @param request  Parameters describing the live subscription.
     static void SendRequest(std::shared_ptr<ChainType>& chain, const Request& request) {
         if (chain) {
             chain->Subscribe(request.symbols, request.schema);
@@ -142,14 +163,18 @@ struct LiveProtocol {
         }
     }
 
-    // Teardown - close the chain
+    /// Close the chain and release its resources.
+    /// @param chain  Chain to tear down; may be null.
     static void Teardown(std::shared_ptr<ChainType>& chain) {
         if (chain) {
             chain->Close();
         }
     }
 
-    // Get gateway hostname from dataset (e.g., "GLBX.MDP3" -> "glbx-mdp3.lsg.databento.com")
+    /// Derive the gateway hostname from the dataset.
+    /// For example, "GLBX.MDP3" becomes "glbx-mdp3.lsg.databento.com".
+    /// @param request  Request whose dataset field is used.
+    /// @return Fully-qualified gateway hostname.
     static std::string GetHostname(const Request& request) {
         std::string hostname;
         hostname.reserve(request.dataset.size() + 20);
@@ -160,7 +185,7 @@ struct LiveProtocol {
         return hostname;
     }
 
-    // Get gateway port
+    /// @return The gateway port (always kLivePort).
     static uint16_t GetPort(const Request&) {
         return kLivePort;
     }

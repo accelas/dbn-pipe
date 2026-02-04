@@ -10,10 +10,16 @@
 
 namespace dbn_pipe {
 
+/// Default timezone for to_nanos() and Timestamp conversions.
 inline constexpr const char* kDefaultTimezone = "America/New_York";
 
-// Convert a calendar date at local midnight to UTC nanoseconds.
-// Uses zoned_time for correct DST and timezone offset handling.
+/// Convert a calendar date at local midnight to UTC nanoseconds.
+///
+/// Uses zoned_time for correct DST and timezone offset handling.
+///
+/// @param ymd  Calendar date (asserts ymd.ok())
+/// @param tz   IANA timezone name
+/// @return Nanoseconds since Unix epoch
 inline uint64_t to_nanos(std::chrono::year_month_day ymd,
                          std::string_view tz = kDefaultTimezone) {
     assert(ymd.ok() && "to_nanos: invalid year_month_day");
@@ -26,7 +32,11 @@ inline uint64_t to_nanos(std::chrono::year_month_day ymd,
             .count());
 }
 
-// Convert a local time point to UTC nanoseconds.
+/// Convert a local time point to UTC nanoseconds.
+///
+/// @param lt  Local time with arbitrary precision
+/// @param tz  IANA timezone name
+/// @return Nanoseconds since Unix epoch
 template <typename Duration>
 uint64_t to_nanos(std::chrono::local_time<Duration> lt,
                   std::string_view tz = kDefaultTimezone) {
@@ -38,7 +48,10 @@ uint64_t to_nanos(std::chrono::local_time<Duration> lt,
             .count());
 }
 
-// Convert a UTC time point directly (no timezone conversion).
+/// Convert a UTC time point directly (no timezone conversion).
+///
+/// @param tp  System clock time point
+/// @return Nanoseconds since Unix epoch
 template <typename Duration>
 uint64_t to_nanos(std::chrono::sys_time<Duration> tp) {
     return static_cast<uint64_t>(
@@ -47,51 +60,58 @@ uint64_t to_nanos(std::chrono::sys_time<Duration> tp) {
             .count());
 }
 
-// Prevent accidental use of utc_clock (includes leap seconds, wrong for
-// Databento API which uses Unix time).
+/// @cond
+/// Deleted: utc_clock includes leap seconds, incompatible with Unix time.
 template <typename Duration>
 uint64_t to_nanos(std::chrono::utc_time<Duration>) = delete;
+/// @endcond
 
-// Timestamp - implicitly constructible from chrono types or raw nanoseconds.
-//
-// Wraps uint64_t nanoseconds since Unix epoch. Constructors handle timezone
-// conversion via zoned_time. Default timezone: America/New_York.
-//
-// Usage:
-//   .start = 2024y / January / 1                           // NY midnight
-//   .start = {2024y / January / 1, "America/Chicago"}      // Chicago midnight
-//   .start = local_days{2024y/January/1} + 9h + 30min      // NY 9:30 AM
-//   .start = sys_days{2024y / January / 1}                  // UTC midnight
-//   .start = 1704067200000000000ULL                         // raw nanos
+/// Nanoseconds since Unix epoch, implicitly constructible from chrono types.
+///
+/// Wraps uint64_t with converting constructors that handle timezone
+/// conversion via zoned_time. Default timezone: America/New_York.
+///
+/// @code
+/// .start = 2024y / January / 1                           // NY midnight
+/// .start = {2024y / January / 1, "America/Chicago"}      // Chicago midnight
+/// .start = local_days{2024y/January/1} + 9h + 30min      // NY 9:30 AM
+/// .start = sys_days{2024y / January / 1}                  // UTC midnight
+/// .start = 1704067200000000000ULL                         // raw nanos
+/// @endcode
 struct Timestamp {
-    uint64_t nanos = 0;
+    uint64_t nanos = 0;  ///< Nanoseconds since Unix epoch
 
     constexpr Timestamp() = default;
 
-    // Raw nanoseconds (backwards compatible)
+    /// Construct from raw nanoseconds.
     constexpr Timestamp(uint64_t ns) : nanos(ns) {}
 
-    // Calendar date at local midnight
+    /// Construct from a calendar date at local midnight.
+    /// @param ymd  Calendar date (asserts ymd.ok())
+    /// @param tz   IANA timezone name
     Timestamp(std::chrono::year_month_day ymd,
               std::string_view tz = kDefaultTimezone)
         : nanos(to_nanos(ymd, tz)) {}
 
-    // Local time with sub-day precision
+    /// Construct from a local time with sub-day precision.
+    /// @param lt  Local time point
+    /// @param tz  IANA timezone name
     template <typename Duration>
     Timestamp(std::chrono::local_time<Duration> lt,
               std::string_view tz = kDefaultTimezone)
         : nanos(to_nanos(lt, tz)) {}
 
-    // UTC time point directly
+    /// Construct from a UTC time point (no timezone conversion).
     template <typename Duration>
     Timestamp(std::chrono::sys_time<Duration> tp)
         : nanos(to_nanos(tp)) {}
 
-    // Prevent utc_clock (leap seconds ≠ Unix time)
+    /// @cond
     template <typename Duration>
     Timestamp(std::chrono::utc_time<Duration>) = delete;
+    /// @endcond
 
-    // Implicit conversion to uint64_t for use in QueryParam, comparisons, etc.
+    /// Implicit conversion to uint64_t for use in QueryParam, comparisons, etc.
     constexpr operator uint64_t() const { return nanos; }
 };
 

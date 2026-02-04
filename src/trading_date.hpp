@@ -13,14 +13,18 @@
 
 namespace dbn_pipe {
 
-// TradingDate represents a calendar date for tracking symbol mappings.
-// Used by InstrumentMap to manage date intervals for OPRA options
-// where instrument_ids are recycled daily.
-//
-// Thread safety: Value type, safe to copy and use across threads.
+/// Calendar date for tracking symbol-mapping intervals.
+///
+/// Used by InstrumentMap to manage date intervals for OPRA options
+/// where instrument_ids are recycled daily.
+///
+/// Thread safety: value type, safe to copy and use across threads.
 class TradingDate {
 public:
-    // Parse ISO-8601 date string "YYYY-MM-DD"
+    /// Parse an ISO-8601 date string ("YYYY-MM-DD").
+    /// @param iso_date  String in "YYYY-MM-DD" format.
+    /// @return A TradingDate representing the parsed date.
+    /// @throws std::invalid_argument if the format is invalid.
     static TradingDate FromIsoString(std::string_view iso_date) {
         // Validate exact format: 10 chars, YYYY-MM-DD
         if (iso_date.size() != 10) {
@@ -43,10 +47,13 @@ public:
             static_cast<unsigned>(ymd.day()));
     }
 
-    // Convert nanoseconds since Unix epoch (UTC) to trading date in specified timezone.
-    // Uses C++20 std::chrono::zoned_time for proper DST handling.
-    //
-    // Example timezones: "America/New_York", "America/Chicago", "UTC"
+    /// Convert nanoseconds since Unix epoch (UTC) to a trading date in the
+    /// specified timezone.  Uses C++20 std::chrono::zoned_time for proper
+    /// DST handling.
+    ///
+    /// @param ns_since_epoch  Nanoseconds since 1970-01-01T00:00:00 UTC.
+    /// @param timezone        IANA timezone name (e.g. "America/New_York", "UTC").
+    /// @return A TradingDate in the local calendar of @p timezone.
     static TradingDate FromNanoseconds(uint64_t ns_since_epoch, std::string_view timezone) {
         // Convert nanoseconds to sys_time (UTC)
         auto sys_time = std::chrono::sys_time<std::chrono::nanoseconds>{
@@ -66,10 +73,15 @@ public:
             static_cast<unsigned>(ymd.day()));
     }
 
+    /// @return Calendar year.
     int Year() const { return year_; }
+    /// @return Calendar month (1--12).
     int Month() const { return month_; }
+    /// @return Calendar day (1--31).
     int Day() const { return day_; }
 
+    /// Format the date as an ISO-8601 string ("YYYY-MM-DD").
+    /// @return The formatted date string.
     std::string ToIsoString() const {
         char buf[20];  // Worst case: "-YYYY-MM-DD" with negative values + null
         std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d",

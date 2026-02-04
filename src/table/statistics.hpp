@@ -6,7 +6,7 @@
 
 namespace dbn_pipe {
 
-// Statistics table for equity statistics - 14 columns
+/// Constexpr table definition for equity StatMsg records.
 inline constexpr auto statistics_table = Table{"statistics",
     Column<"ts_event_ns",   Int64>{},
     Column<"ts_event",      Timestamp>{},
@@ -24,7 +24,7 @@ inline constexpr auto statistics_table = Table{"statistics",
     Column<"stat_flags",    Int16>{}
 };
 
-// Options statistics table - 15 columns (adds underlying_id)
+/// Constexpr table definition for options StatMsg records (includes underlying_id).
 inline constexpr auto options_statistics_table = Table{"statistics",
     Column<"ts_event_ns",   Int64>{},
     Column<"ts_event",      Timestamp>{},

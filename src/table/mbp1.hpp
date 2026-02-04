@@ -6,7 +6,7 @@
 
 namespace dbn_pipe {
 
-// MBP1 (Market By Price level 1) for equity quotes - 21 columns
+/// Constexpr table definition for MBP-1 (Market By Price level 1) equity quote records.
 inline constexpr auto mbp1_table = Table{"mbp1",
     Column<"ts_event_ns",   Int64>{},
     Column<"ts_event",      Timestamp>{},
@@ -31,7 +31,7 @@ inline constexpr auto mbp1_table = Table{"mbp1",
     Column<"ask_ct",        Int64>{}
 };
 
-// CMBP1 (Consolidated MBP1) for options quotes - 20 columns
+/// Constexpr table definition for CMBP-1 (Consolidated MBP-1) options quote records.
 inline constexpr auto cmbp1_table = Table{"cmbp1",
     Column<"ts_event_ns",   Int64>{},
     Column<"ts_event",      Timestamp>{},
