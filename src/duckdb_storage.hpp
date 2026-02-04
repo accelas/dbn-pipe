@@ -22,32 +22,36 @@
 
 namespace dbn_pipe {
 
-// DuckDB-backed storage for symbol mappings and download progress.
-// Uses an in-memory database by default for fast lookups, with optional
-// file persistence for durability across restarts.
-//
-// Schema versioning: The database includes a schema_version table that
-// tracks the schema version. If an incompatible version is detected on
-// open, an exception is thrown to prevent data corruption.
-//
-// Cache limit: Symbol mappings can be limited to a maximum number of entries.
-// When the limit is reached, LRU (least recently used) entries are evicted.
-// Set max_mappings=0 to disable the limit.
-//
-// Thread safety: Not thread-safe. Use external synchronization if
-// accessed from multiple threads.
+/// DuckDB-backed storage for symbol mappings and download progress.
+///
+/// Uses an in-memory database by default for fast lookups, with optional
+/// file persistence for durability across restarts.
+///
+/// **Schema versioning:** The database includes a schema_meta table that
+/// tracks the schema version.  An incompatible version causes an exception
+/// on open to prevent data corruption.
+///
+/// **Cache limit:** Symbol mappings can be limited to a maximum number of
+/// entries.  When the limit is reached, LRU (least recently used) entries
+/// are evicted.  Set @c max_mappings=0 to disable the limit.
+///
+/// **Thread safety:** Not thread-safe.  Use external synchronization if
+/// accessed from multiple threads.
 class DuckDbStorage : public IStorage {
 public:
-    // Current schema version - increment when making breaking changes
-    static constexpr int kSchemaVersion = 2;  // v2: added last_accessed column
+    /// Current schema version.  Increment when making breaking changes.
+    static constexpr int kSchemaVersion = 2;  ///< v2: added last_accessed column.
 
-    // Default cache limit (0 = unlimited)
+    /// Default maximum number of cached symbol mappings (0 = unlimited).
     static constexpr size_t kDefaultMaxMappings = 100000;
 
-    // Create storage with optional database path and cache limit.
-    // Empty path (default) creates in-memory database.
-    // max_mappings: Maximum number of symbol mappings to keep (0 = unlimited).
-    // Throws std::runtime_error if database schema version is incompatible.
+    /// Construct with an optional database path and cache limit.
+    ///
+    /// An empty @p db_path (the default) creates an in-memory database.
+    /// @param db_path       Filesystem path to a DuckDB database file, or
+    ///                      empty for in-memory operation.
+    /// @param max_mappings  Maximum symbol mappings to retain (0 = unlimited).
+    /// @throws std::runtime_error if the schema version is incompatible.
     explicit DuckDbStorage(const std::string& db_path = "",
                            size_t max_mappings = kDefaultMaxMappings)
         : db_(db_path.empty() ? nullptr
@@ -64,8 +68,10 @@ public:
         ValidateSchemaVersion();
     }
 
-    // Factory method returning expected (no exceptions).
-    // Returns unique_ptr on success, error message on failure.
+    /// Factory method that returns an expected instead of throwing.
+    /// @param db_path       Filesystem path, or empty for in-memory.
+    /// @param max_mappings  Maximum symbol mappings to retain (0 = unlimited).
+    /// @return A unique_ptr on success, or an error string on failure.
     static std::expected<std::unique_ptr<DuckDbStorage>, std::string>
     Create(const std::string& db_path = "", size_t max_mappings = kDefaultMaxMappings) {
         try {
@@ -229,7 +235,7 @@ public:
         return downloads;
     }
 
-    // Get number of symbol mappings stored (for testing)
+    /// @return Number of symbol mappings currently stored.
     size_t MappingCount() const {
         auto result = conn_->Query("SELECT COUNT(*) FROM symbol_mappings");
         if (result->HasError()) return 0;

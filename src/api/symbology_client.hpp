@@ -23,66 +23,67 @@
 
 namespace dbn_pipe {
 
-// SymbolInterval - represents a time range during which a symbol mapping is valid
-//
-// Maps to JSON: {"d0": "2025-01-01", "d1": "2025-12-31", "s": "15144"}
+/// A time range during which a symbol mapping is valid.
+///
+/// Maps to JSON: `{"d0": "2025-01-01", "d1": "2025-12-31", "s": "15144"}`.
 struct SymbolInterval {
-    std::string start_date;  // d0: Start date (inclusive)
-    std::string end_date;    // d1: End date (exclusive)
-    std::string symbol;      // s: Resolved symbol (e.g., instrument_id as string)
+    std::string start_date;  ///< d0: start date, inclusive
+    std::string end_date;    ///< d1: end date, exclusive
+    std::string symbol;      ///< s: resolved symbol (e.g., instrument_id as string)
 };
 
-// SymbologyResponse - result of a symbology resolution request
-//
-// Maps to JSON:
-// {
-//   "result": {
-//     "SPY": [{"d0": "2025-01-01", "d1": "2025-12-31", "s": "15144"}],
-//     "QQQ": [{"d0": "2025-01-01", "d1": "2025-12-31", "s": "13340"}]
-//   },
-//   "partial": ["AMBIGUOUS"],
-//   "not_found": ["INVALID"]
-// }
+/// Result of a symbology resolution request.
+///
+/// @code
+/// // Example JSON:
+/// // {
+/// //   "result": {
+/// //     "SPY": [{"d0": "2025-01-01", "d1": "2025-12-31", "s": "15144"}]
+/// //   },
+/// //   "partial": ["AMBIGUOUS"],
+/// //   "not_found": ["INVALID"]
+/// // }
+/// @endcode
 struct SymbologyResponse {
-    // Maps input symbols to their resolved intervals
+    /// Maps each input symbol to its resolved intervals.
     std::map<std::string, std::vector<SymbolInterval>> result;
 
-    // Symbols that had partial/ambiguous resolution
+    /// Symbols that had partial or ambiguous resolution.
     std::vector<std::string> partial;
 
-    // Symbols that were not found
+    /// Symbols that were not found.
     std::vector<std::string> not_found;
 };
 
-// SymbologyBuilder - builds a SymbologyResponse from JSON using a state machine
-//
-// This parser handles the nested JSON structure:
-// - Root object with "result", "partial", "not_found" keys
-// - "result" is an object where each key is a symbol name
-// - Each symbol maps to an array of interval objects
-// - Each interval has d0, d1, s fields
-//
-// State transitions:
-// - Root -> InResult (on "result" key + start object)
-// - InResult -> InSymbolArray (on symbol key + start array)
-// - InSymbolArray -> InInterval (on start object)
-// - InInterval -> InSymbolArray (on end object, save interval)
-// - InSymbolArray -> InResult (on end array)
-// - Root -> InPartialArray (on "partial" key + start array)
-// - Root -> InNotFoundArray (on "not_found" key + start array)
-//
-// Satisfies JsonBuilder concept.
+/// Builds a SymbologyResponse from JSON using a SAX-style state machine.
+///
+/// Handles the nested JSON structure:
+///  - Root object with `"result"`, `"partial"`, `"not_found"` keys.
+///  - `"result"` is an object where each key is a symbol name mapping to an
+///    array of SymbolInterval objects (`{d0, d1, s}`).
+///
+/// State transitions:
+///  - Root -> InResult (on `"result"` key + start object)
+///  - InResult -> InSymbolArray (on symbol key + start array)
+///  - InSymbolArray -> InInterval (on start object)
+///  - InInterval -> InSymbolArray (on end object, saves interval)
+///  - InSymbolArray -> InResult (on end array)
+///  - Root -> InPartialArray (on `"partial"` key + start array)
+///  - Root -> InNotFoundArray (on `"not_found"` key + start array)
+///
+/// Satisfies the JsonBuilder concept.
 class SymbologyBuilder {
 public:
     using Result = SymbologyResponse;
 
+    /// Parser state machine states.
     enum class State {
-        Root,           // At root level
-        InResult,       // Inside "result" object
-        InSymbolArray,  // Inside a symbol's array of intervals
-        InInterval,     // Inside an interval object
-        InPartialArray, // Inside "partial" array
-        InNotFoundArray // Inside "not_found" array
+        Root,           ///< At the root JSON level
+        InResult,       ///< Inside the "result" object
+        InSymbolArray,  ///< Inside a symbol's array of intervals
+        InInterval,     ///< Inside an interval object ({d0, d1, s})
+        InPartialArray, ///< Inside the "partial" array
+        InNotFoundArray ///< Inside the "not_found" array
     };
 
     void OnKey(std::string_view key) {
@@ -212,12 +213,15 @@ public:
         }
     }
 
+    /// Finalize and return the built SymbologyResponse.
+    ///
+    /// @return The accumulated response (always succeeds, may be empty).
     std::expected<Result, std::string> Build() {
         // The response is always valid, even if empty
         return response_;
     }
 
-    // For testing: get current state
+    /// Return the current parser state (exposed for testing).
     State GetState() const { return state_; }
 
 private:
@@ -228,20 +232,27 @@ private:
     SymbologyResponse response_;
 };
 
-// SymbologyClient - client for Databento symbology API endpoints
-//
-// Provides methods to resolve symbol mappings:
-// - resolve: Convert symbols between different stype formats
-//
-// Automatic retry with exponential backoff on transient errors
-// (ConnectionFailed, ServerError, TlsHandshakeFailed, RateLimited).
-//
-// Thread safety: Not thread-safe. All methods must be called from the event loop thread.
-//
-// Lifetime: Must be managed via shared_ptr (use Create() factory method).
-// The client must outlive any in-flight requests.
+/// Client for the Databento symbology API endpoint.
+///
+/// Provides an asynchronous method to resolve symbol mappings between
+/// different SType formats (e.g., raw_symbol to instrument_id).
+///
+/// Automatic retry with exponential backoff on transient errors
+/// (ConnectionFailed, ServerError, TlsHandshakeFailed, RateLimited).
+///
+/// Thread safety: NOT thread-safe. All methods must be called from the
+/// event-loop thread.
+///
+/// Lifetime: must be managed via `shared_ptr` (use the Create() factory).
+/// The client must outlive any in-flight requests.
 class SymbologyClient : public std::enable_shared_from_this<SymbologyClient> {
 public:
+    /// Create a new SymbologyClient managed by `shared_ptr`.
+    ///
+    /// @param loop          Event loop used for I/O and timers.
+    /// @param api_key       Databento API key.
+    /// @param retry_config  Retry policy (defaults to ApiDefaults).
+    /// @return              Shared pointer to the new client.
     static std::shared_ptr<SymbologyClient> Create(
         IEventLoop& loop, std::string api_key,
         RetryConfig retry_config = RetryConfig::ApiDefaults()) {
@@ -255,6 +266,15 @@ private:
 
 public:
 
+    /// Resolve symbols from one SType to another.
+    ///
+    /// @param dataset     Dataset identifier (e.g., `"GLBX.MDP3"`).
+    /// @param symbols     List of input symbols to resolve.
+    /// @param stype_in    Input symbology type.
+    /// @param stype_out   Output symbology type.
+    /// @param start_date  Start date for the resolution window (inclusive).
+    /// @param end_date    End date for the resolution window (exclusive).
+    /// @param callback    Invoked with the SymbologyResponse or an Error.
     void Resolve(
         const std::string& dataset,
         const std::vector<std::string>& symbols,

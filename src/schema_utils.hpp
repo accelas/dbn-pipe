@@ -12,30 +12,33 @@
 
 namespace dbn_pipe {
 
-// Schema enum matching Databento schemas
+/// Schema type matching Databento market-data schemas.
 enum class Schema {
-    Mbo,
-    Mbp1,
-    Mbp10,
-    Trades,
-    Tbbo,
-    Ohlcv1S,
-    Ohlcv1M,
-    Ohlcv1H,
-    Ohlcv1D,
-    Definition,
-    Statistics,
-    Status,
-    Imbalance,
-    Cbbo,
-    Cbbo1S,
-    Cbbo1M,
-    Tcbbo,
-    Bbo1S,
-    Bbo1M
+    Mbo,         ///< Market by order (L3)
+    Mbp1,        ///< Market by price, top of book (L1)
+    Mbp10,       ///< Market by price, top 10 levels (L2)
+    Trades,      ///< Trade messages
+    Tbbo,        ///< Top of book with trade-through info
+    Ohlcv1S,     ///< OHLCV bars, 1-second interval
+    Ohlcv1M,     ///< OHLCV bars, 1-minute interval
+    Ohlcv1H,     ///< OHLCV bars, 1-hour interval
+    Ohlcv1D,     ///< OHLCV bars, 1-day interval
+    Definition,  ///< Instrument definition
+    Statistics,  ///< Exchange statistics (e.g., open interest)
+    Status,      ///< Trading status messages
+    Imbalance,   ///< Auction imbalance messages
+    Cbbo,        ///< Consolidated BBO (tick-level)
+    Cbbo1S,      ///< Consolidated BBO, 1-second snapshot
+    Cbbo1M,      ///< Consolidated BBO, 1-minute snapshot
+    Tcbbo,       ///< Consolidated BBO with trade-through info
+    Bbo1S,       ///< BBO, 1-second snapshot
+    Bbo1M        ///< BBO, 1-minute snapshot
 };
 
-// Schema from string
+/// Parse a Schema from its wire-format string representation.
+///
+/// @param s  Wire-format name (e.g., `"mbo"`, `"mbp-1"`, `"ohlcv-1s"`).
+/// @return   The corresponding Schema, or `std::nullopt` if unrecognized.
 inline std::optional<Schema> SchemaFromString(std::string_view s) {
     if (s == "mbo") return Schema::Mbo;
     if (s == "mbp-1") return Schema::Mbp1;
@@ -59,7 +62,10 @@ inline std::optional<Schema> SchemaFromString(std::string_view s) {
     return std::nullopt;
 }
 
-// Schema to string
+/// Convert a Schema to its wire-format string representation.
+///
+/// @param schema  The schema value to convert.
+/// @return        Wire-format name (e.g., `"mbo"`, `"mbp-1"`).
 inline std::string_view SchemaToString(Schema schema) {
     switch (schema) {
         case Schema::Mbo: return "mbo";
@@ -85,7 +91,10 @@ inline std::string_view SchemaToString(Schema schema) {
     return "";  // Unreachable
 }
 
-// Schema to RType mapping
+/// Map a Schema to its corresponding Databento RType.
+///
+/// @param schema  The schema value to map.
+/// @return        The matching `databento::RType`, or `std::nullopt` on failure.
 inline std::optional<databento::RType> SchemaToRType(Schema schema) {
     switch (schema) {
         case Schema::Mbo: return databento::RType::Mbo;
@@ -111,7 +120,12 @@ inline std::optional<databento::RType> SchemaToRType(Schema schema) {
     return std::nullopt;
 }
 
-// Dataset to schema name (e.g., "OPRA.PILLAR" -> "opra_pillar")
+/// Convert a dataset identifier to a lower-case schema name.
+///
+/// Dots are replaced with underscores and all characters are lowered.
+///
+/// @param dataset  Dataset identifier (e.g., `"OPRA.PILLAR"`).
+/// @return         Normalized schema name (e.g., `"opra_pillar"`).
 inline std::string DatasetToSchemaName(const std::string& dataset) {
     std::string result;
     result.reserve(dataset.size());

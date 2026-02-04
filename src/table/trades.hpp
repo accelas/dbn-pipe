@@ -6,6 +6,7 @@
 
 namespace dbn_pipe {
 
+/// Constexpr table definition for trade (MBP-0) records.
 inline constexpr auto trades_table = Table{"trades",
     Column<"ts_event_ns",   Int64>{},
     Column<"ts_event",      Timestamp>{},

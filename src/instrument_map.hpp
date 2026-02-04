@@ -21,7 +21,9 @@
 
 namespace dbn_pipe {
 
-// Validate IANA timezone name. Throws std::runtime_error if invalid.
+/// Validate an IANA timezone name against the system timezone database.
+/// @param timezone  IANA timezone name (e.g. "America/New_York", "UTC").
+/// @throws std::runtime_error if the timezone is not recognized.
 inline void ValidateTimezone(const std::string& timezone) {
     try {
         // Attempt to locate the timezone in the system tzdb
@@ -33,39 +35,40 @@ inline void ValidateTimezone(const std::string& timezone) {
     }
 }
 
-// Single mapping interval
+/// A single symbol-mapping interval for an instrument id.
 struct MappingInterval {
-    TradingDate start_date;
-    TradingDate end_date;
-    std::string symbol;
+    TradingDate start_date;  ///< Start date (inclusive) of the mapping.
+    TradingDate end_date;    ///< End date (exclusive) of the mapping.
+    std::string symbol;      ///< Human-readable ticker symbol.
 };
 
-// InstrumentMap with date-interval tracking for symbol resolution.
-// Critical for OPRA options where instrument_ids can be recycled
-// across different trading days.
-//
-// Design: In-memory cache populated via OnSymbolMappingMsg(). When
-// Resolve() returns nullopt, the caller should fetch missing data
-// from the Databento API asynchronously, then retry after the map
-// is populated. This enables non-blocking async resolution patterns.
-//
-// Storage behavior: Storage is queried only when an instrument_id is
-// entirely absent from memory (cold-start). If an ID exists but the
-// requested date falls outside cached intervals, storage is NOT queried
-// and nullopt is returned. This is intentional - the caller handles
-// missing data via async API fetch. See issue #50 for timeout handling.
-//
-// Thread safety: Not thread-safe. Use external synchronization if
-// accessed from multiple threads.
-//
-// Overlapping intervals: Not supported. If intervals for the same
-// instrument_id overlap, Resolve() behavior is undefined. Callers
-// must ensure intervals are non-overlapping.
+/// Date-interval instrument map for resolving instrument ids to symbols.
+///
+/// Critical for OPRA options where instrument_ids can be recycled across
+/// different trading days.
+///
+/// **Design:** In-memory cache populated via OnSymbolMappingMsg().  When
+/// Resolve() returns nullopt, the caller should fetch missing data from
+/// the Databento API asynchronously, then retry after the map is populated.
+///
+/// **Storage behavior:** Storage is queried only when an instrument_id is
+/// entirely absent from memory (cold-start).  If an ID exists but the
+/// requested date falls outside cached intervals, storage is NOT queried
+/// and nullopt is returned -- the caller handles missing data via async
+/// API fetch.
+///
+/// **Thread safety:** Not thread-safe.  Use external synchronization if
+/// accessed from multiple threads.
+///
+/// **Overlapping intervals:** Not supported.  If intervals for the same
+/// instrument_id overlap, Resolve() behavior is undefined.
 class InstrumentMap {
 public:
-    // Construct with optional storage and timezone for timestamp conversion.
-    // Timezone uses IANA names: "America/New_York", "America/Chicago", "UTC", etc.
-    // Throws std::runtime_error if timezone is invalid.
+    /// Construct with optional persistent storage and timezone.
+    ///
+    /// @param storage   Backing store for symbol mappings (nullptr for no persistence).
+    /// @param timezone  IANA timezone name (e.g. "America/New_York").
+    /// @throws std::runtime_error if @p timezone is invalid.
     explicit InstrumentMap(
         std::shared_ptr<IStorage> storage = nullptr,
         std::string timezone = "America/New_York")
@@ -74,7 +77,11 @@ public:
         ValidateTimezone(timezone_);
     }
 
-    // Insert mapping with date range
+    /// Insert a symbol mapping for the given instrument id over a date range.
+    /// @param instrument_id  Databento numeric instrument identifier.
+    /// @param symbol         Human-readable ticker symbol.
+    /// @param start          Start date (inclusive).
+    /// @param end            End date (exclusive).
     void Insert(uint32_t instrument_id, const std::string& symbol,
                 const TradingDate& start, const TradingDate& end) {
         assert(start <= end && "Insert: start date must be <= end date");
@@ -91,7 +98,10 @@ public:
         storage_->StoreMapping(instrument_id, symbol, start, end);
     }
 
-    // Resolve symbol for specific date - O(log n) binary search
+    /// Resolve a symbol for a specific trading date using O(log n) binary search.
+    /// @param instrument_id  Databento numeric instrument identifier.
+    /// @param date           Trading date to resolve.
+    /// @return The symbol if a mapping exists, or std::nullopt.
     std::optional<std::string> Resolve(uint32_t instrument_id,
                                         const TradingDate& date) const {
         auto it = mappings_.find(instrument_id);
@@ -122,7 +132,11 @@ public:
         return std::nullopt;
     }
 
-    // Populate from DBN stream records
+    /// Populate the map from a Databento SymbolMappingMsg record.
+    ///
+    /// Converts the message timestamps to TradingDates using the configured
+    /// timezone, then inserts the mapping.
+    /// @param msg  A SymbolMappingMsg from the DBN stream.
     void OnSymbolMappingMsg(const databento::SymbolMappingMsg& msg) {
         uint32_t id = msg.hd.instrument_id;
         std::string symbol(msg.STypeOutSymbol());
@@ -138,17 +152,17 @@ public:
         Insert(id, symbol, start, end);
     }
 
-    // Clear all mappings
+    /// Remove all cached mappings from memory.
     void Clear() noexcept {
         mappings_.clear();
     }
 
-    // Get number of instrument_ids tracked
+    /// @return Number of distinct instrument ids tracked.
     std::size_t Size() const noexcept {
         return mappings_.size();
     }
 
-    // Get configured timezone
+    /// @return The IANA timezone name used for timestamp conversion.
     const std::string& Timezone() const noexcept { return timezone_; }
 
 private:

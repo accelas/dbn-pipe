@@ -6,7 +6,7 @@
 
 namespace dbn_pipe {
 
-// Equity definitions table for InstrumentDefMsg records - 43 columns
+/// Constexpr table definition for equity InstrumentDefMsg records.
 inline constexpr auto definitions_table = Table{"definitions",
     // Record header
     Column<"ts_event_ns",               Int64>{},
@@ -62,7 +62,7 @@ inline constexpr auto definitions_table = Table{"definitions",
     Column<"ts_recv",                   Timestamp>{}
 };
 
-// Options definitions table - 53 columns
+/// Constexpr table definition for options InstrumentDefMsg records.
 inline constexpr auto options_definitions_table = Table{"options_definitions",
     // Record header
     Column<"ts_event_ns",               Int64>{},

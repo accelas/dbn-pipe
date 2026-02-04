@@ -22,63 +22,72 @@
 
 namespace dbn_pipe {
 
-// HistoricalRequest - Parameters for historical data download
+/// Parameters for a historical data download request.
 struct HistoricalRequest {
-    std::string dataset;   // Dataset to query (e.g., "GLBX.MDP3")
-    std::string symbols;   // Symbol(s) to query (e.g., "ESZ4")
-    std::string schema;    // Schema for data (e.g., "mbp-1")
-    Timestamp start;       // Start time (chrono types or raw nanoseconds)
-    Timestamp end;         // End time (chrono types or raw nanoseconds)
-    std::string stype_in;  // Input symbology type: "raw_symbol" (default), "parent", etc.
-    std::string stype_out; // Output symbology type: triggers SymbolMappingMsg when set
+    std::string dataset;   ///< Dataset to query (e.g., "GLBX.MDP3").
+    std::string symbols;   ///< Symbol(s) to query (e.g., "ESZ4").
+    std::string schema;    ///< Schema for data (e.g., "mbp-1").
+    Timestamp start;       ///< Start time (chrono time_point or raw nanoseconds).
+    Timestamp end;         ///< End time (chrono time_point or raw nanoseconds).
+    std::string stype_in;  ///< Input symbology type: "raw_symbol" (default), "parent", etc.
+    std::string stype_out; ///< Output symbology type; triggers SymbolMappingMsg when set.
 };
 
-// Historical gateway constants
+/// Hostname of the Databento historical data gateway.
 constexpr const char* kHistoricalHostname = "hist.databento.com";
+/// Port for the historical gateway (HTTPS).
 constexpr uint16_t kHistoricalPort = 443;
 
-// HistoricalProtocol - ProtocolDriver implementation for historical downloads
-//
-// Satisfies the ProtocolDriver concept. Uses TLS -> HTTP -> Zstd -> DBN parser chain.
-//
-// Chain: TcpSocket -> TlsTransport -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> Sink
-//
-// Historical protocol requires TLS handshake before sending HTTP request.
-// OnConnect starts the handshake and returns false (not ready yet).
-// OnRead returns true after handshake completes.
+/// ProtocolDriver implementation for historical data downloads.
+///
+/// Satisfies the ProtocolDriver concept. Uses TLS -> HTTP -> Zstd -> DBN parser chain.
+///
+/// Chain: TcpSocket -> TlsTransport -> HttpClient -> ZstdDecompressor -> DbnParserComponent -> Sink
+///
+/// The historical protocol requires a TLS handshake before the HTTP request
+/// can be sent. OnConnect starts the handshake and returns false (not ready
+/// yet); OnRead returns true after the handshake completes.
 struct HistoricalProtocol {
-    using Request = HistoricalRequest;
-    using SinkType = StreamRecordSink;
+    using Request = HistoricalRequest;   ///< Request type for this protocol.
+    using SinkType = StreamRecordSink;   ///< Sink type that receives parsed records.
 
-    // ChainType wraps the full pipeline including TcpSocket
-    // Type-erased wrapper to avoid exposing template parameters
+    /// @internal
+    /// Type-erased interface for the full pipeline including TcpSocket.
+    /// Hides concrete template parameters from callers.
     struct ChainType {
         virtual ~ChainType() = default;
 
-        // Network lifecycle
+        /// Initiate a TCP connection to the given address.
         virtual void Connect(const sockaddr_storage& addr) = 0;
+        /// Close the connection and release resources.
         virtual void Close() = 0;
 
-        // Ready callback - fires when chain is ready to send request (after TLS handshake)
+        /// Register a callback that fires when the chain is ready to send
+        /// a request (i.e., after the TLS handshake completes).
         virtual void SetReadyCallback(std::function<void()> cb) = 0;
 
-        // Dataset - no-op for historical (HTTP basic auth doesn't need dataset)
+        /// Set the dataset (no-op for historical; HTTP basic auth does not need it).
         virtual void SetDataset(const std::string&) = 0;
 
-        // Backpressure
+        /// Pause reading from the socket (backpressure).
         virtual void Suspend() = 0;
+        /// Resume reading from the socket.
         virtual void Resume() = 0;
+        /// @return true if the chain is currently suspended.
         virtual bool IsSuspended() const = 0;
 
-        // Protocol-specific - for sending HTTP request
+        /// Allocate a Segment for formatting an HTTP request.
         virtual std::shared_ptr<Segment> GetRequestSegment() = 0;
+        /// Send a previously formatted request segment over the TLS connection.
+        /// @param seg  Segment containing the raw HTTP request bytes.
         virtual void SendRequestSegment(std::shared_ptr<Segment> seg) = 0;
+        /// @return Reference to the API key used for authentication.
         virtual const std::string& GetApiKey() const = 0;
     };
 
-    // Concrete implementation of ChainType
-    // TcpSocket is the head, wrapping the rest of the chain
-    // Static dispatch within chain via template parameters
+    /// @internal
+    /// Concrete implementation of ChainType.
+    /// TcpSocket is the head; static dispatch within the chain via template parameters.
     struct ChainImpl : ChainType {
         using ParserType = DbnParserComponent<StreamRecordSink>;
         using ZstdType = ZstdDecompressor<ParserType>;
@@ -112,39 +121,44 @@ struct HistoricalProtocol {
             });
         }
 
-        // Network lifecycle
+        /// @copydoc ChainType::Connect
         void Connect(const sockaddr_storage& addr) override {
             head_->Connect(addr);
         }
 
+        /// @copydoc ChainType::Close
         void Close() override {
             head_->Close();
         }
 
-        // Ready callback
+        /// @copydoc ChainType::SetReadyCallback
         void SetReadyCallback(std::function<void()> cb) override {
             ready_cb_ = std::move(cb);
         }
 
-        // Dataset - no-op for historical (HTTP basic auth doesn't need dataset)
+        /// @copydoc ChainType::SetDataset
         void SetDataset(const std::string&) override {}
 
-        // Backpressure - forward to head (TcpSocket)
+        /// @copydoc ChainType::Suspend
         void Suspend() override { head_->Suspend(); }
+        /// @copydoc ChainType::Resume
         void Resume() override { head_->Resume(); }
+        /// @copydoc ChainType::IsSuspended
         bool IsSuspended() const override { return head_->IsSuspended(); }
 
-        // Protocol-specific - for sending HTTP request
+        /// @copydoc ChainType::GetRequestSegment
         std::shared_ptr<Segment> GetRequestSegment() override {
             return std::make_shared<Segment>();
         }
 
+        /// @copydoc ChainType::SendRequestSegment
         void SendRequestSegment(std::shared_ptr<Segment> seg) override {
             BufferChain chain;
             chain.Append(std::move(seg));
             tls_->Write(std::move(chain));
         }
 
+        /// @copydoc ChainType::GetApiKey
         const std::string& GetApiKey() const override { return api_key_; }
 
     private:
@@ -157,7 +171,11 @@ struct HistoricalProtocol {
         std::function<void()> ready_cb_;
     };
 
-    // Build the component chain for historical protocol
+    /// Build the component chain for the historical protocol.
+    /// @param loop     Event loop that drives I/O.
+    /// @param sink     Destination for parsed record batches.
+    /// @param api_key  Databento API key for HTTP basic-auth.
+    /// @return Owning pointer to the newly created chain.
     static std::shared_ptr<ChainType> BuildChain(
         IEventLoop& loop,
         StreamRecordSink& sink,
@@ -166,8 +184,10 @@ struct HistoricalProtocol {
         return std::make_shared<ChainImpl>(loop, sink, api_key);
     }
 
-    // Send request - build and send HTTP GET request
-    // Formats directly into segment buffer - zero intermediate copies
+    /// Build and send an HTTP GET request for the given historical parameters.
+    /// Formats directly into a segment buffer with zero intermediate copies.
+    /// @param chain    Active chain (must be connected and ready).
+    /// @param request  Parameters describing the historical query.
     static void SendRequest(std::shared_ptr<ChainType>& chain, const Request& request) {
         if (!chain) return;
 
@@ -207,19 +227,20 @@ struct HistoricalProtocol {
         chain->SendRequestSegment(std::move(seg));
     }
 
-    // Teardown - close the chain
+    /// Close the chain and release its resources.
+    /// @param chain  Chain to tear down; may be null.
     static void Teardown(std::shared_ptr<ChainType>& chain) {
         if (chain) {
             chain->Close();
         }
     }
 
-    // Get gateway hostname (static for historical)
+    /// @return The gateway hostname (always kHistoricalHostname for historical).
     static std::string GetHostname(const Request&) {
         return kHistoricalHostname;
     }
 
-    // Get gateway port
+    /// @return The gateway port (always kHistoricalPort).
     static uint16_t GetPort(const Request&) {
         return kHistoricalPort;
     }

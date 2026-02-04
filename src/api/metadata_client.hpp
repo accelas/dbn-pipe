@@ -17,16 +17,16 @@
 
 namespace dbn_pipe {
 
-// DatasetRange - represents the available date range for a dataset
+/// Represents the available date range for a dataset.
 struct DatasetRange {
-    std::string start;  // Start date (inclusive)
-    std::string end;    // End date (exclusive)
+    std::string start;  ///< Start date, inclusive (e.g., "2023-01-01")
+    std::string end;    ///< End date, exclusive (e.g., "2026-01-20")
 };
 
-// RecordCountBuilder - builds a uint64_t record count from JSON
-//
-// Expected JSON: a single integer value (e.g., 12345)
-// Satisfies JsonBuilder concept.
+/// Builds a `uint64_t` record count from a JSON integer value.
+///
+/// Expected JSON: a single integer value (e.g., `12345`).
+/// Satisfies the JsonBuilder concept.
 struct RecordCountBuilder {
     using Result = uint64_t;
     std::optional<uint64_t> value;
@@ -49,10 +49,10 @@ struct RecordCountBuilder {
     }
 };
 
-// BillableSizeBuilder - builds a uint64_t billable size from JSON
-//
-// Expected JSON: a single integer value representing bytes (e.g., 1048576)
-// Satisfies JsonBuilder concept.
+/// Builds a `uint64_t` billable size (in bytes) from a JSON integer value.
+///
+/// Expected JSON: a single integer value representing bytes (e.g., `1048576`).
+/// Satisfies the JsonBuilder concept.
 struct BillableSizeBuilder {
     using Result = uint64_t;
     std::optional<uint64_t> value;
@@ -75,10 +75,10 @@ struct BillableSizeBuilder {
     }
 };
 
-// CostBuilder - builds a double cost value from JSON
-//
-// Expected JSON: a single numeric value representing cost (e.g., 0.50)
-// Satisfies JsonBuilder concept.
+/// Builds a `double` cost value from a JSON numeric value.
+///
+/// Expected JSON: a single numeric value representing cost (e.g., `0.50`).
+/// Satisfies the JsonBuilder concept.
 struct CostBuilder {
     using Result = double;
     std::optional<double> value;
@@ -101,10 +101,10 @@ struct CostBuilder {
     }
 };
 
-// DatasetRangeBuilder - builds a DatasetRange from JSON
-//
-// Expected JSON: {"start": "2023-01-01", "end": "2026-01-20"}
-// Satisfies JsonBuilder concept.
+/// Builds a DatasetRange from a JSON object.
+///
+/// Expected JSON: `{"start": "2023-01-01", "end": "2026-01-20"}`.
+/// Satisfies the JsonBuilder concept.
 struct DatasetRangeBuilder {
     using Result = DatasetRange;
     std::string current_key;
@@ -136,23 +136,30 @@ struct DatasetRangeBuilder {
     }
 };
 
-// MetadataClient - client for Databento metadata API endpoints
-//
-// Provides methods to query metadata information:
-// - get_record_count: Number of records for a query
-// - get_billable_size: Billable size in bytes for a query
-// - get_cost: Cost estimate for a query
-// - get_dataset_range: Available date range for a dataset
-//
-// Automatic retry with exponential backoff on transient errors
-// (ConnectionFailed, ServerError, TlsHandshakeFailed, RateLimited).
-//
-// Thread safety: Not thread-safe. All methods must be called from the event loop thread.
-//
-// Lifetime: Must be managed via shared_ptr (use Create() factory method).
-// The client must outlive any in-flight requests.
+/// Client for Databento metadata API endpoints.
+///
+/// Provides asynchronous methods to query metadata information:
+///  - GetRecordCount  -- number of records for a query
+///  - GetBillableSize -- billable size in bytes for a query
+///  - GetCost         -- cost estimate for a query
+///  - GetDatasetRange -- available date range for a dataset
+///
+/// Automatic retry with exponential backoff on transient errors
+/// (ConnectionFailed, ServerError, TlsHandshakeFailed, RateLimited).
+///
+/// Thread safety: NOT thread-safe. All methods must be called from the
+/// event-loop thread.
+///
+/// Lifetime: must be managed via `shared_ptr` (use the Create() factory).
+/// The client must outlive any in-flight requests.
 class MetadataClient : public std::enable_shared_from_this<MetadataClient> {
 public:
+    /// Create a new MetadataClient managed by `shared_ptr`.
+    ///
+    /// @param loop          Event loop used for I/O and timers.
+    /// @param api_key       Databento API key.
+    /// @param retry_config  Retry policy (defaults to ApiDefaults).
+    /// @return              Shared pointer to the new client.
     static std::shared_ptr<MetadataClient> Create(
         IEventLoop& loop, std::string api_key,
         RetryConfig retry_config = RetryConfig::ApiDefaults()) {
@@ -166,6 +173,15 @@ private:
 
 public:
 
+    /// Query the number of records matching the given parameters.
+    ///
+    /// @param dataset   Dataset identifier (e.g., `"GLBX.MDP3"`).
+    /// @param symbols   Comma-separated symbol list.
+    /// @param schema    Schema name (e.g., `"trades"`).
+    /// @param start     Start datetime (inclusive, ISO 8601).
+    /// @param end       End datetime (exclusive, ISO 8601).
+    /// @param stype_in  Input symbology type (e.g., `"raw_symbol"`).
+    /// @param callback  Invoked with the record count or an Error.
     void GetRecordCount(
         const std::string& dataset,
         const std::string& symbols,
@@ -193,6 +209,15 @@ public:
         CallApi<RecordCountBuilder>(req, std::move(callback));
     }
 
+    /// Query the billable size (in bytes) for the given parameters.
+    ///
+    /// @param dataset   Dataset identifier.
+    /// @param symbols   Comma-separated symbol list.
+    /// @param schema    Schema name.
+    /// @param start     Start datetime (inclusive, ISO 8601).
+    /// @param end       End datetime (exclusive, ISO 8601).
+    /// @param stype_in  Input symbology type.
+    /// @param callback  Invoked with the billable size or an Error.
     void GetBillableSize(
         const std::string& dataset,
         const std::string& symbols,
@@ -220,6 +245,15 @@ public:
         CallApi<BillableSizeBuilder>(req, std::move(callback));
     }
 
+    /// Query the estimated cost for the given parameters.
+    ///
+    /// @param dataset   Dataset identifier.
+    /// @param symbols   Comma-separated symbol list.
+    /// @param schema    Schema name.
+    /// @param start     Start datetime (inclusive, ISO 8601).
+    /// @param end       End datetime (exclusive, ISO 8601).
+    /// @param stype_in  Input symbology type.
+    /// @param callback  Invoked with the cost estimate or an Error.
     void GetCost(
         const std::string& dataset,
         const std::string& symbols,
@@ -247,6 +281,10 @@ public:
         CallApi<CostBuilder>(req, std::move(callback));
     }
 
+    /// Query the available date range for a dataset.
+    ///
+    /// @param dataset   Dataset identifier (e.g., `"GLBX.MDP3"`).
+    /// @param callback  Invoked with the DatasetRange or an Error.
     void GetDatasetRange(
         const std::string& dataset,
         std::function<void(std::expected<DatasetRange, Error>)> callback) {

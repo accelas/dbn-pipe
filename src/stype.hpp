@@ -8,16 +8,21 @@
 
 namespace dbn_pipe {
 
-// Symbology type enum - specifies how symbols are interpreted.
-// Matches Databento's SType values for API compatibility.
+/// Symbology type -- specifies how symbols are interpreted.
+///
+/// Matches Databento's SType values for API compatibility.
 enum class SType {
-    RawSymbol,      // Raw symbol string (e.g., "AAPL", "ES.FUT")
-    InstrumentId,   // Numeric instrument ID
-    Parent,         // Parent symbol (e.g., "SPY.OPT" for all SPY options)
-    Continuous,     // Continuous contract (e.g., "ES.c.0" for front month)
-    Smart           // Smart symbology (auto-resolves based on context)
+    RawSymbol,    ///< Raw symbol string (e.g., "AAPL", "ES.FUT")
+    InstrumentId, ///< Numeric instrument ID
+    Parent,       ///< Parent symbol (e.g., "SPY.OPT" for all SPY options)
+    Continuous,   ///< Continuous contract (e.g., "ES.c.0" for front month)
+    Smart         ///< Smart symbology (auto-resolves based on context)
 };
 
+/// Parse an SType from its wire-format string representation.
+///
+/// @param s  Wire-format name (e.g., `"raw_symbol"`, `"instrument_id"`).
+/// @return   The corresponding SType, or `std::nullopt` if unrecognized.
 inline std::optional<SType> STypeFromString(std::string_view s) {
     if (s == "raw_symbol") return SType::RawSymbol;
     if (s == "instrument_id") return SType::InstrumentId;
@@ -27,6 +32,10 @@ inline std::optional<SType> STypeFromString(std::string_view s) {
     return std::nullopt;
 }
 
+/// Convert an SType to its wire-format string representation.
+///
+/// @param stype  The symbology type to convert.
+/// @return       Wire-format name (e.g., `"raw_symbol"`, `"smart"`).
 inline std::string_view STypeToString(SType stype) {
     switch (stype) {
         case SType::RawSymbol: return "raw_symbol";

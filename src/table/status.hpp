@@ -6,7 +6,7 @@
 
 namespace dbn_pipe {
 
-// Status table for trading halt/resume events - 13 columns
+/// Constexpr table definition for equity trading halt/resume StatusMsg records.
 inline constexpr auto status_table = Table{"status",
     Column<"ts_event_ns",   Int64>{},
     Column<"ts_event",      Timestamp>{},
@@ -23,7 +23,7 @@ inline constexpr auto status_table = Table{"status",
     Column<"ts_recv",       Timestamp>{}
 };
 
-// Options status table - 14 columns (adds underlying_id)
+/// Constexpr table definition for options trading halt/resume StatusMsg records (includes underlying_id).
 inline constexpr auto options_status_table = Table{"status",
     Column<"ts_event_ns",   Int64>{},
     Column<"ts_event",      Timestamp>{},
