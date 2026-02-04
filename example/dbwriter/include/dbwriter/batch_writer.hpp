@@ -148,6 +148,11 @@ public:
     }
 
 private:
+    void safe_error(WriteError code, std::string_view msg) {
+        if (!error_handler_) return;
+        try { error_handler_(code, msg); } catch (...) {}
+    }
+
     asio::awaitable<void> process_queue() {
         // writing_ is already set by enqueue() before co_spawn()
         // Use scope guard to ensure writing_ = false on all exit paths
@@ -158,11 +163,7 @@ private:
             ~WritingGuard() {
                 flag = false;
                 if (timer) {
-                    try {
-                        timer->cancel();
-                    } catch (...) {
-                        // Swallow - destructor must not throw
-                    }
+                    try { timer->cancel(); } catch (...) {}
                 }
             }
         } guard{writing_, drain_timer_};
@@ -174,23 +175,9 @@ private:
             try {
                 co_await write_batch(batch);
             } catch (const std::exception& e) {
-                // Wrap error_handler_ to prevent exceptions from escaping
-                if (error_handler_) {
-                    try {
-                        error_handler_(WriteError::CopyFailed, e.what());
-                    } catch (...) {
-                        // Swallow - error handler must not throw
-                    }
-                }
+                safe_error(WriteError::CopyFailed, e.what());
             } catch (...) {
-                // Catch non-std::exception types
-                if (error_handler_) {
-                    try {
-                        error_handler_(WriteError::CopyFailed, "unknown error");
-                    } catch (...) {
-                        // Swallow
-                    }
-                }
+                safe_error(WriteError::CopyFailed, "unknown error");
             }
 
             check_resume();
@@ -204,8 +191,7 @@ private:
 
         auto writer = db_.begin_copy(table_.name(), col_views);
 
-        std::exception_ptr ex = nullptr;
-        bool need_abort = false;
+        std::exception_ptr ex;
 
         try {
             co_await writer->start();
@@ -222,16 +208,11 @@ private:
         } catch (...) {
             // Cannot co_await in catch block, so save exception and abort outside
             ex = std::current_exception();
-            need_abort = true;
         }
 
-        if (need_abort) {
+        if (ex) {
             // Abort COPY session to leave connection in usable state
-            try {
-                co_await writer->abort();
-            } catch (...) {
-                // Best effort - ignore abort failures
-            }
+            try { co_await writer->abort(); } catch (...) {}
             std::rethrow_exception(ex);
         }
     }
