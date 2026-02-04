@@ -340,12 +340,6 @@ void TlsTransport<D>::Read(BufferChain data) {
         return;
     }
 
-    // If suspended, buffer the data
-    if (this->IsSuspended()) {
-        // Data is already in BIO, will be read on resume
-        return;
-    }
-
     // Read decrypted data from SSL
     ProcessPendingReads();
 }
@@ -357,14 +351,10 @@ void TlsTransport<D>::ProcessPendingReads() {
     // Ensure recycling callback is set
     pending_read_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
 
-    while (true) {
-        // Check if suspended - stop reading to apply backpressure
-        // (remaining encrypted data stays in rbio_, decrypted in pending_read_chain_)
-        if (this->IsSuspended()) {
-            // Don't deliver data while suspended - keep for OnResume
-            return;
-        }
+    // Encrypted data stays in rbio_, decrypted in pending_read_chain_
+    if (this->IsSuspended()) return;
 
+    while (true) {
         auto seg = segment_pool_.Acquire();
         int n = SSL_read(ssl_, seg->data.data(), static_cast<int>(Segment::kSize));
         if (n > 0) {
