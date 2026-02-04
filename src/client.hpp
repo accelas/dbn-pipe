@@ -6,6 +6,7 @@
 #include "dbn_pipe/streaming_client.hpp"
 #include "dbn_pipe/live_protocol.hpp"
 #include "dbn_pipe/historical_protocol.hpp"
+#include "dbn_pipe/retry_policy.hpp"
 
 namespace dbn_pipe {
 
