@@ -69,8 +69,10 @@ int main() {
 
 ```cpp
 #include "dbn_pipe/client.hpp"
+#include "dbn_pipe/to_nanos.hpp"
 
 using namespace dbn_pipe;
+using namespace std::chrono;
 
 int main() {
     EpollEventLoop reactor;
@@ -80,8 +82,8 @@ int main() {
         .dataset = "GLBX.MDP3",
         .symbols = "ESZ4",
         .schema = "mbp-1",
-        .start = 1704067200000000000,  // 2024-01-01 00:00:00 UTC (nanoseconds)
-        .end = 1704153600000000000     // 2024-01-02 00:00:00 UTC (nanoseconds)
+        .start = to_nanos(2024y / January / 1),  // NY midnight (default)
+        .end = to_nanos(2024y / January / 2)
     });
 
     client->OnRecord([](const RecordRef& ref) {
