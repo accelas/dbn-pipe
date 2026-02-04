@@ -240,7 +240,7 @@
     },
     "//third_party/libpq:libpq.bzl%libpq_ext": {
       "general": {
-        "bzlTransitiveDigest": "Yv2cMunqqPtKfz/lNmjcsj+sJpH3bqoss0cau96qrdc=",
+        "bzlTransitiveDigest": "YBS9VqwJjMUWQGcl57UooACUCGtdd3YDdsXUBQeP03M=",
         "usagesDigest": "y4F1uH4rECe8DCQ4+AyRoiwlSu45FxGfcm9/RxYLp60=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
