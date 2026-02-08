@@ -3,7 +3,6 @@
 // src/dbn_parser_component.hpp
 #pragma once
 
-#include <atomic>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -70,12 +69,12 @@ constexpr size_t kSymbolCstrLenV3 = 71;
 // - Uses BufferChain for input (chain manages unconsumed data)
 // - Aligned scratch buffers for boundary-crossing records
 // - Overflow-safe bounds checking
-// - One-shot error handling via atomic guard
+// - One-shot error handling via finalized guard
 // - DBN metadata header parsing (skips DBN file header if present)
 //
 // Template parameter S must satisfy RecordSink concept.
 template <RecordSink S>
-class DbnParserComponent {
+class DbnParserComponent : public PipelineComponent<DbnParserComponent<S>> {
 public:
     explicit DbnParserComponent(S& sink) : sink_(sink) {}
 
@@ -97,18 +96,18 @@ public:
     // Checks that chain is empty (no incomplete records).
     void OnComplete(BufferChain& chain) noexcept;
 
-    // Set the allocator for scratch buffer allocations.
-    void SetAllocator(SegmentAllocator* alloc) { allocator_ = alloc; }
-
-    // Get the allocator (injected or default).
-    SegmentAllocator& GetAllocator() { return allocator_ ? *allocator_ : default_allocator_; }
+    // Required PipelineComponent no-op methods (terminal node, no I/O watchers)
+    void DisableWatchers() {}
+    void DoClose() {}
+    void ProcessPending() {}
+    void FlushAndComplete() {}
 
 private:
     // Allocate a scratch buffer via the PMR.
     // The deleter captures the resource shared_ptr, keeping the resource alive
     // as long as the scratch buffer (and thus the RecordRef keepalive) exists.
     std::shared_ptr<std::byte[]> AllocateScratch(size_t size) {
-        auto resource = GetAllocator().GetResourcePtr();
+        auto resource = this->GetAllocator().GetResourcePtr();
         auto* ptr = static_cast<std::byte*>(
             resource->allocate(size, 8));
         return std::shared_ptr<std::byte[]>(ptr,
@@ -142,11 +141,8 @@ private:
     bool ConvertSymbolMapping(const std::byte* src, std::byte* dst, size_t dst_size);
 
     S& sink_;                              // Reference to sink
-    std::atomic<bool> error_state_{false}; // One-shot error guard
     bool metadata_parsed_ = false;         // Whether DBN header has been skipped
     std::uint8_t dbn_version_ = 3;         // DBN version from metadata (default v3)
-    SegmentAllocator* allocator_ = nullptr;  // Injected allocator (optional)
-    SegmentAllocator default_allocator_;      // Default allocator (used if none injected)
 
     // DBN file header structure (first 8 bytes of DBN stream)
     struct DbnHeader {
@@ -171,7 +167,7 @@ private:
 template <RecordSink S>
 void DbnParserComponent<S>::OnData(BufferChain& chain) {
     // Check error state - if already in error, ignore all data
-    if (error_state_.load(std::memory_order_acquire)) {
+    if (this->IsFinalized()) {
         return;
     }
 
@@ -313,16 +309,17 @@ void DbnParserComponent<S>::OnData(BufferChain& chain) {
 template <RecordSink S>
 void DbnParserComponent<S>::OnError(const Error& e) noexcept {
     // One-shot guard - only forward first error
-    if (error_state_.exchange(true, std::memory_order_acq_rel)) {
+    if (this->IsFinalized()) {
         return;
     }
+    this->SetFinalized();
     sink_.OnError(e);
 }
 
 template <RecordSink S>
 void DbnParserComponent<S>::OnComplete() noexcept {
     // Check error state - if already in error, ignore completion
-    if (error_state_.load(std::memory_order_acquire)) {
+    if (this->IsFinalized()) {
         return;
     }
     sink_.OnComplete();
@@ -331,7 +328,7 @@ void DbnParserComponent<S>::OnComplete() noexcept {
 template <RecordSink S>
 void DbnParserComponent<S>::OnComplete(BufferChain& chain) noexcept {
     // Check error state - if already in error, ignore completion
-    if (error_state_.load(std::memory_order_acquire)) {
+    if (this->IsFinalized()) {
         return;
     }
 
@@ -348,9 +345,10 @@ void DbnParserComponent<S>::OnComplete(BufferChain& chain) noexcept {
 template <RecordSink S>
 void DbnParserComponent<S>::ReportTerminalError(const std::string& msg) {
     // One-shot guard - only report first error
-    if (error_state_.exchange(true, std::memory_order_acq_rel)) {
+    if (this->IsFinalized()) {
         return;
     }
+    this->SetFinalized();
     sink_.OnError(Error{ErrorCode::ParseError, msg});
 }
 
