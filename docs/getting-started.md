@@ -427,6 +427,17 @@ int main() {
 | `Pipeline::IsSuspended()` | Yes |
 | All others | No—event loop thread only |
 
+To call any non-thread-safe method from another thread, wrap it in `Defer()`:
+
+```cpp
+// From a worker thread:
+reactor.Defer([&]() {
+    client->Resume();   // Now runs on the event loop thread
+});
+```
+
+See the [Deferred Execution](#deferred-execution) section for full examples.
+
 ## API Endpoints
 
 | Protocol | Gateway | Port |
