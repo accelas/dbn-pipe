@@ -10,7 +10,7 @@
 
 namespace dbn_pipe {
 
-/// Default timezone for to_nanos() and Timestamp conversions.
+/// Default timezone for to_nanos() and UnixNanos conversions.
 inline constexpr const char* kDefaultTimezone = "America/New_York";
 
 /// Convert a calendar date at local midnight to UTC nanoseconds.
@@ -78,18 +78,18 @@ uint64_t to_nanos(std::chrono::utc_time<Duration>) = delete;
 /// .start = sys_days{2024y / January / 1}                  // UTC midnight
 /// .start = 1704067200000000000ULL                         // raw nanos
 /// @endcode
-struct Timestamp {
+struct UnixNanos {
     uint64_t nanos = 0;  ///< Nanoseconds since Unix epoch
 
-    constexpr Timestamp() = default;
+    constexpr UnixNanos() = default;
 
     /// Construct from raw nanoseconds.
-    constexpr Timestamp(uint64_t ns) : nanos(ns) {}
+    constexpr UnixNanos(uint64_t ns) : nanos(ns) {}
 
     /// Construct from a calendar date at local midnight.
     /// @param ymd  Calendar date (asserts ymd.ok())
     /// @param tz   IANA timezone name
-    Timestamp(std::chrono::year_month_day ymd,
+    UnixNanos(std::chrono::year_month_day ymd,
               std::string_view tz = kDefaultTimezone)
         : nanos(to_nanos(ymd, tz)) {}
 
@@ -97,18 +97,18 @@ struct Timestamp {
     /// @param lt  Local time point
     /// @param tz  IANA timezone name
     template <typename Duration>
-    Timestamp(std::chrono::local_time<Duration> lt,
+    UnixNanos(std::chrono::local_time<Duration> lt,
               std::string_view tz = kDefaultTimezone)
         : nanos(to_nanos(lt, tz)) {}
 
     /// Construct from a UTC time point (no timezone conversion).
     template <typename Duration>
-    Timestamp(std::chrono::sys_time<Duration> tp)
+    UnixNanos(std::chrono::sys_time<Duration> tp)
         : nanos(to_nanos(tp)) {}
 
     /// @cond
     template <typename Duration>
-    Timestamp(std::chrono::utc_time<Duration>) = delete;
+    UnixNanos(std::chrono::utc_time<Duration>) = delete;
     /// @endcond
 
     /// Implicit conversion to uint64_t for use in QueryParam, comparisons, etc.
