@@ -244,7 +244,7 @@ dbn-pipe ships with table definitions for all major Databento schemas:
 using namespace dbn_pipe;
 
 constexpr auto my_table = Table{"my_trades",
-    Column<"ts_event",      Timestamp>{},
+    Column<"ts_event",      TimestampCol>{},
     Column<"instrument_id", Int32>{},
     Column<"price",         Int64>{},
     Column<"size",          Int64>{},
@@ -284,7 +284,7 @@ Each column has a logical type that maps to a C++ type:
 | `Int32` | `int32_t` | Instrument IDs, deltas |
 | `Int16` | `int16_t` | RType, publisher ID, flags |
 | `Char` | `char` | Side, action |
-| `Timestamp` | `int64_t` | Unix nanoseconds (rendered as timestamp by backends) |
+| `TimestampCol` | `int64_t` | Unix nanoseconds (rendered as timestamp by backends) |
 | `Text` | `std::string_view` | Symbol names, exchange codes |
 | `Bool` | `bool` | Boolean flags |
 | `Float64` | `double` | Floating-point values |

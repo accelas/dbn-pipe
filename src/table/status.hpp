@@ -9,7 +9,7 @@ namespace dbn_pipe {
 /// Constexpr table definition for equity trading halt/resume StatusMsg records.
 inline constexpr auto status_table = Table{"status",
     Column<"ts_event_ns",   Int64>{},
-    Column<"ts_event",      Timestamp>{},
+    Column<"ts_event",      TimestampCol>{},
     Column<"rtype",         Int16>{},
     Column<"publisher_id",  Int16>{},
     Column<"instrument_id", Int32>{},
@@ -20,13 +20,13 @@ inline constexpr auto status_table = Table{"status",
     Column<"is_quoting",    Char>{},
     Column<"is_short_sell_restricted", Char>{},
     Column<"ts_recv_ns",    Int64>{},
-    Column<"ts_recv",       Timestamp>{}
+    Column<"ts_recv",       TimestampCol>{}
 };
 
 /// Constexpr table definition for options trading halt/resume StatusMsg records (includes underlying_id).
 inline constexpr auto options_status_table = Table{"status",
     Column<"ts_event_ns",   Int64>{},
-    Column<"ts_event",      Timestamp>{},
+    Column<"ts_event",      TimestampCol>{},
     Column<"rtype",         Int16>{},
     Column<"publisher_id",  Int16>{},
     Column<"instrument_id", Int32>{},
@@ -38,7 +38,7 @@ inline constexpr auto options_status_table = Table{"status",
     Column<"is_quoting",    Char>{},
     Column<"is_short_sell_restricted", Char>{},
     Column<"ts_recv_ns",    Int64>{},
-    Column<"ts_recv",       Timestamp>{}
+    Column<"ts_recv",       TimestampCol>{}
 };
 
 }  // namespace dbn_pipe
