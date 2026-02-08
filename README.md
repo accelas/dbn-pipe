@@ -6,9 +6,9 @@ Async Databento client with zero-copy pipeline architecture and pluggable event 
 
 - Pluggable event loop via `IEventLoop` interface (integrate with libuv, asio, etc.)
 - Built-in epoll-based `EventLoop` for standalone usage
-- Zero-copy DBN record parsing with BufferChain
+- Zero-copy DBN record parsing with BufferChain and PMR-backed allocation
 - Template-based static dispatch (no virtual calls in hot path)
-- Backpressure via Suspend/Resume propagation
+- Backpressure via Suspend/Resume count propagation through pipeline
 - Support for Live and Historical APIs
 
 ## Quick Start
@@ -193,8 +193,10 @@ API Pipeline (Metadata/Symbology):
 | `HistoricalClient` | Alias for `Pipeline<HistoricalProtocol>` |
 | `MetadataClient` | JSON API client for metadata queries |
 | `SymbologyClient` | JSON API client for symbol resolution |
+| `PipelineComponent` | CRTP base with lifecycle management, backpressure, and downstream storage |
 | `RecordRef` | Zero-copy record reference with lifetime management |
-| `BufferChain` | Zero-copy buffer management with segment pooling |
+| `BufferChain` | Zero-copy buffer management with PMR-backed segment allocation |
+| `SegmentAllocator` | PMR-backed allocator with free-list recycling, shared across pipeline stages |
 
 ### Pipeline State Machine
 
