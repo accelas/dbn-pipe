@@ -92,6 +92,7 @@ cc_test(
     deps = [
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
+        "//lib/stream:segment_allocator",
         "//src:cram_auth",
         "@googletest//:gtest_main",
     ],

@@ -14,6 +14,7 @@
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/error.hpp"
 #include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 
 namespace dbn_pipe {
 
@@ -53,6 +54,12 @@ public:
         throw std::logic_error(
             "ZstdDecompressor::Write() is not supported");
     }
+
+    /// Inject an external allocator (e.g. shared with other pipeline stages).
+    void SetAllocator(SegmentAllocator* alloc) { allocator_ = alloc; }
+
+    /// Return the active allocator (injected or default).
+    SegmentAllocator& GetAllocator() { return allocator_ ? *allocator_ : default_allocator_; }
 
     // Required by PipelineComponent
     void DisableWatchers() {}
@@ -109,7 +116,7 @@ private:
                 return false;
             }
             size_t chunk = std::min(source.ContiguousSize(), Segment::kSize);
-            auto seg = segment_pool_.Acquire();
+            auto seg = GetAllocator().Allocate();
             source.CopyTo(0, chunk, seg->data.data());
             seg->size = chunk;
             pending_input_.Append(std::move(seg));
@@ -122,8 +129,9 @@ private:
 
     ZSTD_DStream* dstream_ = nullptr;
 
-    // Segment pool and chain for zero-copy output
-    SegmentPool segment_pool_{16};  // Pool for output segments
+    // Allocator for zero-copy output segments
+    SegmentAllocator* allocator_ = nullptr;
+    SegmentAllocator default_allocator_;
     BufferChain output_chain_;      // Chain passed to downstream
 
     // Pending input when suspended
@@ -145,7 +153,7 @@ ZstdDecompressor<D>::ZstdDecompressor(IEventLoop& loop, std::shared_ptr<D> downs
     : PipelineComponent<ZstdDecompressor<D>>(loop), downstream_(std::move(downstream)) {
 
     // Set up segment recycling
-    output_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
+    output_chain_.SetRecycleCallback(GetAllocator().MakeRecycler());
 
     dstream_ = ZSTD_createDStream();
     if (!dstream_) {
@@ -228,7 +236,7 @@ auto ZstdDecompressor<D>::DecompressChain(BufferChain& chain) -> DecompressResul
         ZSTD_inBuffer in_buf = {chunk_ptr, chunk_size, 0};
 
         while (in_buf.pos < in_buf.size) {
-            auto seg = segment_pool_.Acquire();
+            auto seg = GetAllocator().Allocate();
             ZSTD_outBuffer out_buf = {seg->data.data(), Segment::kSize, 0};
 
             size_t result = ZSTD_decompressStream(dstream_, &out_buf, &in_buf);
