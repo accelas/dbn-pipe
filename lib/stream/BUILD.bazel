@@ -87,6 +87,7 @@ cc_library(
         ":component",
         ":error",
         ":event_loop",
+        ":segment_allocator",
     ],
 )
 

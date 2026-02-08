@@ -71,6 +71,7 @@ cc_test(
         "//lib/stream:buffer_chain",
         "//lib/stream:epoll_event_loop",
         "//lib/stream:error",
+        "//lib/stream:segment_allocator",
         "//lib/stream:tcp_socket",
         "@googletest//:gtest_main",
     ],
