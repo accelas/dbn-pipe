@@ -16,7 +16,6 @@
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/error.hpp"
-#include "dbn_pipe/stream/event_loop.hpp"
 #include "dbn_pipe/stream/tls_transport.hpp"
 
 namespace dbn_pipe {
@@ -31,13 +30,12 @@ class HttpClient : public PipelineComponent<HttpClient<D>, D>,
                    public std::enable_shared_from_this<HttpClient<D>> {
 public:
     // Factory method for shared_from_this safety
-    static std::shared_ptr<HttpClient> Create(IEventLoop& loop,
-                                               std::shared_ptr<D> downstream) {
+    static std::shared_ptr<HttpClient> Create(std::shared_ptr<D> downstream) {
         struct MakeSharedEnabler : public HttpClient {
-            MakeSharedEnabler(IEventLoop& l, std::shared_ptr<D> ds)
-                : HttpClient(l, std::move(ds)) {}
+            MakeSharedEnabler(std::shared_ptr<D> ds)
+                : HttpClient(std::move(ds)) {}
         };
-        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream));
+        return std::make_shared<MakeSharedEnabler>(std::move(downstream));
     }
 
     ~HttpClient() = default;
@@ -152,7 +150,7 @@ public:
 
 private:
     // Private constructor - use Create() factory method
-    HttpClient(IEventLoop& loop, std::shared_ptr<D> downstream);
+    HttpClient(std::shared_ptr<D> downstream);
 
     // llhttp callbacks (static, use parser->data to get this pointer)
     static int OnMessageBegin(llhttp_t* parser);
@@ -286,8 +284,7 @@ private:
 // Implementation - must be in header due to template
 
 template <Downstream D>
-HttpClient<D>::HttpClient(IEventLoop& loop, std::shared_ptr<D> downstream)
-    : PipelineComponent<HttpClient<D>, D>(loop) {
+HttpClient<D>::HttpClient(std::shared_ptr<D> downstream) {
     this->SetDownstream(std::move(downstream));
     // Initialize llhttp settings
     llhttp_settings_init(&settings_);

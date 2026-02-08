@@ -13,7 +13,6 @@
 #include <type_traits>
 
 #include "dbn_pipe/stream/error.hpp"
-#include "dbn_pipe/stream/event_loop.hpp"
 #include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/suspendable.hpp"
 
@@ -94,11 +93,7 @@ class PipelineComponent : public Suspendable, protected DownstreamStorage<D> {
 public:
     using DeferFn = std::function<void(std::function<void()>)>;
 
-    // Bridge constructor (existing code keeps working)
-    explicit PipelineComponent(IEventLoop& loop)
-        : defer_([&loop](auto fn) { loop.Defer(std::move(fn)); }) {}
-
-    // Default constructor for components that don't need event loop
+    // Default constructor - use SetDefer() to wire deferred close behavior
     PipelineComponent() = default;
 
     void SetDefer(DeferFn fn) { defer_ = std::move(fn); }

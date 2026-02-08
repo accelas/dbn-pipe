@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "dbn_pipe/stream/buffer_chain.hpp"
-#include "dbn_pipe/stream/epoll_event_loop.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/tls_transport.hpp"
@@ -36,18 +35,16 @@ struct MockTlsDownstream {
 static_assert(Downstream<MockTlsDownstream>);
 
 TEST(TlsTransportTest, FactoryCreatesInstance) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
 
-    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(downstream);
     ASSERT_NE(tls, nullptr);
 }
 
 TEST(TlsTransportTest, ImplementsUpstreamConcept) {
     // TlsTransport must satisfy Upstream concept for pipeline integration
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(downstream);
 
     // Verify Upstream interface is available
     static_assert(Upstream<TlsTransport<MockTlsDownstream>>);
@@ -61,12 +58,8 @@ TEST(TlsTransportTest, ImplementsDownstreamConcept) {
 }
 
 TEST(TlsTransportTest, SuspendAndResumeWork) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
-
-    // Initialize event loop thread ID for Suspend/Resume assertions
-    loop.Poll(0);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(downstream);
 
     // Initially not suspended
     EXPECT_FALSE(tls->IsSuspended());
@@ -79,26 +72,23 @@ TEST(TlsTransportTest, SuspendAndResumeWork) {
 }
 
 TEST(TlsTransportTest, CloseCallsDoClose) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(downstream);
 
     tls->Close();
     EXPECT_TRUE(tls->IsClosed());
 }
 
 TEST(TlsTransportTest, HandshakeNotCompleteInitially) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(downstream);
 
     EXPECT_FALSE(tls->IsHandshakeComplete());
 }
 
 TEST(TlsTransportTest, CanSetHostnameForSNI) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(downstream);
 
     // Setting hostname should not throw
     tls->SetHostname("example.com");
@@ -107,9 +97,8 @@ TEST(TlsTransportTest, CanSetHostnameForSNI) {
 
 // Integration test: verify the TLS objects are properly initialized
 TEST(TlsTransportTest, OpenSSLObjectsInitialized) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(downstream);
 
     // The TLS socket should have valid SSL context and connection
     // We can't directly check internals, but construction should succeed
@@ -118,9 +107,8 @@ TEST(TlsTransportTest, OpenSSLObjectsInitialized) {
 
 // Test that StartHandshake initiates TLS negotiation
 TEST(TlsTransportTest, StartHandshakeProducesData) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(downstream);
 
     tls->SetHostname("test.example.com");
 
@@ -142,9 +130,8 @@ TEST(TlsTransportTest, StartHandshakeProducesData) {
 }
 
 TEST(TlsTransportTest, UsesDefaultAllocatorWhenNoneSet) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(downstream);
 
     // GetAllocator should return the default allocator
     SegmentAllocator& alloc = tls->GetAllocator();
@@ -154,9 +141,8 @@ TEST(TlsTransportTest, UsesDefaultAllocatorWhenNoneSet) {
 }
 
 TEST(TlsTransportTest, UsesProvidedAllocator) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockTlsDownstream>();
-    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+    auto tls = TlsTransport<MockTlsDownstream>::Create(downstream);
 
     // Provide an external allocator
     SegmentAllocator allocator;

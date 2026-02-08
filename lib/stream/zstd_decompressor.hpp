@@ -13,7 +13,6 @@
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/error.hpp"
-#include "dbn_pipe/stream/event_loop.hpp"
 
 namespace dbn_pipe {
 
@@ -28,13 +27,12 @@ class ZstdDecompressor : public PipelineComponent<ZstdDecompressor<D>, D>,
                          public std::enable_shared_from_this<ZstdDecompressor<D>> {
 public:
     // Factory method for shared_from_this safety
-    static std::shared_ptr<ZstdDecompressor> Create(IEventLoop& loop,
-                                                    std::shared_ptr<D> downstream) {
+    static std::shared_ptr<ZstdDecompressor> Create(std::shared_ptr<D> downstream) {
         struct MakeSharedEnabler : public ZstdDecompressor {
-            MakeSharedEnabler(IEventLoop& l, std::shared_ptr<D> ds)
-                : ZstdDecompressor(l, std::move(ds)) {}
+            MakeSharedEnabler(std::shared_ptr<D> ds)
+                : ZstdDecompressor(std::move(ds)) {}
         };
-        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream));
+        return std::make_shared<MakeSharedEnabler>(std::move(downstream));
     }
 
     ~ZstdDecompressor() { Cleanup(); }
@@ -89,7 +87,7 @@ public:
     }
 
 private:
-    ZstdDecompressor(IEventLoop& loop, std::shared_ptr<D> downstream);
+    ZstdDecompressor(std::shared_ptr<D> downstream);
 
     enum class DecompressResult { Complete, Suspended, Error };
     DecompressResult ProcessPendingData();
@@ -137,8 +135,7 @@ private:
 // Implementation
 
 template <Downstream D>
-ZstdDecompressor<D>::ZstdDecompressor(IEventLoop& loop, std::shared_ptr<D> downstream)
-    : PipelineComponent<ZstdDecompressor<D>, D>(loop) {
+ZstdDecompressor<D>::ZstdDecompressor(std::shared_ptr<D> downstream) {
     this->SetDownstream(std::move(downstream));
 
     // Set up segment recycling

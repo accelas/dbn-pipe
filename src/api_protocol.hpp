@@ -207,11 +207,16 @@ struct ApiProtocol {
                 });
 
             // Create HttpClient with JsonParser as downstream
-            http_client_ = HttpClient<JsonParser<Builder>>::Create(loop_, json_parser_);
+            http_client_ = HttpClient<JsonParser<Builder>>::Create(json_parser_);
 
             // Create TlsTransport with HttpClient as downstream
-            tls_ = TlsTransport<HttpClient<JsonParser<Builder>>>::Create(loop_, http_client_);
+            tls_ = TlsTransport<HttpClient<JsonParser<Builder>>>::Create(http_client_);
             tls_->SetHostname(host_);
+
+            // Wire defer callback from event loop
+            auto defer = [this](auto fn) { loop_.Defer(std::move(fn)); };
+            tls_->SetDefer(defer);
+            http_client_->SetDefer(defer);
 
             // Create TcpSocket with TlsTransport as downstream
             head_ = TcpSocket<TlsTransport<HttpClient<JsonParser<Builder>>>>::Create(loop_, tls_);

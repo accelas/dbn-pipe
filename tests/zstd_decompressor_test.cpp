@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "dbn_pipe/stream/buffer_chain.hpp"
-#include "dbn_pipe/stream/epoll_event_loop.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/zstd_decompressor.hpp"
@@ -93,17 +92,15 @@ BufferChain ToChain(const std::vector<std::byte>& bytes, size_t offset, size_t l
 }
 
 TEST(ZstdDecompressorTest, FactoryCreatesInstance) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
 
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
     ASSERT_NE(decompressor, nullptr);
 }
 
 TEST(ZstdDecompressorTest, DecompressesSimpleData) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     std::string original = "Hello, World! This is a test of zstd decompression.";
     auto compressed = CompressData(original);
@@ -121,9 +118,8 @@ TEST(ZstdDecompressorTest, DecompressesSimpleData) {
 }
 
 TEST(ZstdDecompressorTest, DecompressesLargeData) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     // Create a large string (100KB of repeating pattern)
     std::string original;
@@ -146,9 +142,8 @@ TEST(ZstdDecompressorTest, DecompressesLargeData) {
 }
 
 TEST(ZstdDecompressorTest, DecompressesChunkedInput) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     std::string original = "This is chunked input test data for zstd decompression.";
     auto compressed = CompressData(original);
@@ -169,9 +164,8 @@ TEST(ZstdDecompressorTest, DecompressesChunkedInput) {
 }
 
 TEST(ZstdDecompressorTest, HandlesInvalidData) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     // Feed invalid compressed data
     std::vector<std::byte> invalid_bytes = {
@@ -186,12 +180,8 @@ TEST(ZstdDecompressorTest, HandlesInvalidData) {
 }
 
 TEST(ZstdDecompressorTest, SuspendAndResumeWork) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
-
-    // Initialize event loop thread ID for Suspend/Resume assertions
-    loop.Poll(0);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     // Initially not suspended
     EXPECT_FALSE(decompressor->IsSuspended());
@@ -204,12 +194,8 @@ TEST(ZstdDecompressorTest, SuspendAndResumeWork) {
 }
 
 TEST(ZstdDecompressorTest, BuffersDataWhenSuspended) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
-
-    // Initialize event loop thread ID for Suspend/Resume assertions
-    loop.Poll(0);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     std::string original = "Data buffered while suspended.";
     auto compressed = CompressData(original);
@@ -235,9 +221,8 @@ TEST(ZstdDecompressorTest, BuffersDataWhenSuspended) {
 }
 
 TEST(ZstdDecompressorTest, ForwardsUpstreamError) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     Error upstream_error{ErrorCode::ConnectionClosed, "Connection lost"};
     decompressor->OnError(upstream_error);
@@ -248,18 +233,16 @@ TEST(ZstdDecompressorTest, ForwardsUpstreamError) {
 }
 
 TEST(ZstdDecompressorTest, CloseCallsDoClose) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     decompressor->Close();
     EXPECT_TRUE(decompressor->IsClosed());
 }
 
 TEST(ZstdDecompressorTest, EmptyInput) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     // Send empty data - create empty chain
     BufferChain empty_chain;
@@ -273,9 +256,8 @@ TEST(ZstdDecompressorTest, EmptyInput) {
 }
 
 TEST(ZstdDecompressorTest, MultipleFrames) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     std::string original1 = "First frame data.";
     std::string original2 = "Second frame data.";
@@ -300,9 +282,8 @@ TEST(ZstdDecompressorTest, MultipleFrames) {
 
 TEST(ZstdDecompressorTest, ImplementsUpstreamConcept) {
     // ZstdDecompressor must satisfy Upstream concept for pipeline integration
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     // Verify Upstream interface is available
     static_assert(Upstream<ZstdDecompressor<MockZstdDownstream>>);
@@ -310,9 +291,8 @@ TEST(ZstdDecompressorTest, ImplementsUpstreamConcept) {
 }
 
 TEST(ZstdDecompressorTest, IncompleteZstdFrameEmitsError) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     std::string original = "Test data for incomplete frame detection.";
     auto compressed = CompressData(original);
@@ -339,9 +319,8 @@ TEST(ZstdDecompressorTest, IncompleteZstdFrameEmitsError) {
 }
 
 TEST(ZstdDecompressorTest, UsesProvidedAllocator) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     // Provide an external allocator
     SegmentAllocator allocator;
@@ -364,9 +343,8 @@ TEST(ZstdDecompressorTest, UsesProvidedAllocator) {
 }
 
 TEST(ZstdDecompressorTest, DefaultAllocatorWhenNoneInjected) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockZstdDownstream>();
-    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(downstream);
 
     // Without SetAllocator, GetAllocator() should return the internal default
     SegmentAllocator& alloc = decompressor->GetAllocator();

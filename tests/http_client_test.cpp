@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "dbn_pipe/stream/buffer_chain.hpp"
-#include "dbn_pipe/stream/epoll_event_loop.hpp"
 #include "dbn_pipe/stream/http_client.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/segment_allocator.hpp"
@@ -52,17 +51,15 @@ BufferChain ToChain(const std::string& str) {
 }
 
 TEST(HttpClientTest, FactoryCreatesInstance) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
 
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
     ASSERT_NE(http, nullptr);
 }
 
 TEST(HttpClientTest, ParsesSuccessResponse) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 200 OK\r\n"
@@ -78,9 +75,8 @@ TEST(HttpClientTest, ParsesSuccessResponse) {
 }
 
 TEST(HttpClientTest, ParsesChunkedResponse) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     // Send response in chunks
     std::string part1 = "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhello";
@@ -100,9 +96,8 @@ TEST(HttpClientTest, ParsesChunkedResponse) {
 }
 
 TEST(HttpClientTest, HandlesHttpError400) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 400 Bad Request\r\n"
@@ -122,9 +117,8 @@ TEST(HttpClientTest, HandlesHttpError400) {
 }
 
 TEST(HttpClientTest, HandlesHttpError500) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 500 Internal Server Error\r\n"
@@ -141,9 +135,8 @@ TEST(HttpClientTest, HandlesHttpError500) {
 }
 
 TEST(HttpClientTest, HandlesRedirect301AsError) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 301 Moved Permanently\r\n"
@@ -161,12 +154,8 @@ TEST(HttpClientTest, HandlesRedirect301AsError) {
 }
 
 TEST(HttpClientTest, SuspendAndResumeWork) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
-
-    // Initialize event loop thread ID for Suspend/Resume assertions
-    loop.Poll(0);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     // Initially not suspended
     EXPECT_FALSE(http->IsSuspended());
@@ -179,18 +168,16 @@ TEST(HttpClientTest, SuspendAndResumeWork) {
 }
 
 TEST(HttpClientTest, CloseCallsDoClose) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     http->Close();
     EXPECT_TRUE(http->IsClosed());
 }
 
 TEST(HttpClientTest, EmptyBodyResponse) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 204 No Content\r\n"
@@ -205,9 +192,8 @@ TEST(HttpClientTest, EmptyBodyResponse) {
 }
 
 TEST(HttpClientTest, StatusCodeAccessor) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     // Send just headers to check status code before message complete
     std::string headers =
@@ -231,9 +217,8 @@ TEST(HttpClientTest, StatusCodeAccessor) {
 
 TEST(HttpClientTest, ImplementsUpstreamConcept) {
     // HttpClient must satisfy Upstream concept for pipeline integration
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     // Verify Upstream interface is available
     static_assert(Upstream<HttpClient<MockHttpDownstream>>);
@@ -243,9 +228,8 @@ TEST(HttpClientTest, ImplementsUpstreamConcept) {
 // Tests for HTTP status code to ErrorCode mapping
 
 TEST(HttpClientTest, Maps401ToUnauthorized) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 401 Unauthorized\r\n"
@@ -261,9 +245,8 @@ TEST(HttpClientTest, Maps401ToUnauthorized) {
 }
 
 TEST(HttpClientTest, Maps403ToUnauthorized) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 403 Forbidden\r\n"
@@ -279,9 +262,8 @@ TEST(HttpClientTest, Maps403ToUnauthorized) {
 }
 
 TEST(HttpClientTest, Maps404ToNotFound) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 404 Not Found\r\n"
@@ -297,9 +279,8 @@ TEST(HttpClientTest, Maps404ToNotFound) {
 }
 
 TEST(HttpClientTest, Maps422ToValidationError) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 422 Unprocessable Entity\r\n"
@@ -315,9 +296,8 @@ TEST(HttpClientTest, Maps422ToValidationError) {
 }
 
 TEST(HttpClientTest, Maps429ToRateLimited) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 429 Too Many Requests\r\n"
@@ -333,9 +313,8 @@ TEST(HttpClientTest, Maps429ToRateLimited) {
 }
 
 TEST(HttpClientTest, ParsesRetryAfterHeader) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 429 Too Many Requests\r\n"
@@ -354,9 +333,8 @@ TEST(HttpClientTest, ParsesRetryAfterHeader) {
 }
 
 TEST(HttpClientTest, ParsesRetryAfterHeaderCaseInsensitive) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     std::string response =
         "HTTP/1.1 429 Too Many Requests\r\n"
@@ -374,9 +352,8 @@ TEST(HttpClientTest, ParsesRetryAfterHeaderCaseInsensitive) {
 }
 
 TEST(HttpClientTest, UsesInjectedSegmentAllocator) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     // Inject an external allocator
     SegmentAllocator allocator;
@@ -400,9 +377,8 @@ TEST(HttpClientTest, UsesInjectedSegmentAllocator) {
 }
 
 TEST(HttpClientTest, DefaultAllocatorUsedWhenNoneInjected) {
-    EpollEventLoop loop;
     auto downstream = std::make_shared<MockHttpDownstream>();
-    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+    auto http = HttpClient<MockHttpDownstream>::Create(downstream);
 
     // Without SetAllocator, GetAllocator returns the default
     SegmentAllocator& alloc = http->GetAllocator();

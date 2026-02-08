@@ -61,7 +61,7 @@ class TestComponent
     : public PipelineComponent<TestComponent>
     , public std::enable_shared_from_this<TestComponent> {
 public:
-    TestComponent(IEventLoop& loop) : PipelineComponent(loop) {}
+    TestComponent() = default;
 
     int process_count = 0;
     bool do_close_called = false;
@@ -79,8 +79,7 @@ public:
 };
 
 TEST(PipelineComponentTest, TryGuardRejectsWhenClosed) {
-    EpollEventLoop loop;
-    auto comp = std::make_shared<TestComponent>(loop);
+    auto comp = std::make_shared<TestComponent>();
 
     comp->Process();
     EXPECT_EQ(comp->process_count, 1);
@@ -92,7 +91,8 @@ TEST(PipelineComponentTest, TryGuardRejectsWhenClosed) {
 
 TEST(PipelineComponentTest, ProcessingGuardDefersClose) {
     EpollEventLoop loop;
-    auto comp = std::make_shared<TestComponent>(loop);
+    auto comp = std::make_shared<TestComponent>();
+    comp->SetDefer([&loop](auto fn) { loop.Defer(std::move(fn)); });
 
     {
         auto guard = comp->TryGuard();
@@ -303,9 +303,10 @@ TEST(PipelineComponentTest, SynchronousCloseWithoutSharedFromThis) {
 
 TEST(PipelineComponentTest, SetDeferWithEventLoopBridge) {
     EpollEventLoop loop;
-    auto comp = std::make_shared<TestComponent>(loop);
+    auto comp = std::make_shared<TestComponent>();
+    comp->SetDefer([&loop](auto fn) { loop.Defer(std::move(fn)); });
 
-    // Bridge constructor should have set up defer_ internally
+    // SetDefer should have wired up defer_ to event loop
     // Verify by closing - should defer to event loop
     comp->RequestClose();
     EXPECT_FALSE(comp->do_close_called);

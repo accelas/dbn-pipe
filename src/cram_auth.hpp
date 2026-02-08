@@ -20,7 +20,6 @@
 
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/error.hpp"
-#include "dbn_pipe/stream/event_loop.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/tls_transport.hpp"  // For Suspendable
 
@@ -176,12 +175,11 @@ public:
 
     // Factory method for shared_from_this safety
     static std::shared_ptr<CramAuth> Create(
-        IEventLoop& loop,
         std::shared_ptr<D> downstream,
         std::string api_key,
         std::string dataset = {}
     ) {
-        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream),
+        return std::make_shared<MakeSharedEnabler>(std::move(downstream),
                                                     std::move(api_key),
                                                     std::move(dataset));
     }
@@ -240,7 +238,7 @@ public:
     static constexpr std::size_t kMaxLineLength = 8 * 1024;           // 8KB
 
 private:
-    CramAuth(IEventLoop& loop, std::shared_ptr<D> downstream,
+    CramAuth(std::shared_ptr<D> downstream,
              std::string api_key, std::string dataset);
 
     // Process accumulated line buffer for text mode
@@ -325,21 +323,19 @@ private:
 // MakeSharedEnabler - allows make_shared with private constructor
 template <Downstream D>
 struct CramAuth<D>::MakeSharedEnabler : public CramAuth<D> {
-    MakeSharedEnabler(IEventLoop& loop, std::shared_ptr<D> downstream,
+    MakeSharedEnabler(std::shared_ptr<D> downstream,
                       std::string api_key, std::string dataset)
-        : CramAuth<D>(loop, std::move(downstream),
+        : CramAuth<D>(std::move(downstream),
                       std::move(api_key), std::move(dataset)) {}
 };
 
 // Implementation
 
 template <Downstream D>
-CramAuth<D>::CramAuth(IEventLoop& loop,
-                      std::shared_ptr<D> downstream,
+CramAuth<D>::CramAuth(std::shared_ptr<D> downstream,
                       std::string api_key,
                       std::string dataset)
-    : Base(loop)
-    , api_key_(std::move(api_key))
+    : api_key_(std::move(api_key))
     , dataset_(std::move(dataset))
 {
     this->SetDownstream(std::move(downstream));

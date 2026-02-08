@@ -91,7 +91,6 @@ cc_test(
     srcs = ["cram_auth_test.cpp"],
     deps = [
         "//lib/stream:component",
-        "//lib/stream:epoll_event_loop",
         "//lib/stream:segment_allocator",
         "//src:cram_auth",
         "@googletest//:gtest_main",
@@ -117,7 +116,6 @@ cc_test(
     deps = [
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
-        "//lib/stream:epoll_event_loop",
         "//lib/stream:segment_allocator",
         "//lib/stream:tls_transport",
         "@googletest//:gtest_main",
@@ -129,7 +127,6 @@ cc_test(
     srcs = ["http_client_test.cpp"],
     deps = [
         "//lib/stream:component",
-        "//lib/stream:epoll_event_loop",
         "//lib/stream:http_client",
         "//lib/stream:segment_allocator",
         "@googletest//:gtest_main",
@@ -141,7 +138,6 @@ cc_test(
     srcs = ["zstd_decompressor_test.cpp"],
     deps = [
         "//lib/stream:component",
-        "//lib/stream:epoll_event_loop",
         "//lib/stream:segment_allocator",
         "//lib/stream:zstd_decompressor",
         "@googletest//:gtest_main",

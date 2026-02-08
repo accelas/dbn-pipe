@@ -17,7 +17,6 @@
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/error.hpp"
-#include "dbn_pipe/stream/event_loop.hpp"
 
 namespace dbn_pipe {
 
@@ -36,14 +35,13 @@ public:
     using UpstreamWriteCallback = std::function<void(BufferChain)>;
 
     // Factory method for shared_from_this safety
-    static std::shared_ptr<TlsTransport> Create(IEventLoop& loop,
-                                              std::shared_ptr<D> downstream) {
+    static std::shared_ptr<TlsTransport> Create(std::shared_ptr<D> downstream) {
         // Use a helper struct to access private constructor
         struct MakeSharedEnabler : public TlsTransport {
-            MakeSharedEnabler(IEventLoop& l, std::shared_ptr<D> ds)
-                : TlsTransport(l, std::move(ds)) {}
+            MakeSharedEnabler(std::shared_ptr<D> ds)
+                : TlsTransport(std::move(ds)) {}
         };
-        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream));
+        return std::make_shared<MakeSharedEnabler>(std::move(downstream));
     }
 
     ~TlsTransport() { Cleanup(); }
@@ -125,7 +123,7 @@ public:
 
 private:
     // Private constructor - use Create() factory method
-    TlsTransport(IEventLoop& loop, std::shared_ptr<D> downstream);
+    TlsTransport(std::shared_ptr<D> downstream);
 
     // OpenSSL initialization (static, thread-safe)
     static void InitOpenSSL();
@@ -171,8 +169,7 @@ private:
 // Implementation - must be in header due to template
 
 template <Downstream D>
-TlsTransport<D>::TlsTransport(IEventLoop& loop, std::shared_ptr<D> downstream)
-    : PipelineComponent<TlsTransport<D>, D>(loop) {
+TlsTransport<D>::TlsTransport(std::shared_ptr<D> downstream) {
     this->SetDownstream(std::move(downstream));
     InitOpenSSL();
 

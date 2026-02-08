@@ -71,7 +71,6 @@ cc_library(
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
         "//lib/stream:error",
-        "//lib/stream:event_loop",
         "//lib/stream:tls_transport",
         "@fmt",
         "@openssl_sys//:crypto",

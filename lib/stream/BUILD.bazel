@@ -72,7 +72,6 @@ cc_library(
     include_prefix = "dbn_pipe/stream",
     deps = [
         ":error",
-        ":event_loop",
         ":segment_allocator",
         ":suspendable",
     ],
@@ -156,7 +155,6 @@ cc_library(
         ":buffer_chain",
         ":component",
         ":error",
-        ":event_loop",
         "@openssl_sys//:crypto",
         "@openssl_sys//:ssl",
     ],
@@ -170,7 +168,6 @@ cc_library(
     deps = [
         ":component",
         ":error",
-        ":event_loop",
         ":tls_transport",
         "@llhttp",
     ],
@@ -185,7 +182,6 @@ cc_library(
         ":buffer_chain",
         ":component",
         ":error",
-        ":event_loop",
         "@zstd",
     ],
 )
