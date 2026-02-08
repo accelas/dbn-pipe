@@ -11,6 +11,7 @@
 #include "dbn_pipe/to_nanos.hpp"
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/http_request_builder.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/dbn_parser_component.hpp"
 #include "dbn_pipe/stream/event_loop.hpp"
 #include "dbn_pipe/stream/http_client.hpp"
@@ -95,14 +96,23 @@ struct HistoricalProtocol {
         using TlsType = TlsTransport<HttpType>;
         using HeadType = TcpSocket<TlsType>;
 
-        ChainImpl(IEventLoop& loop, StreamRecordSink& sink, const std::string& api_key)
-            : api_key_(api_key)
+        ChainImpl(IEventLoop& loop, StreamRecordSink& sink, const std::string& api_key,
+                  SegmentAllocator* alloc = nullptr)
+            : allocator_(alloc ? *alloc : SegmentAllocator{})
+            , api_key_(api_key)
             , parser_(std::make_shared<ParserType>(sink))
             , zstd_(ZstdType::Create(loop, parser_))
             , http_(HttpType::Create(loop, zstd_))
             , tls_(TlsType::Create(loop, http_))
             , head_(HeadType::Create(loop, tls_))
         {
+            // Wire allocator to all components
+            head_->SetAllocator(&allocator_);
+            tls_->SetAllocator(&allocator_);
+            http_->SetAllocator(&allocator_);
+            zstd_->SetAllocator(&allocator_);
+            parser_->SetAllocator(&allocator_);
+
             // Wire up upstream pointers for backpressure propagation
             http_->SetUpstream(tls_.get());
             zstd_->SetUpstream(http_.get());
@@ -148,7 +158,7 @@ struct HistoricalProtocol {
 
         /// @copydoc ChainType::GetRequestSegment
         std::shared_ptr<Segment> GetRequestSegment() override {
-            return std::make_shared<Segment>();
+            return allocator_.Allocate();
         }
 
         /// @copydoc ChainType::SendRequestSegment
@@ -162,6 +172,7 @@ struct HistoricalProtocol {
         const std::string& GetApiKey() const override { return api_key_; }
 
     private:
+        SegmentAllocator allocator_;
         std::string api_key_;
         std::shared_ptr<ParserType> parser_;
         std::shared_ptr<ZstdType> zstd_;
@@ -182,6 +193,21 @@ struct HistoricalProtocol {
         const std::string& api_key
     ) {
         return std::make_shared<ChainImpl>(loop, sink, api_key);
+    }
+
+    /// Build the component chain with an explicit allocator.
+    /// @param loop     Event loop that drives I/O.
+    /// @param sink     Destination for parsed record batches.
+    /// @param api_key  Databento API key for HTTP basic-auth.
+    /// @param alloc    Allocator to copy into the chain; all components share it.
+    /// @return Owning pointer to the newly created chain.
+    static std::shared_ptr<ChainType> BuildChain(
+        IEventLoop& loop,
+        StreamRecordSink& sink,
+        const std::string& api_key,
+        SegmentAllocator* alloc
+    ) {
+        return std::make_shared<ChainImpl>(loop, sink, api_key, alloc);
     }
 
     /// Build and send an HTTP GET request for the given historical parameters.

@@ -7,6 +7,7 @@
 #include <string>
 
 #include "dbn_pipe/stream/buffer_chain.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/cram_auth.hpp"
 #include "dbn_pipe/dbn_parser_component.hpp"
 #include "dbn_pipe/stream/event_loop.hpp"
@@ -81,11 +82,18 @@ struct LiveProtocol {
         using CramType = CramAuth<ParserType>;
         using HeadType = TcpSocket<CramType>;
 
-        ChainImpl(IEventLoop& loop, StreamRecordSink& sink, const std::string& api_key)
-            : parser_(std::make_shared<ParserType>(sink))
+        ChainImpl(IEventLoop& loop, StreamRecordSink& sink, const std::string& api_key,
+                  SegmentAllocator* alloc = nullptr)
+            : allocator_(alloc ? *alloc : SegmentAllocator{})
+            , parser_(std::make_shared<ParserType>(sink))
             , cram_(CramType::Create(loop, parser_, api_key))
             , head_(HeadType::Create(loop, cram_))
         {
+            // Wire allocator to all components
+            head_->SetAllocator(&allocator_);
+            cram_->SetAllocator(&allocator_);
+            parser_->SetAllocator(&allocator_);
+
             // Wire connect callback for ready signal
             head_->OnConnect([this]() {
                 // Live protocol is ready immediately on connect
@@ -131,6 +139,7 @@ struct LiveProtocol {
         }
 
     private:
+        SegmentAllocator allocator_;
         std::shared_ptr<ParserType> parser_;
         std::shared_ptr<CramType> cram_;
         std::shared_ptr<HeadType> head_;
@@ -148,6 +157,21 @@ struct LiveProtocol {
         const std::string& api_key
     ) {
         return std::make_shared<ChainImpl>(loop, sink, api_key);
+    }
+
+    /// Build the component chain with an explicit allocator.
+    /// @param loop     Event loop that drives I/O.
+    /// @param sink     Destination for parsed record batches.
+    /// @param api_key  Databento API key for CRAM authentication.
+    /// @param alloc    Allocator to copy into the chain; all components share it.
+    /// @return Owning pointer to the newly created chain.
+    static std::shared_ptr<ChainType> BuildChain(
+        IEventLoop& loop,
+        StreamRecordSink& sink,
+        const std::string& api_key,
+        SegmentAllocator* alloc
+    ) {
+        return std::make_shared<ChainImpl>(loop, sink, api_key, alloc);
     }
 
     /// Subscribe to the requested symbols/schema and begin streaming.
