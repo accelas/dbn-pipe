@@ -27,7 +27,7 @@ namespace dbn_pipe {
 //
 // Template parameter D must satisfy the Downstream concept.
 template <Downstream D>
-class HttpClient : public PipelineComponent<HttpClient<D>>,
+class HttpClient : public PipelineComponent<HttpClient<D>, D>,
                    public std::enable_shared_from_this<HttpClient<D>> {
 public:
     // Factory method for shared_from_this safety
@@ -63,17 +63,17 @@ public:
 
     void ProcessPending() {
         // Forward any pending body data first
-        if (this->ForwardData(*downstream_, pending_chain_)) return;
+        if (this->ForwardData(pending_chain_)) return;
 
         // If message was complete but we suspended during final flush, complete now
         // Skip if OnDone is pending - FlushAndComplete will handle connection closure
         if (message_complete_ && status_code_ < 300 && !this->IsOnDonePending()) {
             // Use ForwardData (not CompleteWithFlush) to avoid setting done_pending_
             // which would trigger FlushAndComplete and close the keep-alive connection
-            if (this->ForwardData(*downstream_, pending_chain_)) return;  // Suspended, retry later
+            if (this->ForwardData(pending_chain_)) return;  // Suspended, retry later
             // Check for unconsumed body data
             if (!pending_chain_.Empty()) {
-                this->EmitError(*downstream_,
+                this->EmitError(
                     Error{ErrorCode::ParseError,
                           "Incomplete body at end of HTTP message (" +
                           std::to_string(pending_chain_.Size()) + " bytes remaining)"});
@@ -81,7 +81,7 @@ public:
                 return;
             }
             // Message complete - emit Done but don't close (keep-alive)
-            this->EmitDone(*downstream_);
+            this->EmitDone();
             ResetMessageState();
         }
         // Always resume the parser - it may have been paused even if pending_input_ is empty
@@ -138,7 +138,7 @@ public:
         }
 
         // Flush and complete
-        if (this->CompleteWithFlush(*downstream_, pending_chain_)) {
+        if (this->CompleteWithFlush(pending_chain_)) {
             this->RequestClose();
         }
     }
@@ -169,7 +169,7 @@ private:
         while (!source.Empty()) {
             // Check for overflow before copying
             if (source.Size() > kMaxPendingInput - pending_input_.Size()) {
-                this->EmitError(*downstream_,
+                this->EmitError(
                     Error{ErrorCode::BufferOverflow, "HTTP input buffer overflow"});
                 this->RequestClose();
                 return false;
@@ -188,7 +188,7 @@ private:
     // Returns false if overflow detected
     bool AppendBodyToPending(const std::byte* bytes, size_t len) {
         if (len > kMaxBufferedBody - pending_chain_.Size()) {
-            this->EmitError(*downstream_,
+            this->EmitError(
                 Error{ErrorCode::BufferOverflow, "HTTP body buffer overflow"});
             this->RequestClose();
             return false;
@@ -196,9 +196,6 @@ private:
         pending_chain_.AppendBytes(bytes, len, this->GetAllocator());
         return true;
     }
-
-    // Downstream component
-    std::shared_ptr<D> downstream_;
 
     // llhttp state
     llhttp_t parser_;
@@ -251,7 +248,7 @@ private:
         if (!error_body_.empty()) {
             msg += ": " + error_body_;
         }
-        this->EmitError(*downstream_, MakeHttpError(std::move(msg)));
+        this->EmitError(MakeHttpError(std::move(msg)));
         this->RequestClose();
     }
 
@@ -261,7 +258,7 @@ private:
             return true;  // Error already emitted in callback
         }
         if (err != HPE_OK) {
-            this->EmitError(*downstream_, Error{ErrorCode::HttpError, llhttp_errno_name(err)});
+            this->EmitError(Error{ErrorCode::HttpError, llhttp_errno_name(err)});
             this->RequestClose();
             return true;
         }
@@ -290,7 +287,8 @@ private:
 
 template <Downstream D>
 HttpClient<D>::HttpClient(IEventLoop& loop, std::shared_ptr<D> downstream)
-    : PipelineComponent<HttpClient<D>>(loop), downstream_(std::move(downstream)) {
+    : PipelineComponent<HttpClient<D>, D>(loop) {
+    this->SetDownstream(std::move(downstream));
     // Initialize llhttp settings
     llhttp_settings_init(&settings_);
     settings_.on_message_begin = OnMessageBegin;
@@ -314,7 +312,7 @@ void HttpClient<D>::DoClose() {
     pending_chain_.Clear();
     pending_input_.Clear();
     current_segment_.reset();
-    downstream_.reset();
+    this->ResetDownstream();
 }
 
 template <Downstream D>
@@ -343,7 +341,7 @@ void HttpClient<D>::OnData(BufferChain& data) {
     // If we have pending input, splice new data and process from pending
     if (!pending_input_.Empty()) {
         if (pending_input_.WouldOverflow(data.Size(), kMaxPendingInput)) {
-            this->EmitError(*downstream_,
+            this->EmitError(
                 Error{ErrorCode::BufferOverflow, "HTTP input buffer overflow"});
             this->RequestClose();
             return;
@@ -389,7 +387,7 @@ void HttpClient<D>::Write(BufferChain /*data*/) {
 
 template <Downstream D>
 void HttpClient<D>::OnError(const Error& e) {
-    this->PropagateError(*downstream_, e);
+    this->PropagateError(e);
 }
 
 template <Downstream D>
@@ -424,7 +422,7 @@ void HttpClient<D>::OnDone() {
         return;
     }
 
-    if (this->CompleteWithFlush(*downstream_, pending_chain_)) {
+    if (this->CompleteWithFlush(pending_chain_)) {
         this->RequestClose();
     }
 }
@@ -522,7 +520,7 @@ int HttpClient<D>::OnBody(llhttp_t* parser, const char* at, size_t len) {
     }
 
     // Forward to downstream
-    self->downstream_->OnData(self->pending_chain_);
+    self->GetDownstream().OnData(self->pending_chain_);
 
     if (self->IsSuspended()) {
         llhttp_pause(parser);
@@ -544,7 +542,7 @@ int HttpClient<D>::OnMessageComplete(llhttp_t* parser) {
     } else {
         // Flush any remaining body data before completing
         if (!self->pending_chain_.Empty()) {
-            self->downstream_->OnData(self->pending_chain_);
+            self->GetDownstream().OnData(self->pending_chain_);
             // If downstream suspended us, pause parser and defer completion
             if (self->IsSuspended()) {
                 llhttp_pause(parser);
@@ -552,7 +550,7 @@ int HttpClient<D>::OnMessageComplete(llhttp_t* parser) {
             }
             // Check for unconsumed data (downstream should have consumed all)
             if (!self->pending_chain_.Empty()) {
-                self->EmitError(*self->downstream_,
+                self->EmitError(
                     Error{ErrorCode::ParseError,
                           "Incomplete data at end of HTTP message (" +
                           std::to_string(self->pending_chain_.Size()) + " bytes remaining)"});
@@ -568,7 +566,7 @@ int HttpClient<D>::OnMessageComplete(llhttp_t* parser) {
             return 0;
         }
         // Success - emit done and reset for potential keep-alive
-        self->EmitDone(*self->downstream_);
+        self->EmitDone();
         self->ResetMessageState();
     }
 
