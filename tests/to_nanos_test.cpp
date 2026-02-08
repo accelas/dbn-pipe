@@ -9,7 +9,7 @@
 using namespace std::chrono;
 using namespace std::chrono_literals;
 using dbn_pipe::to_nanos;
-using dbn_pipe::Timestamp;
+using dbn_pipe::UnixNanos;
 
 // 2024-01-01 00:00:00 UTC = 1704067200 seconds since epoch
 static constexpr uint64_t kJan1_2024_UTC_nanos = 1704067200'000'000'000ULL;
@@ -85,27 +85,27 @@ TEST(ToNanosTest, SysTimeWithPrecision) {
 // Uncomment to verify:
 //   to_nanos(utc_clock::now());  // error: use of deleted function
 
-// --- Timestamp type tests ---
+// --- UnixNanos type tests ---
 
 TEST(TimestampTest, FromRawNanos) {
-    Timestamp ts = 1704067200'000'000'000ULL;
+    UnixNanos ts = 1704067200'000'000'000ULL;
     EXPECT_EQ(uint64_t(ts), kJan1_2024_UTC_nanos);
 }
 
 TEST(TimestampTest, FromCalendarDateDefaultNY) {
-    Timestamp ts = 2024y / January / 1;
+    UnixNanos ts = 2024y / January / 1;
     EXPECT_EQ(uint64_t(ts), kJan1_2024_NY_midnight_nanos);
 }
 
 TEST(TimestampTest, FromCalendarDateWithTimezone) {
-    Timestamp ts{2024y / January / 1, "America/Chicago"};
+    UnixNanos ts{2024y / January / 1, "America/Chicago"};
     uint64_t expected = kJan1_2024_UTC_nanos + 6ULL * 3600 * 1'000'000'000;
     EXPECT_EQ(uint64_t(ts), expected);
 }
 
 TEST(TimestampTest, FromLocalTime) {
     // 9:30 AM NY = 14:30 UTC
-    Timestamp ts = local_days{2024y / January / 1} + 9h + 30min;
+    UnixNanos ts = local_days{2024y / January / 1} + 9h + 30min;
     uint64_t expected = kJan1_2024_UTC_nanos +
                         14ULL * 3600 * 1'000'000'000 +
                         30ULL * 60 * 1'000'000'000;
@@ -113,12 +113,12 @@ TEST(TimestampTest, FromLocalTime) {
 }
 
 TEST(TimestampTest, FromSysTime) {
-    Timestamp ts = sys_days{2024y / January / 1};
+    UnixNanos ts = sys_days{2024y / January / 1};
     EXPECT_EQ(uint64_t(ts), kJan1_2024_UTC_nanos);
 }
 
 TEST(TimestampTest, ImplicitConversionToUint64) {
-    Timestamp ts = 42ULL;
+    UnixNanos ts = 42ULL;
     uint64_t val = ts;  // implicit conversion
     EXPECT_EQ(val, 42ULL);
 }
@@ -126,8 +126,8 @@ TEST(TimestampTest, ImplicitConversionToUint64) {
 TEST(TimestampTest, DesignatedInitializerStyle) {
     // Simulates how it looks in HistoricalRequest
     struct FakeRequest {
-        Timestamp start;
-        Timestamp end;
+        UnixNanos start;
+        UnixNanos end;
     };
 
     FakeRequest req{

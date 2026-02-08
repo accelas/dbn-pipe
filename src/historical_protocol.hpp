@@ -28,8 +28,8 @@ struct HistoricalRequest {
     std::string dataset;   ///< Dataset to query (e.g., "GLBX.MDP3").
     std::string symbols;   ///< Symbol(s) to query (e.g., "ESZ4").
     std::string schema;    ///< Schema for data (e.g., "mbp-1").
-    Timestamp start;       ///< Start time (chrono time_point or raw nanoseconds).
-    Timestamp end;         ///< End time (chrono time_point or raw nanoseconds).
+    UnixNanos start;       ///< Start time (chrono time_point or raw nanoseconds).
+    UnixNanos end;         ///< End time (chrono time_point or raw nanoseconds).
     std::string stype_in;  ///< Input symbology type: "raw_symbol" (default), "parent", etc.
     std::string stype_out; ///< Output symbology type; triggers SymbolMappingMsg when set.
 };
