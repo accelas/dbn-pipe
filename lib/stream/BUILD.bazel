@@ -155,6 +155,7 @@ cc_library(
         ":component",
         ":error",
         ":event_loop",
+        ":segment_allocator",
         "@openssl_sys//:crypto",
         "@openssl_sys//:ssl",
     ],
@@ -169,6 +170,7 @@ cc_library(
         ":component",
         ":error",
         ":event_loop",
+        ":segment_allocator",
         ":tls_transport",
         "@llhttp",
     ],
@@ -184,6 +186,7 @@ cc_library(
         ":component",
         ":error",
         ":event_loop",
+        ":segment_allocator",
         "@zstd",
     ],
 )

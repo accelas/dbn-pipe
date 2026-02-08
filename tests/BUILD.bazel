@@ -116,6 +116,7 @@ cc_test(
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
+        "//lib/stream:segment_allocator",
         "//lib/stream:tls_transport",
         "@googletest//:gtest_main",
     ],
@@ -128,6 +129,7 @@ cc_test(
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
         "//lib/stream:http_client",
+        "//lib/stream:segment_allocator",
         "@googletest//:gtest_main",
     ],
 )
@@ -138,6 +140,7 @@ cc_test(
     deps = [
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
+        "//lib/stream:segment_allocator",
         "//lib/stream:zstd_decompressor",
         "@googletest//:gtest_main",
         "@zstd",
