@@ -13,6 +13,7 @@
 
 #include "dbn_pipe/stream/error.hpp"
 #include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/suspendable.hpp"
 
 namespace dbn_pipe {
@@ -186,6 +187,13 @@ public:
     // Set upstream for backpressure propagation
     void SetUpstream(Suspendable* up) { upstream_ = up; }
 
+    // Set an external allocator (e.g., shared across pipeline stages).
+    // If not set, a default SegmentAllocator is used.
+    void SetAllocator(SegmentAllocator* alloc) { allocator_ = alloc; }
+
+    // Get the active allocator (external if set, otherwise default).
+    SegmentAllocator& GetAllocator() { return allocator_ ? *allocator_ : default_allocator_; }
+
     // Terminate connection via RequestClose
     void Close() override {
         static_cast<Derived*>(this)->RequestClose();
@@ -286,6 +294,8 @@ protected:
 
     IEventLoop& loop_;
     Suspendable* upstream_ = nullptr;  // Upstream for backpressure propagation
+    SegmentAllocator* allocator_ = nullptr;
+    SegmentAllocator default_allocator_;
 
 private:
     int processing_count_ = 0;

@@ -73,6 +73,7 @@ cc_library(
     deps = [
         ":error",
         ":event_loop",
+        ":segment_allocator",
         ":suspendable",
     ],
 )

@@ -220,12 +220,6 @@ public:
     // Set dataset for authentication (must be called before auth completes)
     void SetDataset(const std::string& dataset) { dataset_ = dataset; }
 
-    // Set external SegmentAllocator (from pipeline). If not set, uses default.
-    void SetAllocator(SegmentAllocator* alloc) { allocator_ = alloc; }
-
-    // Get the active allocator (external if set, otherwise default).
-    SegmentAllocator& GetAllocator() { return allocator_ ? *allocator_ : default_allocator_; }
-
     // PipelineComponent requirements
     void DisableWatchers() {}
     void DoClose();
@@ -328,9 +322,6 @@ private:
     bool start_requested_ = false;
     std::uint32_t sub_counter_ = 0;
 
-    // Segment allocator for output buffers
-    SegmentAllocator* allocator_ = nullptr;
-    SegmentAllocator default_allocator_;
 };
 
 // MakeSharedEnabler - allows make_shared with private constructor
@@ -450,7 +441,7 @@ void CramAuth<D>::ProcessLineBuffer() {
                 return;
             }
             // Create a chain with leftover bytes (one-time copy at auth completion)
-            streaming_chain_.AppendBytes(line_buffer_.data(), line_buffer_.size(), GetAllocator());
+            streaming_chain_.AppendBytes(line_buffer_.data(), line_buffer_.size(), this->GetAllocator());
             line_buffer_.clear();
 
             // Respect IsSuspended() check for leftover bytes (backpressure)
@@ -662,7 +653,7 @@ void CramAuth<D>::SendLine(std::string_view line) {
 
     // Create BufferChain with the line
     BufferChain chain;
-    chain.AppendBytes(with_newline.data(), with_newline.size(), GetAllocator());
+    chain.AppendBytes(with_newline.data(), with_newline.size(), this->GetAllocator());
 
     write_callback_(std::move(chain));
 }
