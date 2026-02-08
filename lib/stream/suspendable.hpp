@@ -5,36 +5,37 @@
 
 namespace dbn_pipe {
 
-// Suspendable - interface for components that support backpressure.
-//
-// Suspend count semantics:
-// - Suspend() increments count, Resume() decrements count
-// - IsSuspended() returns true when count > 0
-// - Actual pause/resume only happens on 0->1 and 1->0 transitions
-// - This allows nested suspend calls from multiple sources
-//
-// Thread safety:
-// - Suspend(), Resume(), Close() MUST be called from event loop thread only.
-// - IsSuspended() is thread-safe and can be called from any thread.
-//
-// OnDone coordination:
-// - If OnDone() is received while suspended, it is deferred
-// - Resume() checks for deferred OnDone and completes it when count->0
+/// Interface for pipeline components that support backpressure.
+///
+/// Uses suspend-count semantics:
+/// - Suspend() increments the count; Resume() decrements it.
+/// - IsSuspended() returns true when the count is greater than zero.
+/// - Actual pause/resume only happens on 0-to-1 and 1-to-0 transitions,
+///   allowing nested suspend calls from multiple downstream sources.
+///
+/// Thread safety:
+/// - Suspend(), Resume(), Close() must be called from the event-loop thread.
+/// - IsSuspended() is thread-safe (atomic load).
+///
+/// OnDone coordination:
+/// - If OnDone() arrives while suspended, it is deferred until Resume()
+///   brings the count back to zero.
 class Suspendable {
 public:
     virtual ~Suspendable() = default;
 
-    // Increment suspend count. When count goes 0->1, pause reading.
+    /// Increment the suspend count. When the count goes from 0 to 1,
+    /// the component pauses reading from its data source.
     virtual void Suspend() = 0;
 
-    // Decrement suspend count. When count goes 1->0, resume reading
-    // and complete any deferred OnDone.
+    /// Decrement the suspend count. When the count goes from 1 to 0,
+    /// the component resumes reading and completes any deferred OnDone.
     virtual void Resume() = 0;
 
-    // Terminate the connection. After Close(), no more callbacks.
+    /// Terminate the connection. No further callbacks after Close().
     virtual void Close() = 0;
 
-    // Query whether suspended (count > 0). Thread-safe.
+    /// @return true if the component is currently suspended (count > 0).
     virtual bool IsSuspended() const = 0;
 };
 

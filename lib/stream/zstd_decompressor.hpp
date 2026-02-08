@@ -13,7 +13,6 @@
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/error.hpp"
-#include "dbn_pipe/stream/event_loop.hpp"
 
 namespace dbn_pipe {
 
@@ -24,17 +23,16 @@ namespace dbn_pipe {
 //
 // Template parameter D must satisfy the Downstream concept.
 template <Downstream D>
-class ZstdDecompressor : public PipelineComponent<ZstdDecompressor<D>>,
+class ZstdDecompressor : public PipelineComponent<ZstdDecompressor<D>, D>,
                          public std::enable_shared_from_this<ZstdDecompressor<D>> {
 public:
     // Factory method for shared_from_this safety
-    static std::shared_ptr<ZstdDecompressor> Create(IEventLoop& loop,
-                                                    std::shared_ptr<D> downstream) {
+    static std::shared_ptr<ZstdDecompressor> Create(std::shared_ptr<D> downstream) {
         struct MakeSharedEnabler : public ZstdDecompressor {
-            MakeSharedEnabler(IEventLoop& l, std::shared_ptr<D> ds)
-                : ZstdDecompressor(l, std::move(ds)) {}
+            MakeSharedEnabler(std::shared_ptr<D> ds)
+                : ZstdDecompressor(std::move(ds)) {}
         };
-        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream));
+        return std::make_shared<MakeSharedEnabler>(std::move(downstream));
     }
 
     ~ZstdDecompressor() { Cleanup(); }
@@ -61,7 +59,7 @@ public:
 
     void ProcessPending() {
         // Re-deliver any unconsumed output from previous OnData call
-        if (this->ForwardData(*downstream_, output_chain_)) return;
+        if (this->ForwardData(output_chain_)) return;
         // Process any pending input
         ProcessPendingData();
     }
@@ -76,20 +74,20 @@ public:
 
         // Check for incomplete zstd frame
         if (last_decompress_result_ != 0) {
-            this->EmitError(*downstream_,
+            this->EmitError(
                 Error{ErrorCode::DecompressionError, "Incomplete zstd frame"});
             this->RequestClose();
             return;
         }
 
         // Flush output and complete - only close if completion happened
-        if (this->CompleteWithFlush(*downstream_, output_chain_)) {
+        if (this->CompleteWithFlush(output_chain_)) {
             this->RequestClose();
         }
     }
 
 private:
-    ZstdDecompressor(IEventLoop& loop, std::shared_ptr<D> downstream);
+    ZstdDecompressor(std::shared_ptr<D> downstream);
 
     enum class DecompressResult { Complete, Suspended, Error };
     DecompressResult ProcessPendingData();
@@ -102,7 +100,7 @@ private:
         while (!source.Empty()) {
             // Check for overflow before copying (use subtraction to avoid overflow)
             if (source.Size() > kMaxPendingInput - pending_input_.Size()) {
-                this->EmitError(*downstream_,
+                this->EmitError(
                     Error{ErrorCode::DecompressionError,
                           "Decompressor input buffer overflow"});
                 this->RequestClose();
@@ -117,8 +115,6 @@ private:
         }
         return true;
     }
-
-    std::shared_ptr<D> downstream_;
 
     ZSTD_DStream* dstream_ = nullptr;
 
@@ -139,8 +135,8 @@ private:
 // Implementation
 
 template <Downstream D>
-ZstdDecompressor<D>::ZstdDecompressor(IEventLoop& loop, std::shared_ptr<D> downstream)
-    : PipelineComponent<ZstdDecompressor<D>>(loop), downstream_(std::move(downstream)) {
+ZstdDecompressor<D>::ZstdDecompressor(std::shared_ptr<D> downstream) {
+    this->SetDownstream(std::move(downstream));
 
     // Set up segment recycling
     output_chain_.SetRecycleCallback(this->GetAllocator().MakeRecycler());
@@ -173,7 +169,7 @@ void ZstdDecompressor<D>::DoClose() {
     Cleanup();
     output_chain_.Clear();
     pending_input_.Clear();
-    downstream_.reset();
+    this->ResetDownstream();
 }
 
 template <Downstream D>
@@ -184,7 +180,7 @@ void ZstdDecompressor<D>::OnData(BufferChain& data) {
     if (!pending_input_.Empty()) {
         // Merge new data with pending input from a previous suspension
         if (pending_input_.WouldOverflow(data.Size(), kMaxPendingInput)) {
-            this->EmitError(*downstream_,
+            this->EmitError(
                 Error{ErrorCode::DecompressionError,
                       "Decompressor input buffer overflow"});
             this->RequestClose();
@@ -212,7 +208,7 @@ auto ZstdDecompressor<D>::ProcessPendingData() -> DecompressResult {
 template <Downstream D>
 auto ZstdDecompressor<D>::DecompressChain(BufferChain& chain) -> DecompressResult {
     if (!dstream_) {
-        this->EmitError(*downstream_,
+        this->EmitError(
             Error{ErrorCode::DecompressionError, "Decompressor not initialized"});
         this->RequestClose();
         return DecompressResult::Error;
@@ -231,7 +227,7 @@ auto ZstdDecompressor<D>::DecompressChain(BufferChain& chain) -> DecompressResul
 
             size_t result = ZSTD_decompressStream(dstream_, &out_buf, &in_buf);
             if (ZSTD_isError(result)) {
-                this->EmitError(*downstream_,
+                this->EmitError(
                     Error{ErrorCode::DecompressionError,
                           std::string("ZSTD decompression failed: ") + ZSTD_getErrorName(result)});
                 this->RequestClose();
@@ -242,7 +238,7 @@ auto ZstdDecompressor<D>::DecompressChain(BufferChain& chain) -> DecompressResul
 
             if (out_buf.pos > 0) {
                 if (out_buf.pos > kMaxBufferedOutput - output_chain_.Size()) {
-                    this->EmitError(*downstream_,
+                    this->EmitError(
                         Error{ErrorCode::BufferOverflow, "Decompressed output buffer overflow"});
                     this->RequestClose();
                     return DecompressResult::Error;
@@ -250,7 +246,7 @@ auto ZstdDecompressor<D>::DecompressChain(BufferChain& chain) -> DecompressResul
                 seg->size = out_buf.pos;
                 output_chain_.Append(std::move(seg));
 
-                if (this->ForwardData(*downstream_, output_chain_)) {
+                if (this->ForwardData(output_chain_)) {
                     chain.Consume(in_buf.pos);
                     return DecompressResult::Suspended;
                 }
@@ -263,7 +259,7 @@ auto ZstdDecompressor<D>::DecompressChain(BufferChain& chain) -> DecompressResul
 
 template <Downstream D>
 void ZstdDecompressor<D>::OnError(const Error& e) {
-    this->PropagateError(*downstream_, e);
+    this->PropagateError(e);
 }
 
 template <Downstream D>
@@ -287,13 +283,13 @@ void ZstdDecompressor<D>::OnDone() {
     }
 
     if (last_decompress_result_ != 0) {
-        this->EmitError(*downstream_,
+        this->EmitError(
             Error{ErrorCode::DecompressionError, "Incomplete zstd frame"});
         this->RequestClose();
         return;
     }
 
-    if (this->CompleteWithFlush(*downstream_, output_chain_)) {
+    if (this->CompleteWithFlush(output_chain_)) {
         this->RequestClose();
     }
 }

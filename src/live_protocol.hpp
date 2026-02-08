@@ -86,9 +86,13 @@ struct LiveProtocol {
                   SegmentAllocator* alloc = nullptr)
             : allocator_(alloc ? *alloc : SegmentAllocator{})
             , parser_(std::make_shared<ParserType>(sink))
-            , cram_(CramType::Create(loop, parser_, api_key))
+            , cram_(CramType::Create(parser_, api_key))
             , head_(HeadType::Create(loop, cram_))
         {
+            // Wire defer callback from event loop
+            auto defer = [&loop](auto fn) { loop.Defer(std::move(fn)); };
+            cram_->SetDefer(defer);
+
             // Wire allocator to all components
             head_->SetAllocator(&allocator_);
             cram_->SetAllocator(&allocator_);

@@ -101,11 +101,17 @@ struct HistoricalProtocol {
             : allocator_(alloc ? *alloc : SegmentAllocator{})
             , api_key_(api_key)
             , parser_(std::make_shared<ParserType>(sink))
-            , zstd_(ZstdType::Create(loop, parser_))
-            , http_(HttpType::Create(loop, zstd_))
-            , tls_(TlsType::Create(loop, http_))
+            , zstd_(ZstdType::Create(parser_))
+            , http_(HttpType::Create(zstd_))
+            , tls_(TlsType::Create(http_))
             , head_(HeadType::Create(loop, tls_))
         {
+            // Wire defer callback from event loop
+            auto defer = [&loop](auto fn) { loop.Defer(std::move(fn)); };
+            tls_->SetDefer(defer);
+            http_->SetDefer(defer);
+            zstd_->SetDefer(defer);
+
             // Wire allocator to all components
             head_->SetAllocator(&allocator_);
             tls_->SetAllocator(&allocator_);

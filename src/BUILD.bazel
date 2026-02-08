@@ -55,8 +55,6 @@ cc_library(
     deps = [
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
-        "//lib/stream:error",
-        "//lib/stream:segment_allocator",
         ":record_batch",
         # Full library needed: uses RecordHeader::Size()
         "@databento_cpp//:databento_with_impl",
@@ -73,7 +71,6 @@ cc_library(
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
         "//lib/stream:error",
-        "//lib/stream:event_loop",
         "//lib/stream:tls_transport",
         "@fmt",
         "@openssl_sys//:crypto",

@@ -3,7 +3,6 @@
 // src/dbn_parser_component.hpp
 #pragma once
 
-#include <atomic>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -25,8 +24,7 @@ constexpr std::int64_t kUndefPrice = std::numeric_limits<std::int64_t>::max();
 
 namespace dbn_pipe {
 
-// Maximum valid DBN record size (64KB)
-// Records larger than this are considered invalid
+/// Maximum valid DBN record size (64 KB).
 constexpr size_t kMaxRecordSize = 64 * 1024;
 
 // InstrumentDefMsg v3 size for buffer allocation
@@ -59,56 +57,59 @@ constexpr size_t kSymbolCstrLenV3 = 71;
 // Use official databento::RType enum for rtype comparisons
 // No custom constants - prevents them from getting out of sync with the API
 
-// DbnParserComponent - Zero-copy parser that outputs RecordBatch.
-//
-// This component transforms raw bytes from BufferChain into batched records
-// for the backpressure pipeline. It uses zero-copy references where possible,
-// only copying when records span segment boundaries.
-//
-// Key features:
-// - Outputs RecordBatch with RecordRef entries (zero-copy when possible)
-// - Uses BufferChain for input (chain manages unconsumed data)
-// - Aligned scratch buffers for boundary-crossing records
-// - Overflow-safe bounds checking
-// - One-shot error handling via atomic guard
-// - DBN metadata header parsing (skips DBN file header if present)
-//
-// Template parameter S must satisfy RecordSink concept.
+/// Zero-copy DBN parser that outputs RecordBatch.
+///
+/// Terminal PipelineComponent (`D = void`) that transforms raw bytes from a
+/// BufferChain into batched records for the backpressure pipeline. Uses
+/// zero-copy references where possible, only copying when records span
+/// segment boundaries.
+///
+/// Key features:
+/// - Outputs RecordBatch with RecordRef entries (zero-copy when contiguous)
+/// - Aligned scratch buffers (PMR-backed) for boundary-crossing records
+/// - One-shot error handling via the base class finalized guard
+/// - DBN metadata header parsing (skips DBN file header if present)
+/// - Automatic v1/v2-to-v3 record conversion
+///
+/// @tparam S  Sink type satisfying the RecordSink concept.
 template <RecordSink S>
-class DbnParserComponent {
+class DbnParserComponent : public PipelineComponent<DbnParserComponent<S>> {
 public:
+    /// Construct with a reference to the sink that receives parsed records.
     explicit DbnParserComponent(S& sink) : sink_(sink) {}
 
-    // Primary interface - parse bytes from caller-managed chain into records.
-    // Leaves incomplete records in the chain for next call.
+    /// Parse bytes from a caller-managed chain into records.
+    /// Leaves incomplete records in the chain for the next call.
     void OnData(BufferChain& chain);
 
-    // TerminalDownstream interface
+    /// TerminalDownstream interface --- delegates to OnComplete().
     void OnDone() noexcept { OnComplete(); }
 
-    // Forward error to sink (one-shot)
+    /// Forward error to sink (one-shot, guarded by IsFinalized).
     void OnError(const Error& e) noexcept;
 
-    // Forward completion to sink (one-shot, no chain check).
-    // Use when caller has already verified chain is empty.
+    /// Forward completion to sink (one-shot, no chain check).
+    /// Use when the caller has already verified the chain is empty.
     void OnComplete() noexcept;
 
-    // Forward completion to sink (one-shot).
-    // Checks that chain is empty (no incomplete records).
+    /// Forward completion to sink (one-shot).
+    /// Reports an error if the chain contains an incomplete record.
     void OnComplete(BufferChain& chain) noexcept;
 
-    // Set the allocator for scratch buffer allocations.
-    void SetAllocator(SegmentAllocator* alloc) { allocator_ = alloc; }
-
-    // Get the allocator (injected or default).
-    SegmentAllocator& GetAllocator() { return allocator_ ? *allocator_ : default_allocator_; }
+    /// @name PipelineComponent required methods (no-ops for terminal node)
+    /// @{
+    void DisableWatchers() {}
+    void DoClose() {}
+    void ProcessPending() {}
+    void FlushAndComplete() {}
+    /// @}
 
 private:
     // Allocate a scratch buffer via the PMR.
     // The deleter captures the resource shared_ptr, keeping the resource alive
     // as long as the scratch buffer (and thus the RecordRef keepalive) exists.
     std::shared_ptr<std::byte[]> AllocateScratch(size_t size) {
-        auto resource = GetAllocator().GetResourcePtr();
+        auto resource = this->GetAllocator().GetResourcePtr();
         auto* ptr = static_cast<std::byte*>(
             resource->allocate(size, 8));
         return std::shared_ptr<std::byte[]>(ptr,
@@ -142,11 +143,8 @@ private:
     bool ConvertSymbolMapping(const std::byte* src, std::byte* dst, size_t dst_size);
 
     S& sink_;                              // Reference to sink
-    std::atomic<bool> error_state_{false}; // One-shot error guard
     bool metadata_parsed_ = false;         // Whether DBN header has been skipped
     std::uint8_t dbn_version_ = 3;         // DBN version from metadata (default v3)
-    SegmentAllocator* allocator_ = nullptr;  // Injected allocator (optional)
-    SegmentAllocator default_allocator_;      // Default allocator (used if none injected)
 
     // DBN file header structure (first 8 bytes of DBN stream)
     struct DbnHeader {
@@ -171,7 +169,7 @@ private:
 template <RecordSink S>
 void DbnParserComponent<S>::OnData(BufferChain& chain) {
     // Check error state - if already in error, ignore all data
-    if (error_state_.load(std::memory_order_acquire)) {
+    if (this->IsFinalized()) {
         return;
     }
 
@@ -313,16 +311,17 @@ void DbnParserComponent<S>::OnData(BufferChain& chain) {
 template <RecordSink S>
 void DbnParserComponent<S>::OnError(const Error& e) noexcept {
     // One-shot guard - only forward first error
-    if (error_state_.exchange(true, std::memory_order_acq_rel)) {
+    if (this->IsFinalized()) {
         return;
     }
+    this->SetFinalized();
     sink_.OnError(e);
 }
 
 template <RecordSink S>
 void DbnParserComponent<S>::OnComplete() noexcept {
     // Check error state - if already in error, ignore completion
-    if (error_state_.load(std::memory_order_acquire)) {
+    if (this->IsFinalized()) {
         return;
     }
     sink_.OnComplete();
@@ -331,7 +330,7 @@ void DbnParserComponent<S>::OnComplete() noexcept {
 template <RecordSink S>
 void DbnParserComponent<S>::OnComplete(BufferChain& chain) noexcept {
     // Check error state - if already in error, ignore completion
-    if (error_state_.load(std::memory_order_acquire)) {
+    if (this->IsFinalized()) {
         return;
     }
 
@@ -348,9 +347,10 @@ void DbnParserComponent<S>::OnComplete(BufferChain& chain) noexcept {
 template <RecordSink S>
 void DbnParserComponent<S>::ReportTerminalError(const std::string& msg) {
     // One-shot guard - only report first error
-    if (error_state_.exchange(true, std::memory_order_acq_rel)) {
+    if (this->IsFinalized()) {
         return;
     }
+    this->SetFinalized();
     sink_.OnError(Error{ErrorCode::ParseError, msg});
 }
 

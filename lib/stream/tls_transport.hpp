@@ -17,7 +17,6 @@
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/error.hpp"
-#include "dbn_pipe/stream/event_loop.hpp"
 
 namespace dbn_pipe {
 
@@ -30,20 +29,19 @@ enum class TlsHandshakeState { NotStarted, InProgress, Complete };
 //
 // Template parameter D must satisfy the Downstream concept.
 template <Downstream D>
-class TlsTransport : public PipelineComponent<TlsTransport<D>>,
+class TlsTransport : public PipelineComponent<TlsTransport<D>, D>,
                   public std::enable_shared_from_this<TlsTransport<D>> {
 public:
     using UpstreamWriteCallback = std::function<void(BufferChain)>;
 
     // Factory method for shared_from_this safety
-    static std::shared_ptr<TlsTransport> Create(IEventLoop& loop,
-                                              std::shared_ptr<D> downstream) {
+    static std::shared_ptr<TlsTransport> Create(std::shared_ptr<D> downstream) {
         // Use a helper struct to access private constructor
         struct MakeSharedEnabler : public TlsTransport {
-            MakeSharedEnabler(IEventLoop& l, std::shared_ptr<D> ds)
-                : TlsTransport(l, std::move(ds)) {}
+            MakeSharedEnabler(std::shared_ptr<D> ds)
+                : TlsTransport(std::move(ds)) {}
         };
-        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream));
+        return std::make_shared<MakeSharedEnabler>(std::move(downstream));
     }
 
     ~TlsTransport() { Cleanup(); }
@@ -59,7 +57,7 @@ public:
 
     void OnError(const Error& e) {
         // Propagate error to our downstream
-        this->PropagateError(*downstream_, e);
+        this->PropagateError(e);
     }
 
     void OnDone() {
@@ -74,7 +72,7 @@ public:
         }
 
         // Complete with flush of pending data
-        if (this->CompleteWithFlush(*downstream_, pending_read_chain_)) {
+        if (this->CompleteWithFlush(pending_read_chain_)) {
             this->RequestClose();
         }
     }
@@ -111,21 +109,21 @@ public:
 
     void ProcessPending() {
         // Forward any buffered decrypted data first
-        if (this->ForwardData(*downstream_, pending_read_chain_)) return;
+        if (this->ForwardData(pending_read_chain_)) return;
         // Process more data from SSL
         ProcessPendingReads();
     }
 
     void FlushAndComplete() {
         // Flush pending data and complete - only close if completion happened
-        if (this->CompleteWithFlush(*downstream_, pending_read_chain_)) {
+        if (this->CompleteWithFlush(pending_read_chain_)) {
             this->RequestClose();
         }
     }
 
 private:
     // Private constructor - use Create() factory method
-    TlsTransport(IEventLoop& loop, std::shared_ptr<D> downstream);
+    TlsTransport(std::shared_ptr<D> downstream);
 
     // OpenSSL initialization (static, thread-safe)
     static void InitOpenSSL();
@@ -142,9 +140,6 @@ private:
 
     // Cleanup
     void Cleanup();
-
-    // Downstream component
-    std::shared_ptr<D> downstream_;
 
     // Upstream write callback
     UpstreamWriteCallback upstream_write_ = [](BufferChain) {};
@@ -174,8 +169,8 @@ private:
 // Implementation - must be in header due to template
 
 template <Downstream D>
-TlsTransport<D>::TlsTransport(IEventLoop& loop, std::shared_ptr<D> downstream)
-    : PipelineComponent<TlsTransport<D>>(loop), downstream_(std::move(downstream)) {
+TlsTransport<D>::TlsTransport(std::shared_ptr<D> downstream) {
+    this->SetDownstream(std::move(downstream));
     InitOpenSSL();
 
     // Create SSL context for client-side TLS
@@ -285,7 +280,7 @@ void TlsTransport<D>::ProcessHandshake() {
                 this->DeferOnDone();
                 return;
             }
-            if (this->CompleteWithFlush(*downstream_, pending_read_chain_)) {
+            if (this->CompleteWithFlush(pending_read_chain_)) {
                 this->RequestClose();
             }
             break;
@@ -304,7 +299,7 @@ void TlsTransport<D>::Read(BufferChain data) {
     // Check for buffer overflow before accepting more data (guard against underflow)
     size_t rbio_pending = BIO_ctrl_pending(rbio_);
     if (rbio_pending >= kMaxRbioSize || data.Size() > kMaxRbioSize - rbio_pending) {
-        this->EmitError(*downstream_,
+        this->EmitError(
             Error{ErrorCode::BufferOverflow, "TLS encrypted input buffer overflow"});
         this->RequestClose();
         return;
@@ -318,7 +313,7 @@ void TlsTransport<D>::Read(BufferChain data) {
 
         int written = BIO_write(rbio_, chunk_ptr, static_cast<int>(chunk_size));
         if (written <= 0) {
-            this->EmitError(*downstream_,
+            this->EmitError(
                             {ErrorCode::TlsHandshakeFailed, "BIO_write failed"});
             this->RequestClose();
             return;
@@ -352,7 +347,7 @@ void TlsTransport<D>::ProcessPendingReads() {
         if (n > 0) {
             // Check overflow before appending (use subtraction pattern)
             if (static_cast<size_t>(n) > kMaxPendingRead - pending_read_chain_.Size()) {
-                this->EmitError(*downstream_,
+                this->EmitError(
                     Error{ErrorCode::BufferOverflow, "TLS decrypted output buffer overflow"});
                 this->RequestClose();
                 return;
@@ -362,7 +357,7 @@ void TlsTransport<D>::ProcessPendingReads() {
 
             // Deliver accumulated data and check for suspension
             if (pending_read_chain_.Size() >= Segment::kSize) {
-                downstream_->OnData(pending_read_chain_);
+                this->GetDownstream().OnData(pending_read_chain_);
                 if (this->IsSuspended()) {
                     return;
                 }
@@ -373,14 +368,14 @@ void TlsTransport<D>::ProcessPendingReads() {
                 case SSL_ERROR_WANT_READ:
                     // No more data available - deliver what we have
                     if (!pending_read_chain_.Empty()) {
-                        downstream_->OnData(pending_read_chain_);
+                        this->GetDownstream().OnData(pending_read_chain_);
                     }
                     return;
 
                 case SSL_ERROR_WANT_WRITE:
                     // Need to flush write BIO
                     if (!pending_read_chain_.Empty()) {
-                        downstream_->OnData(pending_read_chain_);
+                        this->GetDownstream().OnData(pending_read_chain_);
                     }
                     FlushWbio();
                     // Retry any pending writes
@@ -393,7 +388,7 @@ void TlsTransport<D>::ProcessPendingReads() {
                         this->DeferOnDone();
                         return;
                     }
-                    if (this->CompleteWithFlush(*downstream_, pending_read_chain_)) {
+                    if (this->CompleteWithFlush(pending_read_chain_)) {
                         this->RequestClose();
                     }
                     return;
@@ -412,7 +407,7 @@ void TlsTransport<D>::Write(BufferChain data) {
     if (!guard) return;
 
     if (handshake_state_ != TlsHandshakeState::Complete) {
-        this->EmitError(*downstream_,
+        this->EmitError(
             {ErrorCode::TlsHandshakeFailed, "Write called before handshake complete"});
         this->RequestClose();
         return;
@@ -420,7 +415,7 @@ void TlsTransport<D>::Write(BufferChain data) {
 
     // Check for buffer overflow (combined incoming + pending)
     if (write_pending_.WouldOverflow(data.Size(), kMaxPendingWrite)) {
-        this->EmitError(*downstream_,
+        this->EmitError(
             Error{ErrorCode::BufferOverflow, "TLS write buffer overflow"});
         this->RequestClose();
         return;
@@ -516,21 +511,21 @@ void TlsTransport<D>::HandleSSLError(int ssl_error, const char* operation) {
     switch (ssl_error) {
         case SSL_ERROR_SSL:
             msg += GetSSLErrorString();
-            this->EmitError(*downstream_,
+            this->EmitError(
                             {ErrorCode::TlsHandshakeFailed, std::move(msg)});
             break;
 
         case SSL_ERROR_SYSCALL: {
             int err = errno;
             msg += "system error: " + std::string(strerror(err));
-            this->EmitError(*downstream_,
+            this->EmitError(
                             {ErrorCode::ConnectionFailed, std::move(msg), err});
             break;
         }
 
         default:
             msg += "error code " + std::to_string(ssl_error);
-            this->EmitError(*downstream_,
+            this->EmitError(
                             {ErrorCode::TlsHandshakeFailed, std::move(msg)});
             break;
     }
@@ -579,11 +574,11 @@ void TlsTransport<D>::DoClose() {
     // Best-effort delivery of remaining decrypted data during cleanup
     // Skip if already finalized or if suspended (can't emit Done while suspended)
     if (!this->IsFinalized() && !this->IsSuspended()) {
-        this->ForwardData(*downstream_, pending_read_chain_);
+        this->ForwardData(pending_read_chain_);
         // Re-check suspension after ForwardData (downstream may have suspended)
         // and verify chain was consumed before emitting Done
         if (!this->IsSuspended() && pending_read_chain_.Empty()) {
-            this->EmitDone(*downstream_);
+            this->EmitDone();
         }
     }
 
@@ -592,7 +587,7 @@ void TlsTransport<D>::DoClose() {
     write_pending_.Clear();
 
     // Release downstream reference for cleanup consistency
-    downstream_.reset();
+    this->ResetDownstream();
 }
 
 }  // namespace dbn_pipe

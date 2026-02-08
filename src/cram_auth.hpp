@@ -20,7 +20,6 @@
 
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/error.hpp"
-#include "dbn_pipe/stream/event_loop.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/tls_transport.hpp"  // For Suspendable
 
@@ -162,10 +161,10 @@ enum class CramAuthState {
 // Template parameter D must satisfy Downstream concept (receives BufferChain).
 template <Downstream D>
 class CramAuth
-    : public PipelineComponent<CramAuth<D>>,
+    : public PipelineComponent<CramAuth<D>, D>,
       public std::enable_shared_from_this<CramAuth<D>> {
 
-    using Base = PipelineComponent<CramAuth<D>>;
+    using Base = PipelineComponent<CramAuth<D>, D>;
     friend Base;
 
     // Enable shared_from_this in constructor via MakeSharedEnabler pattern
@@ -176,12 +175,11 @@ public:
 
     // Factory method for shared_from_this safety
     static std::shared_ptr<CramAuth> Create(
-        IEventLoop& loop,
         std::shared_ptr<D> downstream,
         std::string api_key,
         std::string dataset = {}
     ) {
-        return std::make_shared<MakeSharedEnabler>(loop, std::move(downstream),
+        return std::make_shared<MakeSharedEnabler>(std::move(downstream),
                                                     std::move(api_key),
                                                     std::move(dataset));
     }
@@ -225,12 +223,12 @@ public:
 
     void ProcessPending() {
         if (!SpliceChecked(streaming_chain_, pending_chain_)) return;
-        this->ForwardData(*downstream_, streaming_chain_);
+        this->ForwardData(streaming_chain_);
     }
 
     void FlushAndComplete() {
         if (!SpliceChecked(streaming_chain_, pending_chain_)) return;
-        if (this->CompleteWithFlush(*downstream_, streaming_chain_)) {
+        if (this->CompleteWithFlush(streaming_chain_)) {
             this->RequestClose();
         }
     }
@@ -240,7 +238,7 @@ public:
     static constexpr std::size_t kMaxLineLength = 8 * 1024;           // 8KB
 
 private:
-    CramAuth(IEventLoop& loop, std::shared_ptr<D> downstream,
+    CramAuth(std::shared_ptr<D> downstream,
              std::string api_key, std::string dataset);
 
     // Process accumulated line buffer for text mode
@@ -262,7 +260,7 @@ private:
 
     // Emit buffer overflow error and request close
     void EmitOverflow(const char* msg) {
-        this->EmitError(*downstream_, Error{ErrorCode::BufferOverflow, msg});
+        this->EmitError(Error{ErrorCode::BufferOverflow, msg});
         this->RequestClose();
     }
 
@@ -281,7 +279,7 @@ private:
     void ForwardBinaryData(BufferChain& data) {
         if (!SpliceChecked(streaming_chain_, pending_chain_)) return;
         if (!SpliceChecked(streaming_chain_, data)) return;
-        downstream_->OnData(streaming_chain_);
+        this->GetDownstream().OnData(streaming_chain_);
     }
 
     // Handle remaining data after transitioning to streaming mode
@@ -294,7 +292,6 @@ private:
         }
     }
 
-    std::shared_ptr<D> downstream_;
     WriteCallback write_callback_ = [](BufferChain) {};
 
     std::string api_key_;
@@ -326,28 +323,27 @@ private:
 // MakeSharedEnabler - allows make_shared with private constructor
 template <Downstream D>
 struct CramAuth<D>::MakeSharedEnabler : public CramAuth<D> {
-    MakeSharedEnabler(IEventLoop& loop, std::shared_ptr<D> downstream,
+    MakeSharedEnabler(std::shared_ptr<D> downstream,
                       std::string api_key, std::string dataset)
-        : CramAuth<D>(loop, std::move(downstream),
+        : CramAuth<D>(std::move(downstream),
                       std::move(api_key), std::move(dataset)) {}
 };
 
 // Implementation
 
 template <Downstream D>
-CramAuth<D>::CramAuth(IEventLoop& loop,
-                      std::shared_ptr<D> downstream,
+CramAuth<D>::CramAuth(std::shared_ptr<D> downstream,
                       std::string api_key,
                       std::string dataset)
-    : Base(loop)
-    , downstream_(std::move(downstream))
-    , api_key_(std::move(api_key))
+    : api_key_(std::move(api_key))
     , dataset_(std::move(dataset))
-{}
+{
+    this->SetDownstream(std::move(downstream));
+}
 
 template <Downstream D>
 void CramAuth<D>::DoClose() {
-    downstream_.reset();
+    this->ResetDownstream();
     line_buffer_.clear();
     streaming_chain_.Clear();
     pending_chain_.Clear();
@@ -434,7 +430,7 @@ void CramAuth<D>::ProcessLineBuffer() {
         if (state_ == CramAuthState::Streaming && !line_buffer_.empty()) {
             // Check overflow before appending (use subtraction pattern)
             if (line_buffer_.size() > kMaxPendingData - streaming_chain_.Size()) {
-                this->EmitError(*downstream_,
+                this->EmitError(
                     Error{ErrorCode::BufferOverflow, "Binary buffer overflow"});
                 this->RequestClose();
                 return;
@@ -445,7 +441,7 @@ void CramAuth<D>::ProcessLineBuffer() {
 
             // Respect IsSuspended() check for leftover bytes (backpressure)
             if (!this->IsSuspended()) {
-                downstream_->OnData(streaming_chain_);
+                this->GetDownstream().OnData(streaming_chain_);
             }
             break;
         }
@@ -476,7 +472,7 @@ template <Downstream D>
 void CramAuth<D>::HandleGreeting(std::string_view line) {
     auto greeting = CramAuthUtils::ParseGreeting(line);
     if (!greeting) {
-        this->EmitError(*downstream_,
+        this->EmitError(
             Error{ErrorCode::InvalidGreeting,
                   std::string("Invalid greeting: ") + std::string(line)});
         this->RequestClose();
@@ -491,7 +487,7 @@ template <Downstream D>
 void CramAuth<D>::HandleChallenge(std::string_view line) {
     auto challenge = CramAuthUtils::ParseChallenge(line);
     if (!challenge) {
-        this->EmitError(*downstream_,
+        this->EmitError(
             Error{ErrorCode::InvalidChallenge,
                   std::string("Invalid challenge: ") + std::string(line)});
         this->RequestClose();
@@ -516,7 +512,7 @@ void CramAuth<D>::HandleAuthResponse(std::string_view line) {
 
     // Check for error responses (legacy format)
     if (line.starts_with("err=")) {
-        this->EmitError(*downstream_,
+        this->EmitError(
             Error{ErrorCode::AuthFailed,
                   std::string("Authentication failed: ") + std::string(line)});
         this->RequestClose();
@@ -564,7 +560,7 @@ void CramAuth<D>::HandleAuthResponse(std::string_view line) {
         if (!error_msg.empty()) {
             msg += ": " + error_msg;
         }
-        this->EmitError(*downstream_,
+        this->EmitError(
             Error{ErrorCode::AuthFailed, msg});
         this->RequestClose();
         return;
@@ -644,7 +640,7 @@ void CramAuth<D>::SendLine(std::string_view line) {
 
     // Check line fits in segment (64KB limit for auth/subscription lines)
     if (with_newline.size() > Segment::kSize) {
-        this->EmitError(*downstream_,
+        this->EmitError(
             Error{ErrorCode::BufferOverflow, "Line too large to send"});
         this->RequestClose();
         return;
@@ -659,7 +655,7 @@ void CramAuth<D>::SendLine(std::string_view line) {
 
 template <Downstream D>
 void CramAuth<D>::OnError(const Error& e) {
-    this->PropagateError(*downstream_, e);
+    this->PropagateError(e);
 }
 
 template <Downstream D>
@@ -669,7 +665,7 @@ void CramAuth<D>::OnDone() {
 
     // Check for incomplete protocol state
     if (state_ != CramAuthState::Streaming) {
-        this->EmitError(*downstream_,
+        this->EmitError(
             Error{ErrorCode::ConnectionClosed,
                   "Connection closed during authentication"});
         this->RequestClose();

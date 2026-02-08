@@ -10,7 +10,6 @@
 
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/cram_auth.hpp"
-#include "dbn_pipe/stream/epoll_event_loop.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/segment_allocator.hpp"
 
@@ -75,12 +74,9 @@ std::string ToString(const std::vector<std::byte>& data) {
 class CramAuthTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Initialize event loop thread ID for Suspend/Resume assertions
-        loop_.Poll(0);
-
         downstream_ = std::make_shared<MockCramDownstream>();
         handler_ = CramAuth<MockCramDownstream>::Create(
-            loop_, downstream_, "test_api_key");
+            downstream_, "test_api_key");
     }
 
     // Helper to send string data to handler
@@ -95,7 +91,6 @@ protected:
         handler_->OnData(chain);
     }
 
-    EpollEventLoop loop_;
     std::shared_ptr<MockCramDownstream> downstream_;
     std::shared_ptr<CramAuth<MockCramDownstream>> handler_;
     std::vector<std::byte> sent_data_;
