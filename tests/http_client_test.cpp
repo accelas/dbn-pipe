@@ -12,6 +12,7 @@
 #include "dbn_pipe/stream/epoll_event_loop.hpp"
 #include "dbn_pipe/stream/http_client.hpp"
 #include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 
 using namespace dbn_pipe;
 
@@ -370,4 +371,53 @@ TEST(HttpClientTest, ParsesRetryAfterHeaderCaseInsensitive) {
     EXPECT_TRUE(downstream->error_called);
     ASSERT_TRUE(downstream->last_error.retry_after.has_value());
     EXPECT_EQ(downstream->last_error.retry_after->count(), 60000);  // 60 seconds in ms
+}
+
+TEST(HttpClientTest, UsesInjectedSegmentAllocator) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockHttpDownstream>();
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+
+    // Inject an external allocator
+    SegmentAllocator allocator;
+    http->SetAllocator(&allocator);
+
+    // GetAllocator should return the injected allocator
+    EXPECT_EQ(&http->GetAllocator(), &allocator);
+
+    // Parse a response to exercise the allocator path
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 5\r\n"
+        "\r\n"
+        "hello";
+
+    auto chain = ToChain(response);
+    http->OnData(chain);
+
+    EXPECT_EQ(downstream->body.size(), 5);
+    EXPECT_TRUE(downstream->done);
+}
+
+TEST(HttpClientTest, DefaultAllocatorUsedWhenNoneInjected) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockHttpDownstream>();
+    auto http = HttpClient<MockHttpDownstream>::Create(loop, downstream);
+
+    // Without SetAllocator, GetAllocator returns the default
+    SegmentAllocator& alloc = http->GetAllocator();
+    (void)alloc;  // Just verify it's accessible and doesn't crash
+
+    // Parse a response to verify default allocator works
+    std::string response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Length: 5\r\n"
+        "\r\n"
+        "world";
+
+    auto chain = ToChain(response);
+    http->OnData(chain);
+
+    EXPECT_EQ(downstream->body.size(), 5);
+    EXPECT_TRUE(downstream->done);
 }

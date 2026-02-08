@@ -42,7 +42,8 @@ struct MockProtocol {
     static inline MockSink* last_sink;
 
     static std::shared_ptr<ChainType> BuildChain(
-        IEventLoop&, SinkType& sink, const std::string&) {
+        IEventLoop&, SinkType& sink, const std::string&,
+        SegmentAllocator* = nullptr) {
         last_chain = std::make_shared<ChainType>();
         last_sink = &sink;
         return last_chain;

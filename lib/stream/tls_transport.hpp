@@ -11,7 +11,6 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
-#include <memory_resource>
 #include <string>
 #include <vector>
 
@@ -165,13 +164,6 @@ private:
 
     // Pending read data (unconsumed decrypted data when suspended)
     BufferChain pending_read_chain_;
-
-    // Segment pool for zero-copy output
-    SegmentPool segment_pool_{4};
-
-    // PMR allocator for encryption buffers (write path only)
-    std::pmr::unsynchronized_pool_resource pool_;
-    std::pmr::polymorphic_allocator<std::byte> alloc_{&pool_};
 
     // Buffer size limits
     static constexpr size_t kMaxPendingRead = 16 * 1024 * 1024;   // 16MB decrypted
@@ -349,13 +341,13 @@ void TlsTransport<D>::ProcessPendingReads() {
     if (this->IsClosed() || handshake_state_ != TlsHandshakeState::Complete) return;
 
     // Ensure recycling callback is set
-    pending_read_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
+    pending_read_chain_.SetRecycleCallback(this->GetAllocator().MakeRecycler());
 
     // Encrypted data stays in rbio_, decrypted in pending_read_chain_
     if (this->IsSuspended()) return;
 
     while (true) {
-        auto seg = segment_pool_.Acquire();
+        auto seg = this->GetAllocator().Allocate();
         int n = SSL_read(ssl_, seg->data.data(), static_cast<int>(Segment::kSize));
         if (n > 0) {
             // Check overflow before appending (use subtraction pattern)
@@ -500,7 +492,7 @@ void TlsTransport<D>::FlushWbio() {
     // Create BufferChain with encrypted data
     BufferChain chain;
     while (pending > 0) {
-        auto seg = std::make_shared<Segment>();
+        auto seg = this->GetAllocator().Allocate();
         size_t to_read = std::min(static_cast<size_t>(pending), Segment::kSize);
         int read = BIO_read(wbio_, seg->data.data(), static_cast<int>(to_read));
         if (read > 0) {

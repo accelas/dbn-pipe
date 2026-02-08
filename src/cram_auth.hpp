@@ -11,7 +11,6 @@
 #include <functional>
 #include <iterator>
 #include <memory>
-#include <memory_resource>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -322,9 +321,6 @@ private:
     bool start_requested_ = false;
     std::uint32_t sub_counter_ = 0;
 
-    // PMR pool for output buffers (write path only)
-    std::pmr::unsynchronized_pool_resource pool_;
-    std::pmr::polymorphic_allocator<std::byte> alloc_{&pool_};
 };
 
 // MakeSharedEnabler - allows make_shared with private constructor
@@ -444,7 +440,7 @@ void CramAuth<D>::ProcessLineBuffer() {
                 return;
             }
             // Create a chain with leftover bytes (one-time copy at auth completion)
-            streaming_chain_.AppendBytes(line_buffer_.data(), line_buffer_.size());
+            streaming_chain_.AppendBytes(line_buffer_.data(), line_buffer_.size(), this->GetAllocator());
             line_buffer_.clear();
 
             // Respect IsSuspended() check for leftover bytes (backpressure)
@@ -656,7 +652,7 @@ void CramAuth<D>::SendLine(std::string_view line) {
 
     // Create BufferChain with the line
     BufferChain chain;
-    chain.AppendBytes(with_newline.data(), with_newline.size());
+    chain.AppendBytes(with_newline.data(), with_newline.size(), this->GetAllocator());
 
     write_callback_(std::move(chain));
 }

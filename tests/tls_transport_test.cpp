@@ -9,6 +9,7 @@
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/epoll_event_loop.hpp"
 #include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/tls_transport.hpp"
 
 using namespace dbn_pipe;
@@ -137,5 +138,47 @@ TEST(TlsTransportTest, StartHandshakeProducesData) {
     tls->StartHandshake();
 
     // After starting handshake, client hello should be produced
+    EXPECT_FALSE(handshake_data.empty());
+}
+
+TEST(TlsTransportTest, UsesDefaultAllocatorWhenNoneSet) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockTlsDownstream>();
+    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+
+    // GetAllocator should return the default allocator
+    SegmentAllocator& alloc = tls->GetAllocator();
+    // Allocate a segment to verify it works
+    auto seg = alloc.Allocate();
+    ASSERT_NE(seg, nullptr);
+}
+
+TEST(TlsTransportTest, UsesProvidedAllocator) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockTlsDownstream>();
+    auto tls = TlsTransport<MockTlsDownstream>::Create(loop, downstream);
+
+    // Provide an external allocator
+    SegmentAllocator allocator;
+    tls->SetAllocator(&allocator);
+
+    // GetAllocator should return the provided allocator
+    EXPECT_EQ(&tls->GetAllocator(), &allocator);
+
+    // StartHandshake produces data via FlushWbio which uses GetAllocator().Allocate()
+    std::vector<std::byte> handshake_data;
+    tls->SetUpstreamWriteCallback([&](BufferChain chain) {
+        while (!chain.Empty()) {
+            size_t chunk_size = chain.ContiguousSize();
+            const std::byte* ptr = chain.DataAt(0);
+            handshake_data.insert(handshake_data.end(), ptr, ptr + chunk_size);
+            chain.Consume(chunk_size);
+        }
+    });
+
+    tls->SetHostname("test.example.com");
+    tls->StartHandshake();
+
+    // Handshake should produce client hello data using provided allocator
     EXPECT_FALSE(handshake_data.empty());
 }

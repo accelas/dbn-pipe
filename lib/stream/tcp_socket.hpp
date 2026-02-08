@@ -22,6 +22,7 @@
 #include "dbn_pipe/stream/error.hpp"
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 
 namespace dbn_pipe {
 
@@ -157,6 +158,13 @@ public:
     bool IsConnected() const { return connected_; }
     int fd() const { return fd_; }
 
+    /// Set an external allocator for segment allocation.
+    /// If not set, a default SegmentAllocator is used.
+    void SetAllocator(SegmentAllocator* alloc) { allocator_ = alloc; }
+
+    /// Get the active allocator (external if set, otherwise default).
+    SegmentAllocator& GetAllocator() { return allocator_ ? *allocator_ : default_allocator_; }
+
     // =========================================================================
     // Suspendable interface
     // =========================================================================
@@ -179,10 +187,10 @@ public:
 private:
     void HandleReadable() {
         BufferChain chain;
-        chain.SetRecycleCallback(segment_pool_.MakeRecycler());
+        chain.SetRecycleCallback(GetAllocator().MakeRecycler());
 
         while (true) {
-            auto seg = segment_pool_.Acquire();
+            auto seg = GetAllocator().Allocate();
             ssize_t n = read(fd(), seg->data.data(), Segment::kSize);
             if (n > 0) {
                 seg->size = static_cast<size_t>(n);
@@ -276,7 +284,8 @@ private:
     int suspend_count_ = 0;
 
     std::vector<std::byte> write_buffer_;
-    SegmentPool segment_pool_{4};
+    SegmentAllocator* allocator_ = nullptr;
+    SegmentAllocator default_allocator_;
 
     ConnectCallback on_connect_ = []() {};
 };

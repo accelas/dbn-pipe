@@ -71,6 +71,7 @@ cc_test(
         "//lib/stream:buffer_chain",
         "//lib/stream:epoll_event_loop",
         "//lib/stream:error",
+        "//lib/stream:segment_allocator",
         "//lib/stream:tcp_socket",
         "@googletest//:gtest_main",
     ],
@@ -91,6 +92,7 @@ cc_test(
     deps = [
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
+        "//lib/stream:segment_allocator",
         "//src:cram_auth",
         "@googletest//:gtest_main",
     ],
@@ -115,6 +117,7 @@ cc_test(
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
+        "//lib/stream:segment_allocator",
         "//lib/stream:tls_transport",
         "@googletest//:gtest_main",
     ],
@@ -127,6 +130,7 @@ cc_test(
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
         "//lib/stream:http_client",
+        "//lib/stream:segment_allocator",
         "@googletest//:gtest_main",
     ],
 )
@@ -137,6 +141,7 @@ cc_test(
     deps = [
         "//lib/stream:component",
         "//lib/stream:epoll_event_loop",
+        "//lib/stream:segment_allocator",
         "//lib/stream:zstd_decompressor",
         "@googletest//:gtest_main",
         "@zstd",
@@ -150,6 +155,7 @@ cc_test(
     deps = [
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
+        "//lib/stream:segment_allocator",
         "//src:dbn_parser_component",
         "//src:record_batch",
         "@databento_cpp//:databento_with_impl",
@@ -183,6 +189,25 @@ cc_test(
     srcs = ["buffer_chain_test.cpp"],
     deps = [
         "//lib/stream:buffer_chain",
+        "//lib/stream:segment_allocator",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "segment_allocator_test",
+    srcs = ["segment_allocator_test.cpp"],
+    deps = [
+        "//lib/stream:segment_allocator",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "segment_allocator_integration_test",
+    srcs = ["segment_allocator_integration_test.cpp"],
+    deps = [
+        "//lib/stream:segment_allocator",
         "@googletest//:gtest_main",
     ],
 )
@@ -203,7 +228,10 @@ cc_test(
     srcs = ["live_protocol_test.cpp"],
     deps = [
         "//lib/stream:buffer_chain",
+        "//lib/stream:epoll_event_loop",
         "//lib/stream:protocol",
+        "//lib/stream:segment_allocator",
+        "//lib/stream:sink",
         "//src:live_protocol",
         "@googletest//:gtest_main",
     ],
@@ -213,7 +241,10 @@ cc_test(
     name = "historical_protocol_test",
     srcs = ["historical_protocol_test.cpp"],
     deps = [
+        "//lib/stream:epoll_event_loop",
         "//lib/stream:protocol",
+        "//lib/stream:segment_allocator",
+        "//lib/stream:sink",
         "//lib/stream:url_encode",
         "//src:historical_protocol",
         "//src:record_batch",

@@ -12,6 +12,7 @@
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/epoll_event_loop.hpp"
 #include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/zstd_decompressor.hpp"
 
 using namespace dbn_pipe;
@@ -335,4 +336,41 @@ TEST(ZstdDecompressorTest, IncompleteZstdFrameEmitsError) {
     EXPECT_TRUE(downstream->last_error.message.find("Incomplete zstd frame") != std::string::npos ||
                 downstream->last_error.message.find("ZSTD") != std::string::npos);
     EXPECT_FALSE(downstream->done);
+}
+
+TEST(ZstdDecompressorTest, UsesProvidedAllocator) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockZstdDownstream>();
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+
+    // Provide an external allocator
+    SegmentAllocator allocator;
+    decompressor->SetAllocator(&allocator);
+
+    // GetAllocator() should return the injected allocator
+    EXPECT_EQ(&decompressor->GetAllocator(), &allocator);
+
+    std::string original = "Data decompressed with injected allocator.";
+    auto compressed = CompressData(original);
+
+    auto chain = ToChain(compressed);
+    decompressor->OnData(chain);
+    decompressor->OnDone();
+
+    // Decompression should succeed using the injected allocator
+    EXPECT_TRUE(downstream->done);
+    EXPECT_FALSE(downstream->error_called);
+    EXPECT_EQ(BytesToString(downstream->data), original);
+}
+
+TEST(ZstdDecompressorTest, DefaultAllocatorWhenNoneInjected) {
+    EpollEventLoop loop;
+    auto downstream = std::make_shared<MockZstdDownstream>();
+    auto decompressor = ZstdDecompressor<MockZstdDownstream>::Create(loop, downstream);
+
+    // Without SetAllocator, GetAllocator() should return the internal default
+    SegmentAllocator& alloc = decompressor->GetAllocator();
+    // Should be able to allocate from it
+    auto seg = alloc.Allocate();
+    EXPECT_NE(seg, nullptr);
 }

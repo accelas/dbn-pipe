@@ -8,6 +8,7 @@
 #include <concepts>
 #include <functional>
 #include <memory>
+#include <memory_resource>
 #include <string>
 
 #include "dbn_pipe/dns_resolver.hpp"
@@ -15,6 +16,7 @@
 #include "dbn_pipe/stream/event_loop.hpp"
 #include "dbn_pipe/stream/pipeline.hpp"
 #include "dbn_pipe/stream/protocol.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/sink.hpp"
 #include "dbn_pipe/stream/suspendable.hpp"
 #include "dbn_pipe/record_batch.hpp"
@@ -72,6 +74,21 @@ public:
     /// @param api_key  Databento API key
     static std::shared_ptr<StreamingClient> Create(IEventLoop& loop, std::string api_key) {
         return std::make_shared<StreamingClient>(PrivateTag{}, loop, std::move(api_key));
+    }
+
+    /// Create a new client with a caller-provided PMR memory resource.
+    /// All segment allocations in the pipeline will use this resource.
+    /// @param loop      Event loop that drives this client
+    /// @param api_key   Databento API key
+    /// @param resource  PMR memory resource for segment allocation
+    static std::shared_ptr<StreamingClient> Create(
+        IEventLoop& loop, std::string api_key,
+        std::shared_ptr<std::pmr::memory_resource> resource)
+    {
+        auto client = std::make_shared<StreamingClient>(
+            PrivateTag{}, loop, std::move(api_key));
+        client->allocator_ = SegmentAllocator(std::move(resource));
+        return client;
     }
 
     /// @internal
@@ -257,8 +274,8 @@ private:
             }
         );
 
-        // Build chain
-        chain_ = P::BuildChain(loop_, *sink_, api_key_);
+        // Build chain (pass allocator so all components share the same PMR)
+        chain_ = P::BuildChain(loop_, *sink_, api_key_, &allocator_);
 
         // Set dataset for protocols that need it (e.g., LiveProtocol CRAM auth)
         chain_->SetDataset(request_.dataset);
@@ -347,6 +364,7 @@ private:
 
     IEventLoop& loop_;
     std::string api_key_;
+    SegmentAllocator allocator_;
     Request request_;
     State state_ = State::Disconnected;
 

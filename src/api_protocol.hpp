@@ -18,6 +18,7 @@
 #include "dbn_pipe/stream/http_client.hpp"
 #include "dbn_pipe/stream/http_request_builder.hpp"
 #include "dbn_pipe/stream/json_parser.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/sink.hpp"
 #include "dbn_pipe/stream/tcp_socket.hpp"
 #include "dbn_pipe/stream/tls_transport.hpp"
@@ -244,6 +245,17 @@ struct ApiProtocol {
         SinkType& sink,
         const std::string& api_key
     ) {
+        return std::make_shared<ChainImpl>(loop, sink, api_key);
+    }
+
+    // Build the component chain with an explicit allocator
+    static std::shared_ptr<ChainType> BuildChain(
+        IEventLoop& loop,
+        SinkType& sink,
+        const std::string& api_key,
+        SegmentAllocator* /*alloc*/
+    ) {
+        // ApiProtocol does not yet use the allocator
         return std::make_shared<ChainImpl>(loop, sink, api_key);
     }
 

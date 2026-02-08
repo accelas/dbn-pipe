@@ -109,7 +109,7 @@ private:
                 return false;
             }
             size_t chunk = std::min(source.ContiguousSize(), Segment::kSize);
-            auto seg = segment_pool_.Acquire();
+            auto seg = this->GetAllocator().Allocate();
             source.CopyTo(0, chunk, seg->data.data());
             seg->size = chunk;
             pending_input_.Append(std::move(seg));
@@ -122,8 +122,6 @@ private:
 
     ZSTD_DStream* dstream_ = nullptr;
 
-    // Segment pool and chain for zero-copy output
-    SegmentPool segment_pool_{16};  // Pool for output segments
     BufferChain output_chain_;      // Chain passed to downstream
 
     // Pending input when suspended
@@ -145,7 +143,7 @@ ZstdDecompressor<D>::ZstdDecompressor(IEventLoop& loop, std::shared_ptr<D> downs
     : PipelineComponent<ZstdDecompressor<D>>(loop), downstream_(std::move(downstream)) {
 
     // Set up segment recycling
-    output_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
+    output_chain_.SetRecycleCallback(this->GetAllocator().MakeRecycler());
 
     dstream_ = ZSTD_createDStream();
     if (!dstream_) {
@@ -228,7 +226,7 @@ auto ZstdDecompressor<D>::DecompressChain(BufferChain& chain) -> DecompressResul
         ZSTD_inBuffer in_buf = {chunk_ptr, chunk_size, 0};
 
         while (in_buf.pos < in_buf.size) {
-            auto seg = segment_pool_.Acquire();
+            auto seg = this->GetAllocator().Allocate();
             ZSTD_outBuffer out_buf = {seg->data.data(), Segment::kSize, 0};
 
             size_t result = ZSTD_decompressStream(dstream_, &out_buf, &in_buf);

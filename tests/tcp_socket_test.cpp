@@ -17,6 +17,7 @@
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/epoll_event_loop.hpp"
 #include "dbn_pipe/stream/error.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/tcp_socket.hpp"
 
 using namespace dbn_pipe;
@@ -316,6 +317,70 @@ TEST(TcpSocketTest, CloseResetsSuspendedState) {
 
     EXPECT_TRUE(connected);
     EXPECT_FALSE(sock->IsSuspended());
+
+    close(listener);
+}
+
+TEST(TcpSocketTest, UsesProvidedAllocator) {
+    EpollEventLoop loop;
+    int port;
+    int listener = create_listener(port);
+
+    auto downstream = std::make_shared<MockDownstream>();
+    downstream->loop = &loop;
+
+    auto sock = TcpSocket<MockDownstream>::Create(loop, downstream);
+
+    // Provide an external allocator
+    SegmentAllocator allocator;
+    sock->SetAllocator(&allocator);
+
+    int server_fd = -1;
+    bool connected = false;
+    std::unique_ptr<IEventHandle> server_handle;
+
+    sock->OnConnect([&]() {
+        connected = true;
+    });
+
+    sock->Connect(make_addr("127.0.0.1", port));
+
+    // Accept on listener and send data from server side
+    auto listener_handle = loop.Register(
+        listener,
+        /*want_read=*/true,
+        /*want_write=*/false,
+        [&]() {
+            server_fd = accept(listener, nullptr, nullptr);
+            if (server_fd >= 0) {
+                fcntl(server_fd, F_SETFL, O_NONBLOCK);
+                server_handle = loop.Register(
+                    server_fd,
+                    /*want_read=*/false,
+                    /*want_write=*/true,
+                    []() {},
+                    [&]() {
+                        // Send data and close to trigger EOF -> OnDone -> loop.Stop()
+                        write(server_fd, "allocator-test", 14);
+                        close(server_fd);
+                        server_fd = -1;
+                        server_handle.reset();
+                    },
+                    [](int) {}
+                );
+            }
+        },
+        []() {},
+        [](int) {}
+    );
+
+    loop.Run();
+
+    EXPECT_TRUE(connected);
+    // Verify data flowed through the provided allocator
+    std::string received(reinterpret_cast<char*>(downstream->received_data.data()),
+                         downstream->received_data.size());
+    EXPECT_EQ(received, "allocator-test");
 
     close(listener);
 }

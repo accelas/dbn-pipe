@@ -9,7 +9,6 @@
 #include <chrono>
 #include <cstring>
 #include <memory>
-#include <memory_resource>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -176,7 +175,7 @@ private:
                 return false;
             }
             size_t chunk = std::min(source.ContiguousSize(), Segment::kSize);
-            auto seg = segment_pool_.Acquire();
+            auto seg = this->GetAllocator().Allocate();
             source.CopyTo(0, chunk, seg->data.data());
             seg->size = chunk;
             pending_input_.Append(std::move(seg));
@@ -194,7 +193,7 @@ private:
             this->RequestClose();
             return false;
         }
-        pending_chain_.AppendBytes(bytes, len, segment_pool_);
+        pending_chain_.AppendBytes(bytes, len, this->GetAllocator());
         return true;
     }
 
@@ -269,9 +268,6 @@ private:
         return false;  // Continue processing
     }
 
-    // Segment pool for body output
-    SegmentPool segment_pool_{4};
-
     // Current segment being filled with body data
     std::shared_ptr<Segment> current_segment_;
 
@@ -310,7 +306,7 @@ HttpClient<D>::HttpClient(IEventLoop& loop, std::shared_ptr<D> downstream)
     parser_.data = this;
 
     // Set up segment recycling for pending chain
-    pending_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
+    pending_chain_.SetRecycleCallback(this->GetAllocator().MakeRecycler());
 }
 
 template <Downstream D>

@@ -12,12 +12,11 @@
 #include <functional>
 #include <memory>
 #include <span>
-#include <vector>
 
 namespace dbn_pipe {
 
 // Forward declaration
-class SegmentPool;
+class SegmentAllocator;
 
 // Fixed-size buffer segment with 8-byte alignment for zero-copy record access.
 // DBN records require 8-byte alignment (alignof(TradeMsg) == 8).
@@ -300,19 +299,8 @@ public:
     }
 
     // Append raw bytes to chain, creating segments as needed.
-    // Uses SegmentPool for allocation if provided (defined after SegmentPool).
-    inline void AppendBytes(const void* data, size_t len, SegmentPool& pool);
-
-    // Append raw bytes using make_shared for allocation
-    void AppendBytes(const void* data, size_t len) {
-        auto bytes = static_cast<const std::byte*>(data);
-        size_t offset = 0;
-        while (offset < len) {
-            auto seg = std::make_shared<Segment>();
-            offset += seg->Append(bytes + offset, len - offset);
-            Append(std::move(seg));
-        }
-    }
+    // Uses SegmentAllocator for allocation (defined in segment_allocator.hpp).
+    inline void AppendBytes(const void* data, size_t len, SegmentAllocator& alloc);
 
 private:
     std::deque<std::shared_ptr<Segment>> segments_;  // O(1) front removal
@@ -320,72 +308,5 @@ private:
     size_t total_size_ = 0;       // Cached total unconsumed bytes
     RecycleCallback recycle_callback_;  // Optional recycling callback
 };
-
-// Pool for reusing Segment allocations.
-// Reduces allocation overhead for high-throughput scenarios.
-//
-// Thread safety: Not thread-safe. All operations must be called from the same
-// thread. For multi-threaded use, external synchronization is required.
-class SegmentPool {
-public:
-    explicit SegmentPool(size_t max_pool_size = kDefaultMaxPoolSize)
-        : max_pool_size_(max_pool_size) {}
-
-    // Acquire a segment from pool or allocate new.
-    std::shared_ptr<Segment> Acquire() {
-        if (!free_list_.empty()) {
-            auto seg = std::move(free_list_.back());
-            free_list_.pop_back();
-            seg->size = 0;  // Reset for reuse
-            return seg;
-        }
-        return std::make_shared<Segment>();
-    }
-
-    // Return segment to pool for reuse.
-    // Only pools segments with no external references (use_count == 1).
-    // If segment is still referenced (e.g., by RecordRef keepalive), it's
-    // not pooled and will deallocate when all references are released.
-    void Release(std::shared_ptr<Segment> seg) {
-        if (seg && seg.use_count() == 1 && free_list_.size() < max_pool_size_) {
-            free_list_.push_back(std::move(seg));
-        }
-        // else: let it deallocate naturally when all refs are gone
-    }
-
-    // Create a recycler callback for use with BufferChain::SetRecycleCallback().
-    // Returns a lambda that calls Release() on consumed segments.
-    BufferChain::RecycleCallback MakeRecycler() {
-        return [this](std::shared_ptr<Segment> seg) {
-            Release(std::move(seg));
-        };
-    }
-
-    // Number of segments currently in pool.
-    size_t PoolSize() const noexcept { return free_list_.size(); }
-
-    // Maximum pool capacity.
-    size_t MaxPoolSize() const noexcept { return max_pool_size_; }
-
-    // Clear all pooled segments.
-    void Clear() { free_list_.clear(); }
-
-    static constexpr size_t kDefaultMaxPoolSize = 32;  // ~2MB pool
-
-private:
-    std::vector<std::shared_ptr<Segment>> free_list_;
-    size_t max_pool_size_;
-};
-
-// BufferChain methods that depend on SegmentPool
-inline void BufferChain::AppendBytes(const void* data, size_t len, SegmentPool& pool) {
-    auto bytes = static_cast<const std::byte*>(data);
-    size_t offset = 0;
-    while (offset < len) {
-        auto seg = pool.Acquire();
-        offset += seg->Append(bytes + offset, len - offset);
-        Append(std::move(seg));
-    }
-}
 
 }  // namespace dbn_pipe

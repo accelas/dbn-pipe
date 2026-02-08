@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 
 #include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/sink.hpp"
 
 namespace dbn_pipe {
@@ -52,9 +53,10 @@ concept Protocol = requires {
     requires requires(
         IEventLoop& loop,
         typename P::SinkType& sink,
-        const std::string& api_key
+        const std::string& api_key,
+        SegmentAllocator* alloc
     ) {
-        { P::BuildChain(loop, sink, api_key) }
+        { P::BuildChain(loop, sink, api_key, alloc) }
             -> std::same_as<std::shared_ptr<typename P::ChainType>>;
     };
 

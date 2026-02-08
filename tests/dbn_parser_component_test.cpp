@@ -12,6 +12,7 @@
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/dbn_parser_component.hpp"
 #include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/record_batch.hpp"
 
 // Mock sink that receives RecordBatch
@@ -777,4 +778,118 @@ TEST(DbnParserComponentTest, MetadataSpanningSegments) {
     ASSERT_EQ(sink.batches.size(), 1);
     ASSERT_EQ(sink.batches[0].size(), 1);
     EXPECT_EQ(sink.batches[0][0].Header().instrument_id, 100);
+}
+
+// ============================================================================
+// SegmentAllocator integration tests
+// ============================================================================
+
+// Tracking memory resource that counts allocations
+class TrackingMemoryResource : public std::pmr::memory_resource {
+public:
+    std::atomic<size_t> allocate_count{0};
+    std::atomic<size_t> deallocate_count{0};
+    std::atomic<size_t> total_bytes_allocated{0};
+
+protected:
+    void* do_allocate(size_t bytes, size_t alignment) override {
+        allocate_count.fetch_add(1, std::memory_order_relaxed);
+        total_bytes_allocated.fetch_add(bytes, std::memory_order_relaxed);
+        return std::pmr::new_delete_resource()->allocate(bytes, alignment);
+    }
+
+    void do_deallocate(void* p, size_t bytes, size_t alignment) override {
+        deallocate_count.fetch_add(1, std::memory_order_relaxed);
+        std::pmr::new_delete_resource()->deallocate(p, bytes, alignment);
+    }
+
+    bool do_is_equal(const std::pmr::memory_resource& other) const noexcept override {
+        return this == &other;
+    }
+};
+
+TEST(DbnParserComponentTest, ScratchBufferUsesInjectedAllocator) {
+    MockSink sink;
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
+
+    // Create a tracking allocator
+    auto tracking_resource = std::make_shared<TrackingMemoryResource>();
+    dbn_pipe::SegmentAllocator allocator(tracking_resource);
+    parser.SetAllocator(&allocator);
+
+    // Create a record spanning two segments to force scratch buffer allocation
+    auto* msg = CreateMinimalRecord(100);
+    auto* bytes = reinterpret_cast<const std::byte*>(msg);
+    size_t split = sizeof(databento::MboMsg) / 2;
+
+    dbn_pipe::BufferChain chain;
+    chain.Append(MakeSegmentFromBytes(bytes, split));
+    chain.Append(MakeSegmentFromBytes(bytes + split, sizeof(databento::MboMsg) - split));
+
+    parser.OnData(chain);
+
+    // Verify record was parsed correctly
+    ASSERT_EQ(sink.batches.size(), 1);
+    ASSERT_EQ(sink.batches[0].size(), 1);
+    EXPECT_EQ(sink.batches[0][0].Header().instrument_id, 100);
+
+    // Verify the tracking resource was used for scratch allocation
+    EXPECT_GE(tracking_resource->allocate_count.load(), 1);
+    EXPECT_GE(tracking_resource->total_bytes_allocated.load(), sizeof(databento::MboMsg));
+}
+
+TEST(DbnParserComponentTest, ScratchBufferDeallocatesViaAllocator) {
+    MockSink sink;
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
+
+    auto tracking_resource = std::make_shared<TrackingMemoryResource>();
+    dbn_pipe::SegmentAllocator allocator(tracking_resource);
+    parser.SetAllocator(&allocator);
+
+    // Force scratch path with boundary-crossing record
+    auto* msg = CreateMinimalRecord(200);
+    auto* bytes = reinterpret_cast<const std::byte*>(msg);
+    size_t split = sizeof(databento::MboMsg) / 2;
+
+    {
+        dbn_pipe::BufferChain chain;
+        chain.Append(MakeSegmentFromBytes(bytes, split));
+        chain.Append(MakeSegmentFromBytes(bytes + split, sizeof(databento::MboMsg) - split));
+
+        parser.OnData(chain);
+
+        ASSERT_EQ(sink.batches.size(), 1);
+
+        // Clear batches - this drops the keepalive shared_ptr, triggering deallocation
+        sink.batches.clear();
+    }
+
+    // Verify deallocation went through the tracking resource
+    EXPECT_GE(tracking_resource->deallocate_count.load(), 1);
+    EXPECT_EQ(tracking_resource->allocate_count.load(),
+              tracking_resource->deallocate_count.load());
+}
+
+TEST(DbnParserComponentTest, DefaultAllocatorUsedWhenNoneInjected) {
+    MockSink sink;
+    dbn_pipe::DbnParserComponent<MockSink> parser(sink);
+
+    // No SetAllocator call - should use default allocator
+
+    // Force scratch path
+    auto* msg = CreateMinimalRecord(100);
+    auto* bytes = reinterpret_cast<const std::byte*>(msg);
+    size_t split = sizeof(databento::MboMsg) / 2;
+
+    dbn_pipe::BufferChain chain;
+    chain.Append(MakeSegmentFromBytes(bytes, split));
+    chain.Append(MakeSegmentFromBytes(bytes + split, sizeof(databento::MboMsg) - split));
+
+    parser.OnData(chain);
+
+    // Should still work correctly with default allocator
+    ASSERT_EQ(sink.batches.size(), 1);
+    ASSERT_EQ(sink.batches[0].size(), 1);
+    EXPECT_EQ(sink.batches[0][0].Header().instrument_id, 100);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(sink.batches[0][0].data) % 8, 0);
 }

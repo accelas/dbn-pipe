@@ -7,7 +7,6 @@
 #include <cstddef>
 #include <cstring>
 #include <memory>
-#include <new>
 #include <string>
 
 #include <databento/enums.hpp>
@@ -21,6 +20,7 @@ constexpr std::int64_t kUndefPrice = std::numeric_limits<std::int64_t>::max();
 #include "dbn_pipe/stream/buffer_chain.hpp"
 #include "dbn_pipe/stream/error.hpp"
 #include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/record_batch.hpp"
 
 namespace dbn_pipe {
@@ -97,7 +97,26 @@ public:
     // Checks that chain is empty (no incomplete records).
     void OnComplete(BufferChain& chain) noexcept;
 
+    // Set the allocator for scratch buffer allocations.
+    void SetAllocator(SegmentAllocator* alloc) { allocator_ = alloc; }
+
+    // Get the allocator (injected or default).
+    SegmentAllocator& GetAllocator() { return allocator_ ? *allocator_ : default_allocator_; }
+
 private:
+    // Allocate a scratch buffer via the PMR.
+    // The deleter captures the resource shared_ptr, keeping the resource alive
+    // as long as the scratch buffer (and thus the RecordRef keepalive) exists.
+    std::shared_ptr<std::byte[]> AllocateScratch(size_t size) {
+        auto resource = GetAllocator().GetResourcePtr();
+        auto* ptr = static_cast<std::byte*>(
+            resource->allocate(size, 8));
+        return std::shared_ptr<std::byte[]>(ptr,
+            [resource, size](std::byte* p) {
+                resource->deallocate(p, size, 8);
+            });
+    }
+
     // Report a terminal error and set error state
     void ReportTerminalError(const std::string& msg);
 
@@ -126,6 +145,8 @@ private:
     std::atomic<bool> error_state_{false}; // One-shot error guard
     bool metadata_parsed_ = false;         // Whether DBN header has been skipped
     std::uint8_t dbn_version_ = 3;         // DBN version from metadata (default v3)
+    SegmentAllocator* allocator_ = nullptr;  // Injected allocator (optional)
+    SegmentAllocator default_allocator_;      // Default allocator (used if none injected)
 
     // DBN file header structure (first 8 bytes of DBN stream)
     struct DbnHeader {
@@ -249,10 +270,7 @@ void DbnParserComponent<S>::OnData(BufferChain& chain) {
         // Determine the path based on what operations are needed
         if (v3_size > 0) {
             // Conversion needed - allocate v3 buffer and convert
-            auto v3_buffer = std::shared_ptr<std::byte[]>(
-                new (std::align_val_t{8}) std::byte[v3_size],
-                [](std::byte* p) { operator delete[](p, std::align_val_t{8}); }
-            );
+            auto v3_buffer = AllocateScratch(v3_size);
 
             std::uint8_t rtype;
             if (src_ptr) {
@@ -276,10 +294,7 @@ void DbnParserComponent<S>::OnData(BufferChain& chain) {
             ref.keepalive = src_keepalive;
         } else {
             // No conversion, but need alignment copy
-            auto scratch = std::shared_ptr<std::byte[]>(
-                new (std::align_val_t{8}) std::byte[record_size],
-                [](std::byte* p) { operator delete[](p, std::align_val_t{8}); }
-            );
+            auto scratch = AllocateScratch(record_size);
             chain.CopyTo(0, record_size, scratch.get());
             ref.data = scratch.get();
             ref.keepalive = scratch;

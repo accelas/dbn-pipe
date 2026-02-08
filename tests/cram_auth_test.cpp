@@ -12,6 +12,7 @@
 #include "dbn_pipe/cram_auth.hpp"
 #include "dbn_pipe/stream/epoll_event_loop.hpp"
 #include "dbn_pipe/stream/component.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 
 using namespace dbn_pipe;
 
@@ -460,4 +461,42 @@ TEST_F(CramAuthTest, RemainingDataAfterStreamingTransitionForwarded) {
     // Binary data should be forwarded
     ASSERT_EQ(downstream_->received.size(), 3);
     EXPECT_EQ(downstream_->received[0], std::byte{0x01});
+}
+
+TEST_F(CramAuthTest, SetAllocatorUsesExternalAllocator) {
+    SetupWriteCallback();
+
+    // Create an external SegmentAllocator and wire it to CramAuth
+    SegmentAllocator external_alloc;
+    handler_->SetAllocator(&external_alloc);
+
+    // Verify GetAllocator returns the external allocator
+    EXPECT_EQ(&handler_->GetAllocator(), &external_alloc);
+
+    // Complete handshake and start streaming to exercise AppendBytes paths
+    SendData("session|v1\n");
+    SendData("cram=challenge\n");
+    SendData("success\n");
+    handler_->Subscribe("ESZ4", "mbp-1");
+    handler_->StartStreaming();
+    EXPECT_EQ(handler_->GetState(), CramAuthState::Streaming);
+
+    // Send binary data - exercises the allocator-backed AppendBytes path
+    std::pmr::vector<std::byte> binary_data;
+    binary_data.push_back(std::byte{0xDE});
+    binary_data.push_back(std::byte{0xAD});
+    SendBytes(std::move(binary_data));
+
+    ASSERT_EQ(downstream_->received.size(), 2);
+    EXPECT_EQ(downstream_->received[0], std::byte{0xDE});
+    EXPECT_EQ(downstream_->received[1], std::byte{0xAD});
+}
+
+TEST_F(CramAuthTest, DefaultAllocatorUsedWhenNoExternalSet) {
+    // Without calling SetAllocator, GetAllocator should return default
+    SegmentAllocator& alloc = handler_->GetAllocator();
+    // Should be valid - allocate a segment to verify
+    auto seg = alloc.Allocate();
+    ASSERT_NE(seg, nullptr);
+    EXPECT_EQ(seg->size, 0u);
 }
