@@ -35,7 +35,8 @@ struct MockProtocol {
     using ChainType = MockChain;
 
     static std::shared_ptr<ChainType> BuildChain(
-        IEventLoop&, SinkType&, const std::string&) {
+        IEventLoop&, SinkType&, const std::string&,
+        SegmentAllocator* = nullptr) {
         return std::make_shared<ChainType>();
     }
 

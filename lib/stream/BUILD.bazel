@@ -109,6 +109,7 @@ cc_library(
     include_prefix = "dbn_pipe/stream",
     deps = [
         ":event_loop",
+        ":segment_allocator",
         ":sink",
     ],
 )

@@ -283,6 +283,7 @@ cc_library(
         "//lib/stream:http_client",
         "//lib/stream:http_request_builder",
         "//lib/stream:json_parser",
+        "//lib/stream:segment_allocator",
         "//lib/stream:sink",
         "//lib/stream:tcp_socket",
         "//lib/stream:tls_transport",
