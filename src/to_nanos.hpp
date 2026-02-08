@@ -23,7 +23,7 @@ inline constexpr const char* kDefaultTimezone = "America/New_York";
 inline uint64_t to_nanos(std::chrono::year_month_day ymd,
                          std::string_view tz = kDefaultTimezone) {
     assert(ymd.ok() && "to_nanos: invalid year_month_day");
-    auto local_midnight = std::chrono::local_days{ymd};
+    auto local_midnight = std::chrono::local_seconds{std::chrono::local_days{ymd}};
     std::chrono::zoned_time zt{tz, local_midnight};
     auto sys = zt.get_sys_time();
     return static_cast<uint64_t>(
@@ -40,7 +40,8 @@ inline uint64_t to_nanos(std::chrono::year_month_day ymd,
 template <typename Duration>
 uint64_t to_nanos(std::chrono::local_time<Duration> lt,
                   std::string_view tz = kDefaultTimezone) {
-    std::chrono::zoned_time zt{tz, lt};
+    using D = std::common_type_t<Duration, std::chrono::seconds>;
+    std::chrono::zoned_time zt{tz, std::chrono::local_time<D>{lt}};
     auto sys = zt.get_sys_time();
     return static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
