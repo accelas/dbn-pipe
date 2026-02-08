@@ -12,7 +12,7 @@ TEST(ColumnTypeTest, CppTypes) {
     static_assert(std::is_same_v<Int32::cpp_type, int32_t>);
     static_assert(std::is_same_v<Int16::cpp_type, int16_t>);
     static_assert(std::is_same_v<Char::cpp_type, char>);
-    static_assert(std::is_same_v<Timestamp::cpp_type, int64_t>);
+    static_assert(std::is_same_v<TimestampCol::cpp_type, int64_t>);
     static_assert(std::is_same_v<Text::cpp_type, std::string_view>);
     static_assert(std::is_same_v<Bool::cpp_type, bool>);
     static_assert(std::is_same_v<Float64::cpp_type, double>);

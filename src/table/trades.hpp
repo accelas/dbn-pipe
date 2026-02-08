@@ -9,7 +9,7 @@ namespace dbn_pipe {
 /// Constexpr table definition for trade (MBP-0) records.
 inline constexpr auto trades_table = Table{"trades",
     Column<"ts_event_ns",   Int64>{},
-    Column<"ts_event",      Timestamp>{},
+    Column<"ts_event",      TimestampCol>{},
     Column<"rtype",         Int16>{},
     Column<"publisher_id",  Int16>{},
     Column<"instrument_id", Int32>{},
@@ -21,7 +21,7 @@ inline constexpr auto trades_table = Table{"trades",
     Column<"size",          Int64>{},
     Column<"flags",         Int16>{},
     Column<"ts_recv_ns",    Int64>{},
-    Column<"ts_recv",       Timestamp>{},
+    Column<"ts_recv",       TimestampCol>{},
     Column<"ts_in_delta",   Int32>{},
     Column<"sequence",      Int64>{}
 };

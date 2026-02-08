@@ -69,17 +69,17 @@ TEST(TableTest, RowAsTuple) {
     EXPECT_EQ(y, 20);
 }
 
-TEST(TableTest, TimestampColumn) {
+TEST(TableTest, TimestampColColumn) {
     constexpr auto table = Table{"test",
-        Column<"ts", Timestamp>{},
+        Column<"ts", TimestampCol>{},
     };
 
     using RowT = decltype(table)::RowType;
     RowT row{};
     row.template get<"ts">() = 1706300000000000000LL;  // unix nanos
 
-    // Timestamp is just int64_t — no PG conversion
-    static_assert(std::is_same_v<Timestamp::cpp_type, int64_t>);
+    // TimestampCol is just int64_t — no PG conversion
+    static_assert(std::is_same_v<TimestampCol::cpp_type, int64_t>);
     EXPECT_EQ(row.template get<"ts">(), 1706300000000000000LL);
 }
 

@@ -10,7 +10,7 @@ namespace dbn_pipe {
 inline constexpr auto definitions_table = Table{"definitions",
     // Record header
     Column<"ts_event_ns",               Int64>{},
-    Column<"ts_event",                  Timestamp>{},
+    Column<"ts_event",                  TimestampCol>{},
     Column<"rtype",                     Int16>{},
     Column<"publisher_id",              Int16>{},
     Column<"instrument_id",             Int32>{},
@@ -59,14 +59,14 @@ inline constexpr auto definitions_table = Table{"definitions",
     Column<"user_defined_instrument",   Char>{},
     // Gateway timestamp
     Column<"ts_recv_ns",                Int64>{},
-    Column<"ts_recv",                   Timestamp>{}
+    Column<"ts_recv",                   TimestampCol>{}
 };
 
 /// Constexpr table definition for options InstrumentDefMsg records.
 inline constexpr auto options_definitions_table = Table{"options_definitions",
     // Record header
     Column<"ts_event_ns",               Int64>{},
-    Column<"ts_event",                  Timestamp>{},
+    Column<"ts_event",                  TimestampCol>{},
     Column<"rtype",                     Int16>{},
     Column<"publisher_id",              Int16>{},
     Column<"instrument_id",             Int32>{},
@@ -83,7 +83,7 @@ inline constexpr auto options_definitions_table = Table{"options_definitions",
     Column<"instrument_class",          Char>{},
     // Expiration
     Column<"expiration_ns",             Int64>{},
-    Column<"expiration",                Timestamp>{},
+    Column<"expiration",                TimestampCol>{},
     Column<"maturity_year",             Int16>{},
     Column<"maturity_month",            Int16>{},
     Column<"maturity_day",              Int16>{},
@@ -128,7 +128,7 @@ inline constexpr auto options_definitions_table = Table{"options_definitions",
     Column<"user_defined_instrument",   Char>{},
     // Gateway timestamp
     Column<"ts_recv_ns",                Int64>{},
-    Column<"ts_recv",                   Timestamp>{}
+    Column<"ts_recv",                   TimestampCol>{}
 };
 
 }  // namespace dbn_pipe

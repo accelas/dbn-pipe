@@ -14,7 +14,7 @@ namespace dbn_pipe {
 /// Format-agnostic column definition.
 ///
 /// @tparam Name         Compile-time string used as the column name.
-/// @tparam LogicalType  One of Int64, Int32, Int16, Char, Timestamp, Text, Bool, Float64.
+/// @tparam LogicalType  One of Int64, Int32, Int16, Char, TimestampCol, Text, Bool, Float64.
 template <FixedString Name, typename LogicalType>
 struct Column {
     static constexpr auto name = Name;   ///< Column name as a FixedString.
