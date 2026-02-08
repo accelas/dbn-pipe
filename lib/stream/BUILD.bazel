@@ -22,6 +22,14 @@ cc_library(
     include_prefix = "dbn_pipe/stream",
 )
 
+cc_library(
+    name = "segment_allocator",
+    hdrs = ["segment_allocator.hpp"],
+    strip_include_prefix = "/lib/stream",
+    include_prefix = "dbn_pipe/stream",
+    deps = [":buffer_chain"],
+)
+
 # Internal epoll implementation
 cc_library(
     name = "epoll_event_loop_internal",

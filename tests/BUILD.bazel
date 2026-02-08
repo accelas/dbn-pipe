@@ -188,6 +188,15 @@ cc_test(
 )
 
 cc_test(
+    name = "segment_allocator_test",
+    srcs = ["segment_allocator_test.cpp"],
+    deps = [
+        "//lib/stream:segment_allocator",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "pipeline_sink_test",
     srcs = ["pipeline_sink_test.cpp"],
     deps = [
