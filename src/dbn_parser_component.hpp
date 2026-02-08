@@ -24,8 +24,7 @@ constexpr std::int64_t kUndefPrice = std::numeric_limits<std::int64_t>::max();
 
 namespace dbn_pipe {
 
-// Maximum valid DBN record size (64KB)
-// Records larger than this are considered invalid
+/// Maximum valid DBN record size (64 KB).
 constexpr size_t kMaxRecordSize = 64 * 1024;
 
 // InstrumentDefMsg v3 size for buffer allocation
@@ -58,49 +57,52 @@ constexpr size_t kSymbolCstrLenV3 = 71;
 // Use official databento::RType enum for rtype comparisons
 // No custom constants - prevents them from getting out of sync with the API
 
-// DbnParserComponent - Zero-copy parser that outputs RecordBatch.
-//
-// This component transforms raw bytes from BufferChain into batched records
-// for the backpressure pipeline. It uses zero-copy references where possible,
-// only copying when records span segment boundaries.
-//
-// Key features:
-// - Outputs RecordBatch with RecordRef entries (zero-copy when possible)
-// - Uses BufferChain for input (chain manages unconsumed data)
-// - Aligned scratch buffers for boundary-crossing records
-// - Overflow-safe bounds checking
-// - One-shot error handling via finalized guard
-// - DBN metadata header parsing (skips DBN file header if present)
-//
-// Template parameter S must satisfy RecordSink concept.
+/// Zero-copy DBN parser that outputs RecordBatch.
+///
+/// Terminal PipelineComponent (`D = void`) that transforms raw bytes from a
+/// BufferChain into batched records for the backpressure pipeline. Uses
+/// zero-copy references where possible, only copying when records span
+/// segment boundaries.
+///
+/// Key features:
+/// - Outputs RecordBatch with RecordRef entries (zero-copy when contiguous)
+/// - Aligned scratch buffers (PMR-backed) for boundary-crossing records
+/// - One-shot error handling via the base class finalized guard
+/// - DBN metadata header parsing (skips DBN file header if present)
+/// - Automatic v1/v2-to-v3 record conversion
+///
+/// @tparam S  Sink type satisfying the RecordSink concept.
 template <RecordSink S>
 class DbnParserComponent : public PipelineComponent<DbnParserComponent<S>> {
 public:
+    /// Construct with a reference to the sink that receives parsed records.
     explicit DbnParserComponent(S& sink) : sink_(sink) {}
 
-    // Primary interface - parse bytes from caller-managed chain into records.
-    // Leaves incomplete records in the chain for next call.
+    /// Parse bytes from a caller-managed chain into records.
+    /// Leaves incomplete records in the chain for the next call.
     void OnData(BufferChain& chain);
 
-    // TerminalDownstream interface
+    /// TerminalDownstream interface --- delegates to OnComplete().
     void OnDone() noexcept { OnComplete(); }
 
-    // Forward error to sink (one-shot)
+    /// Forward error to sink (one-shot, guarded by IsFinalized).
     void OnError(const Error& e) noexcept;
 
-    // Forward completion to sink (one-shot, no chain check).
-    // Use when caller has already verified chain is empty.
+    /// Forward completion to sink (one-shot, no chain check).
+    /// Use when the caller has already verified the chain is empty.
     void OnComplete() noexcept;
 
-    // Forward completion to sink (one-shot).
-    // Checks that chain is empty (no incomplete records).
+    /// Forward completion to sink (one-shot).
+    /// Reports an error if the chain contains an incomplete record.
     void OnComplete(BufferChain& chain) noexcept;
 
-    // Required PipelineComponent no-op methods (terminal node, no I/O watchers)
+    /// @name PipelineComponent required methods (no-ops for terminal node)
+    /// @{
     void DisableWatchers() {}
     void DoClose() {}
     void ProcessPending() {}
     void FlushAndComplete() {}
+    /// @}
 
 private:
     // Allocate a scratch buffer via the PMR.
