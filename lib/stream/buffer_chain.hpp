@@ -16,8 +16,9 @@
 
 namespace dbn_pipe {
 
-// Forward declaration
+// Forward declarations
 class SegmentPool;
+class SegmentAllocator;
 
 // Fixed-size buffer segment with 8-byte alignment for zero-copy record access.
 // DBN records require 8-byte alignment (alignof(TradeMsg) == 8).
@@ -302,6 +303,9 @@ public:
     // Append raw bytes to chain, creating segments as needed.
     // Uses SegmentPool for allocation if provided (defined after SegmentPool).
     inline void AppendBytes(const void* data, size_t len, SegmentPool& pool);
+
+    // Append raw bytes using SegmentAllocator (defined in segment_allocator.hpp).
+    inline void AppendBytes(const void* data, size_t len, SegmentAllocator& alloc);
 
     // Append raw bytes using make_shared for allocation
     void AppendBytes(const void* data, size_t len) {

@@ -9,7 +9,6 @@
 #include <chrono>
 #include <cstring>
 #include <memory>
-#include <memory_resource>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -18,6 +17,7 @@
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/error.hpp"
 #include "dbn_pipe/stream/event_loop.hpp"
+#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/tls_transport.hpp"
 
 namespace dbn_pipe {
@@ -147,6 +147,12 @@ public:
     // Reset state for HTTP keep-alive
     void ResetMessageState();
 
+    // Inject an external allocator (e.g., shared across pipeline stages).
+    void SetAllocator(SegmentAllocator* alloc) { allocator_ = alloc; }
+
+    // Return the active allocator (injected or default).
+    SegmentAllocator& GetAllocator() { return allocator_ ? *allocator_ : default_allocator_; }
+
     // Accessor for testing
     int StatusCode() const { return status_code_; }
     bool IsMessageComplete() const { return message_complete_; }
@@ -176,7 +182,7 @@ private:
                 return false;
             }
             size_t chunk = std::min(source.ContiguousSize(), Segment::kSize);
-            auto seg = segment_pool_.Acquire();
+            auto seg = GetAllocator().Allocate();
             source.CopyTo(0, chunk, seg->data.data());
             seg->size = chunk;
             pending_input_.Append(std::move(seg));
@@ -194,7 +200,7 @@ private:
             this->RequestClose();
             return false;
         }
-        pending_chain_.AppendBytes(bytes, len, segment_pool_);
+        pending_chain_.AppendBytes(bytes, len, GetAllocator());
         return true;
     }
 
@@ -269,8 +275,11 @@ private:
         return false;  // Continue processing
     }
 
-    // Segment pool for body output
-    SegmentPool segment_pool_{4};
+    // Optional injected allocator (shared across pipeline stages)
+    SegmentAllocator* allocator_ = nullptr;
+
+    // Default allocator when none is injected
+    SegmentAllocator default_allocator_;
 
     // Current segment being filled with body data
     std::shared_ptr<Segment> current_segment_;
@@ -310,7 +319,7 @@ HttpClient<D>::HttpClient(IEventLoop& loop, std::shared_ptr<D> downstream)
     parser_.data = this;
 
     // Set up segment recycling for pending chain
-    pending_chain_.SetRecycleCallback(segment_pool_.MakeRecycler());
+    pending_chain_.SetRecycleCallback(GetAllocator().MakeRecycler());
 }
 
 template <Downstream D>

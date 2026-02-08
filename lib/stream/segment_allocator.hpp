@@ -112,4 +112,15 @@ private:
     size_t max_pool_size_ = kDefaultMaxPoolSize;
 };
 
+// BufferChain method that depends on SegmentAllocator
+inline void BufferChain::AppendBytes(const void* data, size_t len, SegmentAllocator& alloc) {
+    auto bytes = static_cast<const std::byte*>(data);
+    size_t offset = 0;
+    while (offset < len) {
+        auto seg = alloc.Allocate();
+        offset += seg->Append(bytes + offset, len - offset);
+        Append(std::move(seg));
+    }
+}
+
 }  // namespace dbn_pipe
