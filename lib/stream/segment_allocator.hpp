@@ -17,7 +17,7 @@ namespace dbn_pipe {
 /// the resource alive (the allocator stored in shared_ptr's control block
 /// holds a copy of the shared_ptr).
 ///
-/// Includes a free list for segment recycling, similar to the old SegmentPool.
+/// Includes a free list for segment recycling.
 ///
 /// Thread safety: The free list is NOT thread-safe --- all Allocate/Release
 /// calls must happen on the event loop thread. The underlying memory_resource

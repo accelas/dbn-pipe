@@ -189,6 +189,7 @@ cc_test(
     srcs = ["buffer_chain_test.cpp"],
     deps = [
         "//lib/stream:buffer_chain",
+        "//lib/stream:segment_allocator",
         "@googletest//:gtest_main",
     ],
 )
