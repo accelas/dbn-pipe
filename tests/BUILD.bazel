@@ -155,6 +155,7 @@ cc_test(
     deps = [
         "//lib/stream:buffer_chain",
         "//lib/stream:component",
+        "//lib/stream:segment_allocator",
         "//src:dbn_parser_component",
         "//src:record_batch",
         "@databento_cpp//:databento_with_impl",
