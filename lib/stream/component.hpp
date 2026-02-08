@@ -7,8 +7,10 @@
 #include <cassert>
 #include <concepts>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
+#include <type_traits>
 
 #include "dbn_pipe/stream/error.hpp"
 #include "dbn_pipe/stream/event_loop.hpp"
@@ -57,6 +59,23 @@ concept Upstream = requires(U& u, BufferChain chain) {
     { u.Close() } -> std::same_as<void>;
 };
 
+// Conditional storage for downstream shared_ptr.
+// When D != void, stores a shared_ptr<D> with accessors.
+// When D == void, empty (zero overhead).
+template<typename D>
+struct DownstreamStorage {
+    std::shared_ptr<D> downstream_;
+    void SetDownstream(std::shared_ptr<D> ds) { downstream_ = std::move(ds); }
+    D& GetDownstream() { assert(downstream_); return *downstream_; }
+    const D& GetDownstream() const { assert(downstream_); return *downstream_; }
+    std::shared_ptr<D>& GetDownstreamPtr() { return downstream_; }
+    const std::shared_ptr<D>& GetDownstreamPtr() const { return downstream_; }
+    void ResetDownstream() { downstream_.reset(); }
+};
+
+template<>
+struct DownstreamStorage<void> {};
+
 // CRTP base - provides reentrancy-safe close with backpressure support.
 //
 // Combines lifecycle management with Suspendable interface:
@@ -70,10 +89,19 @@ concept Upstream = requires(U& u, BufferChain chain) {
 // - DisableWatchers() - disable I/O watchers
 // - ProcessPending() - forward buffered data and process pending input
 // - FlushAndComplete() - flush pending data and emit OnDone (for deferred OnDone)
-template<typename Derived>
-class PipelineComponent : public Suspendable {
+template<typename Derived, typename D = void>
+class PipelineComponent : public Suspendable, protected DownstreamStorage<D> {
 public:
-    explicit PipelineComponent(IEventLoop& loop) : loop_(loop) {}
+    using DeferFn = std::function<void(std::function<void()>)>;
+
+    // Bridge constructor (existing code keeps working)
+    explicit PipelineComponent(IEventLoop& loop)
+        : defer_([&loop](auto fn) { loop.Defer(std::move(fn)); }) {}
+
+    // Default constructor for components that don't need event loop
+    PipelineComponent() = default;
+
+    void SetDefer(DeferFn fn) { defer_ = std::move(fn); }
 
     // RAII guard for reentrancy-safe processing
     // Move-safe via active flag to prevent double-decrement
@@ -128,20 +156,46 @@ public:
     void ResetFinalized() { finalized_ = false; }
 
     // Terminal emission with concept constraint
-    template<TerminalDownstream D>
-    void EmitError(D& downstream, const Error& e) {
+    template<TerminalDownstream Ds>
+    void EmitError(Ds& downstream, const Error& e) {
         if (finalized_) return;
         finalized_ = true;
         ProcessingGuard guard(*this);
         downstream.OnError(e);
     }
 
-    template<TerminalDownstream D>
-    void EmitDone(D& downstream) {
+    template<TerminalDownstream Ds>
+    void EmitDone(Ds& downstream) {
         if (finalized_) return;
         finalized_ = true;
         ProcessingGuard guard(*this);
         downstream.OnDone();
+    }
+
+    // =========================================================================
+    // Parameterless downstream helpers (use stored downstream)
+    // =========================================================================
+
+    void EmitError(const Error& e) requires (!std::is_void_v<D>) {
+        EmitError(this->GetDownstream(), e);
+    }
+    void EmitDone() requires (!std::is_void_v<D>) {
+        EmitDone(this->GetDownstream());
+    }
+    template<typename Chain>
+    bool ForwardData(Chain& chain) requires (!std::is_void_v<D>) {
+        return ForwardData(this->GetDownstream(), chain);
+    }
+    void PropagateError(const Error& e) requires (!std::is_void_v<D>) {
+        PropagateError(this->GetDownstream(), e);
+    }
+    template<typename Chain>
+    bool FlushPendingData(Chain& chain) requires (!std::is_void_v<D>) {
+        return FlushPendingData(this->GetDownstream(), chain);
+    }
+    template<typename Chain>
+    bool CompleteWithFlush(Chain& chain) requires (!std::is_void_v<D>) {
+        return CompleteWithFlush(this->GetDownstream(), chain);
     }
 
     // =========================================================================
@@ -150,7 +204,6 @@ public:
 
     // Increment suspend count. On 0→1 transition, propagates suspend upstream.
     void Suspend() override {
-        assert(loop_.IsInEventLoopThread() && "Suspend must be called from event loop thread");
         int prev = suspend_count_.fetch_add(1, std::memory_order_acq_rel);
         if (prev == 0) {
             // 0→1 transition: propagate backpressure upstream
@@ -161,7 +214,6 @@ public:
     // Decrement suspend count. On 1→0 transition, processes pending data
     // and completes any deferred OnDone.
     void Resume() override {
-        assert(loop_.IsInEventLoopThread() && "Resume must be called from event loop thread");
         int prev = suspend_count_.fetch_sub(1, std::memory_order_acq_rel);
         assert(prev > 0 && "Resume called more times than Suspend");
         if (prev == 1) {
@@ -224,8 +276,8 @@ public:
     // Returns true if downstream suspended us (caller should return early).
     // After return, check chain.Empty() - non-empty means unconsumed data.
     // Chain type is templated to avoid requiring full BufferChain definition here.
-    template<typename D, typename Chain>
-    bool ForwardData(D& downstream, Chain& chain) {
+    template<typename Ds, typename Chain>
+    bool ForwardData(Ds& downstream, Chain& chain) {
         if (chain.Empty()) return false;
         downstream.OnData(chain);
         return IsSuspended();
@@ -233,8 +285,8 @@ public:
 
     // Propagate upstream error to downstream (common OnError pattern).
     // Handles guard check, emits error, and requests close.
-    template<typename D>
-    void PropagateError(D& downstream, const Error& e) {
+    template<typename Ds>
+    void PropagateError(Ds& downstream, const Error& e) {
         auto guard = TryGuard();
         if (!guard) return;
         EmitError(downstream, e);
@@ -244,8 +296,8 @@ public:
     // Flush pending data before completing. Returns true if should defer completion.
     // Use in DoClose/OnDone when you have pending data to deliver.
     // Chain type is templated to avoid requiring full BufferChain definition here.
-    template<typename D, typename Chain>
-    bool FlushPendingData(D& downstream, Chain& chain) {
+    template<typename Ds, typename Chain>
+    bool FlushPendingData(Ds& downstream, Chain& chain) {
         if (chain.Empty()) return false;
         downstream.OnData(chain);
         if (IsSuspended()) {
@@ -266,8 +318,8 @@ public:
     // Combines flush + emit in one call for OnDone handlers.
     // Returns true if completion happened, false if deferred (caller should NOT close).
     // Chain type is templated to avoid requiring full BufferChain definition here.
-    template<typename D, typename Chain>
-    bool CompleteWithFlush(D& downstream, Chain& chain) {
+    template<typename Ds, typename Chain>
+    bool CompleteWithFlush(Ds& downstream, Chain& chain) {
         if (FlushPendingData(downstream, chain)) return false;  // Deferred
         EmitDone(downstream);
         return true;  // Completed
@@ -279,24 +331,27 @@ protected:
         close_scheduled_ = true;
         close_pending_ = false;
 
-        // Use weak_from_this to safely check if the object is still alive
-        auto weak_self = static_cast<Derived*>(this)->weak_from_this();
-        auto self = weak_self.lock();
-        if (!self) {
-            // Object is already being destroyed, skip deferred close
-            return;
+        if (defer_) {
+            if constexpr (requires { static_cast<Derived*>(this)->weak_from_this(); }) {
+                auto self = static_cast<Derived*>(this)->weak_from_this().lock();
+                if (!self) return;
+                defer_([self]() { self->DoClose(); });
+            } else {
+                // No shared ownership - capture raw pointer, defer must execute before destruction
+                auto* raw = static_cast<Derived*>(this);
+                defer_([raw]() { raw->DoClose(); });
+            }
+        } else {
+            static_cast<Derived*>(this)->DoClose();
         }
-        loop_.Defer([self]() {
-            self->DoClose();
-        });
     }
 
-    IEventLoop& loop_;
     Suspendable* upstream_ = nullptr;  // Upstream for backpressure propagation
     SegmentAllocator* allocator_ = nullptr;
     SegmentAllocator default_allocator_;
 
 private:
+    DeferFn defer_;
     int processing_count_ = 0;
     bool close_pending_ = false;
     bool close_scheduled_ = false;
