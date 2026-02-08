@@ -155,47 +155,69 @@ public:
     void SetFinalized() { finalized_ = true; }
     void ResetFinalized() { finalized_ = false; }
 
-    // Terminal emission with concept constraint
-    template<TerminalDownstream Ds>
-    void EmitError(Ds& downstream, const Error& e) {
-        if (finalized_) return;
-        finalized_ = true;
-        ProcessingGuard guard(*this);
-        downstream.OnError(e);
-    }
-
-    template<TerminalDownstream Ds>
-    void EmitDone(Ds& downstream) {
-        if (finalized_) return;
-        finalized_ = true;
-        ProcessingGuard guard(*this);
-        downstream.OnDone();
-    }
-
     // =========================================================================
-    // Parameterless downstream helpers (use stored downstream)
+    // Downstream helpers (use stored downstream from DownstreamStorage<D>)
     // =========================================================================
 
+    // Terminal emission - one-shot error delivery with finalization guard
     void EmitError(const Error& e) requires (!std::is_void_v<D>) {
-        EmitError(this->GetDownstream(), e);
+        if (finalized_) return;
+        finalized_ = true;
+        ProcessingGuard guard(*this);
+        this->GetDownstream().OnError(e);
     }
+
+    // Terminal emission - one-shot done delivery with finalization guard
     void EmitDone() requires (!std::is_void_v<D>) {
-        EmitDone(this->GetDownstream());
+        if (finalized_) return;
+        finalized_ = true;
+        ProcessingGuard guard(*this);
+        this->GetDownstream().OnDone();
     }
+
+    // Forward data to downstream.
+    // Returns true if downstream suspended us (caller should return early).
     template<typename Chain>
     bool ForwardData(Chain& chain) requires (!std::is_void_v<D>) {
-        return ForwardData(this->GetDownstream(), chain);
+        if (chain.Empty()) return false;
+        this->GetDownstream().OnData(chain);
+        return IsSuspended();
     }
+
+    // Propagate upstream error to downstream.
+    // Handles guard check, emits error, and requests close.
     void PropagateError(const Error& e) requires (!std::is_void_v<D>) {
-        PropagateError(this->GetDownstream(), e);
+        auto guard = TryGuard();
+        if (!guard) return;
+        EmitError(e);
+        static_cast<Derived*>(this)->RequestClose();
     }
+
+    // Flush pending data before completing. Returns true if should defer completion.
     template<typename Chain>
     bool FlushPendingData(Chain& chain) requires (!std::is_void_v<D>) {
-        return FlushPendingData(this->GetDownstream(), chain);
+        if (chain.Empty()) return false;
+        this->GetDownstream().OnData(chain);
+        if (IsSuspended()) {
+            DeferOnDone();
+            return true;
+        }
+        if (!chain.Empty()) {
+            EmitError(Error{ErrorCode::ParseError,
+                      "Incomplete data (" + std::to_string(chain.Size()) + " bytes remaining)"});
+            static_cast<Derived*>(this)->RequestClose();
+            return true;
+        }
+        return false;
     }
+
+    // Complete with Done after flushing pending data.
+    // Returns true if completion happened, false if deferred.
     template<typename Chain>
     bool CompleteWithFlush(Chain& chain) requires (!std::is_void_v<D>) {
-        return CompleteWithFlush(this->GetDownstream(), chain);
+        if (FlushPendingData(chain)) return false;
+        EmitDone();
+        return true;
     }
 
     // =========================================================================
@@ -265,65 +287,8 @@ public:
         return done_pending_;
     }
 
-    // =========================================================================
-    // Helper methods for common patterns
-    // =========================================================================
-
     // Standard buffer limit (16MB) - components can use smaller limits if needed
     static constexpr size_t kDefaultBufferLimit = 16 * 1024 * 1024;
-
-    // Forward data to downstream, handling common patterns.
-    // Returns true if downstream suspended us (caller should return early).
-    // After return, check chain.Empty() - non-empty means unconsumed data.
-    // Chain type is templated to avoid requiring full BufferChain definition here.
-    template<typename Ds, typename Chain>
-    bool ForwardData(Ds& downstream, Chain& chain) {
-        if (chain.Empty()) return false;
-        downstream.OnData(chain);
-        return IsSuspended();
-    }
-
-    // Propagate upstream error to downstream (common OnError pattern).
-    // Handles guard check, emits error, and requests close.
-    template<typename Ds>
-    void PropagateError(Ds& downstream, const Error& e) {
-        auto guard = TryGuard();
-        if (!guard) return;
-        EmitError(downstream, e);
-        static_cast<Derived*>(this)->RequestClose();
-    }
-
-    // Flush pending data before completing. Returns true if should defer completion.
-    // Use in DoClose/OnDone when you have pending data to deliver.
-    // Chain type is templated to avoid requiring full BufferChain definition here.
-    template<typename Ds, typename Chain>
-    bool FlushPendingData(Ds& downstream, Chain& chain) {
-        if (chain.Empty()) return false;
-        downstream.OnData(chain);
-        if (IsSuspended()) {
-            DeferOnDone();
-            return true;  // Caller should return without clearing/emitting Done
-        }
-        // Check for unconsumed data (protocol violation by downstream)
-        if (!chain.Empty()) {
-            EmitError(downstream, Error{ErrorCode::ParseError,
-                      "Incomplete data (" + std::to_string(chain.Size()) + " bytes remaining)"});
-            static_cast<Derived*>(this)->RequestClose();
-            return true;
-        }
-        return false;
-    }
-
-    // Complete with Done after flushing pending data.
-    // Combines flush + emit in one call for OnDone handlers.
-    // Returns true if completion happened, false if deferred (caller should NOT close).
-    // Chain type is templated to avoid requiring full BufferChain definition here.
-    template<typename Ds, typename Chain>
-    bool CompleteWithFlush(Ds& downstream, Chain& chain) {
-        if (FlushPendingData(downstream, chain)) return false;  // Deferred
-        EmitDone(downstream);
-        return true;  // Completed
-    }
 
 protected:
     void ScheduleClose() {
