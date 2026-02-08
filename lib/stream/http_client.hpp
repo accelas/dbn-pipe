@@ -17,7 +17,6 @@
 #include "dbn_pipe/stream/component.hpp"
 #include "dbn_pipe/stream/error.hpp"
 #include "dbn_pipe/stream/event_loop.hpp"
-#include "dbn_pipe/stream/segment_allocator.hpp"
 #include "dbn_pipe/stream/tls_transport.hpp"
 
 namespace dbn_pipe {

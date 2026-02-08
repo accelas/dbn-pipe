@@ -7,7 +7,6 @@
 #include <cassert>
 #include <concepts>
 #include <functional>
-#include <memory_resource>
 #include <optional>
 #include <string>
 
