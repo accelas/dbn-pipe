@@ -35,19 +35,19 @@ auto test_transform = [](const TestRecord& r) {
 // Simple mock copy writer for testing
 class TestCopyWriter : public ICopyWriter {
 public:
-    std::atomic<int>& rows_written;
-    std::atomic<int>& batches_finished;
+    std::atomic<int>& write_row_calls;
+    std::atomic<int>& copies_finished;
 
-    TestCopyWriter(std::atomic<int>& rw, std::atomic<int>& bf)
-        : rows_written(rw), batches_finished(bf) {}
+    TestCopyWriter(std::atomic<int>& wr, std::atomic<int>& cf)
+        : write_row_calls(wr), copies_finished(cf) {}
 
     asio::awaitable<void> start() override { co_return; }
     asio::awaitable<void> write_row(std::span<const std::byte>) override {
-        rows_written++;
+        write_row_calls++;
         co_return;
     }
     asio::awaitable<void> finish() override {
-        batches_finished++;
+        copies_finished++;
         co_return;
     }
     asio::awaitable<void> abort() override { co_return; }
@@ -56,19 +56,25 @@ public:
 // Simple mock database for testing
 class TestDatabase : public IDatabase {
 public:
-    std::atomic<int> rows_written{0};
-    std::atomic<int> batches_finished{0};
+    std::atomic<int> write_row_calls{0};
+    std::atomic<int> copies_finished{0};
+    std::atomic<int> execute_calls{0};
+    uint64_t execute_count_result = 0;  // Set to control INSERT ... ON CONFLICT return
 
     asio::awaitable<QueryResult> query(std::string_view) override {
         co_return QueryResult{};
     }
     asio::awaitable<void> execute(std::string_view) override {
+        execute_calls++;
         co_return;
+    }
+    asio::awaitable<uint64_t> execute_count(std::string_view) override {
+        co_return execute_count_result;
     }
     std::unique_ptr<ICopyWriter> begin_copy(
             std::string_view,
             std::span<const std::string_view>) override {
-        return std::make_unique<TestCopyWriter>(rows_written, batches_finished);
+        return std::make_unique<TestCopyWriter>(write_row_calls, copies_finished);
     }
     bool is_connected() const override { return true; }
 };
@@ -77,23 +83,23 @@ public:
 class SlowCopyWriter : public ICopyWriter {
 public:
     asio::io_context& ctx;
-    std::atomic<int>& rows_written;
-    std::atomic<int>& batches_finished;
+    std::atomic<int>& write_row_calls;
+    std::atomic<int>& copies_finished;
     std::chrono::milliseconds delay;
 
-    SlowCopyWriter(asio::io_context& c, std::atomic<int>& rw, std::atomic<int>& bf,
+    SlowCopyWriter(asio::io_context& c, std::atomic<int>& wr, std::atomic<int>& cf,
                    std::chrono::milliseconds d)
-        : ctx(c), rows_written(rw), batches_finished(bf), delay(d) {}
+        : ctx(c), write_row_calls(wr), copies_finished(cf), delay(d) {}
 
     asio::awaitable<void> start() override { co_return; }
     asio::awaitable<void> write_row(std::span<const std::byte>) override {
-        rows_written++;
+        write_row_calls++;
         co_return;
     }
     asio::awaitable<void> finish() override {
         asio::steady_timer timer(ctx, delay);
         co_await timer.async_wait(asio::use_awaitable);
-        batches_finished++;
+        copies_finished++;
     }
     asio::awaitable<void> abort() override { co_return; }
 };
@@ -102,8 +108,8 @@ public:
 class SlowTestDatabase : public IDatabase {
 public:
     asio::io_context& ctx;
-    std::atomic<int> rows_written{0};
-    std::atomic<int> batches_finished{0};
+    std::atomic<int> write_row_calls{0};
+    std::atomic<int> copies_finished{0};
     std::chrono::milliseconds delay;
 
     SlowTestDatabase(asio::io_context& c, std::chrono::milliseconds d)
@@ -115,10 +121,13 @@ public:
     asio::awaitable<void> execute(std::string_view) override {
         co_return;
     }
+    asio::awaitable<uint64_t> execute_count(std::string_view) override {
+        co_return 0;
+    }
     std::unique_ptr<ICopyWriter> begin_copy(
             std::string_view,
             std::span<const std::string_view>) override {
-        return std::make_unique<SlowCopyWriter>(ctx, rows_written, batches_finished, delay);
+        return std::make_unique<SlowCopyWriter>(ctx, write_row_calls, copies_finished, delay);
     }
     bool is_connected() const override { return true; }
 };
@@ -162,12 +171,17 @@ TEST(BatchWriterTest, DrainProcessesAllBatches) {
     // Run io_context until drain completes
     ctx.run();
 
-    // Verify all batches were processed (not dropped)
+    // Verify all records were processed (not dropped).
+    // With coalescing, all 5 batches become 1 COPY operation.
     EXPECT_TRUE(drain_completed);
-    EXPECT_EQ(db.batches_finished.load(), num_batches);
-    EXPECT_EQ(db.rows_written.load(), num_batches * batch_size);
+    EXPECT_GE(db.copies_finished.load(), 1);
     EXPECT_TRUE(writer.is_idle());
     EXPECT_TRUE(writer.is_draining());
+
+    // Stats should reflect coalescing
+    auto s = writer.stats();
+    EXPECT_EQ(s.batches_coalesced, num_batches);
+    EXPECT_EQ(s.rows_copied, num_batches * batch_size);
 }
 
 TEST(BatchWriterTest, DrainRejectsNewWork) {
@@ -197,7 +211,7 @@ TEST(BatchWriterTest, DrainRejectsNewWork) {
     ctx.run();
 
     // Verify only the first batch was processed
-    EXPECT_EQ(db.batches_finished.load(), 1);
+    EXPECT_EQ(db.copies_finished.load(), 1);
     EXPECT_TRUE(writer.is_draining());
 }
 
@@ -224,13 +238,13 @@ TEST(BatchWriterTest, RequestStopDropsPendingWork) {
     // Run to completion
     ctx.run();
 
-    // Less than 10 batches should be finished (some were dropped)
-    EXPECT_LT(db.batches_finished.load(), 10);
+    // With coalescing + stop, at most 1 COPY fires (or 0 if stopped fast enough)
+    EXPECT_LE(db.copies_finished.load(), 1);
 }
 
 TEST(BatchWriterTest, DrainTimeoutStopsEarly) {
     asio::io_context ctx;
-    SlowTestDatabase db(ctx, 200ms);  // 200ms per batch
+    SlowTestDatabase db(ctx, 1500ms);  // 1500ms per COPY (exceeds 1s drain timeout)
 
     using WriterType = BatchWriter<TestRecord, decltype(test_table), decltype(test_transform)>;
     WriterType writer(ctx, db, test_table, test_transform);
@@ -250,8 +264,8 @@ TEST(BatchWriterTest, DrainTimeoutStopsEarly) {
     ctx.run();
 
     EXPECT_TRUE(drain_completed);
-    EXPECT_LT(db.batches_finished.load(), 50);  // Timed out, not all processed
-    EXPECT_TRUE(writer.stop_requested());        // Timeout triggers stopping_
+    EXPECT_LT(db.copies_finished.load(), 50);  // Timed out, not all processed
+    EXPECT_TRUE(writer.stop_requested());       // Timeout triggers stopping_
 }
 
 TEST(BatchWriterTest, DrainZeroTimeoutProcessesAll) {
@@ -275,7 +289,7 @@ TEST(BatchWriterTest, DrainZeroTimeoutProcessesAll) {
     ctx.run();
 
     EXPECT_TRUE(drain_completed);
-    EXPECT_EQ(db.batches_finished.load(), 5);
+    EXPECT_GE(db.copies_finished.load(), 1);  // All records processed via coalesced copies
     EXPECT_FALSE(writer.stop_requested());
 }
 

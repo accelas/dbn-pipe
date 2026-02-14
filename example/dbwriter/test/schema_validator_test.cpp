@@ -53,6 +53,11 @@ public:
         last_execute_sql = std::string(sql);
         co_return;
     }
+    asio::awaitable<uint64_t> execute_count(std::string_view sql) override {
+        execute_called = true;
+        last_execute_sql = std::string(sql);
+        co_return 0;
+    }
     std::unique_ptr<ICopyWriter> begin_copy(
             std::string_view,
             std::span<const std::string_view>) override {

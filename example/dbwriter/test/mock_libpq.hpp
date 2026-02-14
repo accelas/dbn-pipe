@@ -33,6 +33,7 @@ public:
     MOCK_METHOD(char*, fname, (const PGresult*, int), (override));
     MOCK_METHOD(int, putCopyData, (PGconn*, const char*, int), (override));
     MOCK_METHOD(int, putCopyEnd, (PGconn*, const char*), (override));
+    MOCK_METHOD(char*, cmdTuples, (PGresult*), (override));
 };
 
 // Simulates libpq async state machine for testing
@@ -182,6 +183,12 @@ public:
         return 1;  // Success
     }
 
+    char* cmdTuples(PGresult*) override {
+        return const_cast<char*>(cmd_tuples_.c_str());
+    }
+
+    void set_cmd_tuples(std::string val) { cmd_tuples_ = std::move(val); }
+
     // Test inspection
     int get_consume_call_count() const { return consume_call_count_; }
 
@@ -199,6 +206,7 @@ private:
     std::vector<std::vector<std::string>> result_rows_;
     std::vector<std::vector<bool>> result_nulls_;
     std::vector<std::string> column_names_;
+    std::string cmd_tuples_ = "0";
 };
 
 }  // namespace dbwriter::testing

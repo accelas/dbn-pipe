@@ -40,6 +40,9 @@ public:
     // COPY
     virtual int putCopyData(PGconn* conn, const char* buffer, int nbytes) = 0;
     virtual int putCopyEnd(PGconn* conn, const char* errormsg) = 0;
+
+    // Command result
+    virtual char* cmdTuples(PGresult* res) = 0;
 };
 
 // Real implementation that delegates to actual libpq
@@ -107,6 +110,9 @@ public:
     }
     int putCopyEnd(PGconn* conn, const char* errormsg) override {
         return PQputCopyEnd(conn, errormsg);
+    }
+    char* cmdTuples(PGresult* res) override {
+        return PQcmdTuples(res);
     }
 };
 
