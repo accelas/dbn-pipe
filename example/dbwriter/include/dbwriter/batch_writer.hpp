@@ -9,6 +9,7 @@
 #include <asio.hpp>
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <span>
@@ -127,7 +128,7 @@ public:
     // stops accepting new work. Any enqueue() calls after drain() starts
     // will be silently ignored. If you need to flush without stopping,
     // wait for pending_count() == 0 and is_idle() instead.
-    asio::awaitable<void> drain() {
+    asio::awaitable<void> drain(std::chrono::seconds timeout = std::chrono::seconds{0}) {
         draining_ = true;  // Stop accepting new work, but keep processing
         // Resume suspended upstream so it's not stuck forever
         if (suspendable_ && suspended_) {
@@ -137,6 +138,7 @@ public:
         // Wait for process_queue to complete using timer cancellation.
         // process_queue cancels the timer when it finishes, waking us immediately.
         // The 1-second timeout is a fallback; normal wakeup is via cancel().
+        auto start = std::chrono::steady_clock::now();
         while (writing_) {
             asio::steady_timer timer(ctx_, std::chrono::seconds(1));
             drain_timer_ = &timer;
@@ -144,6 +146,14 @@ public:
             co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
             drain_timer_ = nullptr;
             // ec == operation_aborted means cancelled by process_queue - loop will check writing_
+            if (timeout.count() > 0) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - start);
+                if (elapsed >= timeout) {
+                    stopping_ = true;  // Signal process_queue to exit after current batch
+                    break;
+                }
+            }
         }
     }
 
