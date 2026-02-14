@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "dbwriter/schema_validator.hpp"
-#include "dbwriter/pg_types.hpp"
+#include "dbn_pipe/pg/pg_types.hpp"
 #include "dbn_pipe/table/table.hpp"
 #include <gtest/gtest.h>
 #include <asio.hpp>

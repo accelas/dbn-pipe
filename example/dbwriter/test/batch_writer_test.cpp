@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
 #include "dbwriter/batch_writer.hpp"
-#include "dbwriter/pg_types.hpp"
 #include "dbn_pipe/table/table.hpp"
 #include <gtest/gtest.h>
 #include <atomic>

@@ -2,12 +2,12 @@
 
 #pragma once
 
-#include "dbwriter/pg_types.hpp"
-#include "dbwriter/types.hpp"
+#include "dbn_pipe/pg/byte_buffer.hpp"
+#include "dbn_pipe/pg/pg_types.hpp"
 #include "dbn_pipe/table/table.hpp"
 #include <tuple>
 
-namespace dbwriter {
+namespace dbn_pipe::pg {
 
 // dbn_pipe columns expose ::type (logical type); legacy dbwriter columns expose ::pg_type.
 template <typename C>
@@ -65,7 +65,7 @@ private:
 
         if constexpr (LogicalColumn<Column>) {
             // dbn_pipe Column: map logical type to PG encoder
-            using PgType = typename pg::PgTypeFor<typename Column::type>::type;
+            using PgType = typename PgTypeFor<typename Column::type>::type;
             PgType::encode(value, buf);
         } else {
             // Legacy dbwriter Column: use pg_type directly
@@ -80,4 +80,4 @@ Mapper<Table> make_mapper(const Table& table) {
     return Mapper<Table>(table);
 }
 
-}  // namespace dbwriter
+}  // namespace dbn_pipe::pg

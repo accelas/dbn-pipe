@@ -3,7 +3,7 @@
 #pragma once
 
 #include "dbwriter/database.hpp"
-#include "dbwriter/pg_types.hpp"
+#include "dbn_pipe/pg/pg_types.hpp"
 #include "dbn_pipe/table/table.hpp"
 #include <asio/awaitable.hpp>
 #include <cctype>
@@ -75,7 +75,7 @@ inline std::string quote_identifier(std::string_view ident) {
 // Helper: extract PG type name strings from a dbn_pipe::Table (format-agnostic columns).
 template <typename... Columns>
 std::array<const char*, sizeof...(Columns)> pg_type_names(const dbn_pipe::Table<Columns...>&) {
-    return { pg::PgTypeFor<typename Columns::type>::name()... };
+    return { dbn_pipe::pg::PgTypeFor<typename Columns::type>::name()... };
 }
 
 // Template implementations

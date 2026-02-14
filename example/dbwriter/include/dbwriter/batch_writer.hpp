@@ -3,9 +3,9 @@
 #pragma once
 
 #include "dbwriter/database.hpp"
-#include "dbwriter/mapper.hpp"
 #include "dbwriter/transform.hpp"
-#include "dbwriter/types.hpp"
+#include "dbn_pipe/pg/byte_buffer.hpp"
+#include "dbn_pipe/pg/mapper.hpp"
 #include <asio.hpp>
 #include <atomic>
 #include <cassert>
@@ -240,7 +240,7 @@ private:
             // Encode rows into buffer, flushing in chunks to cap memory.
             // Each flush is one PQputCopyData call instead of one per row,
             // eliminating ~2N coroutine frames per N rows.
-            ByteBuffer buf;
+            dbn_pipe::pg::ByteBuffer buf;
             constexpr size_t kFlushThreshold = 1024 * 1024;  // 1 MB
 
             for (auto& batch : batches) {
@@ -309,7 +309,7 @@ private:
     IDatabase& db_;
     const Table& table_;
     TransformT transform_;
-    Mapper<Table> mapper_;
+    dbn_pipe::pg::Mapper<Table> mapper_;
     BackpressureConfig config_;
 
     std::deque<std::vector<Record>> pending_batches_;

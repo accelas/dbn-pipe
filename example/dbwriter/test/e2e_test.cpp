@@ -23,9 +23,9 @@
 //   psql -h localhost -p 15432 -U testuser -d testdb -c "CREATE TABLE trades (...)"
 
 #include "dbwriter/postgres.hpp"
-#include "dbwriter/mapper.hpp"
-#include "dbwriter/pg_types.hpp"
 #include "dbwriter/types.hpp"
+#include "dbn_pipe/pg/mapper.hpp"
+#include "dbn_pipe/pg/pg_types.hpp"
 #include "dbwriter/asio_event_loop.hpp"
 #include "dbn_pipe/table/table.hpp"
 
@@ -227,7 +227,7 @@ TEST_F(E2ETest, DownloadAndWriteTrades) {
     std::string error_msg;
 
     // Create mapper
-    auto mapper = make_mapper(trades_table);
+    auto mapper = dbn_pipe::pg::make_mapper(trades_table);
 
     // Batch buffer - collect all records, flush after download completes
     std::vector<TradesRow> batch_buffer;
@@ -246,7 +246,7 @@ TEST_F(E2ETest, DownloadAndWriteTrades) {
         auto write_task = [&]() -> asio::awaitable<void> {
             try {
                 co_await writer->start();
-                ByteBuffer buf;
+                dbn_pipe::pg::ByteBuffer buf;
                 for (const auto& row : batch_buffer) {
                     mapper.encode_row(row, buf);
                     co_await writer->write_row(buf.view());
