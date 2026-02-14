@@ -24,7 +24,7 @@ struct TradeRecord {
 // Target table
 constexpr auto trades_table = dbn_pipe::Table{"trades",
     dbn_pipe::Column<"ts_event_ns", dbn_pipe::Int64>{},
-    dbn_pipe::Column<"ts_event", dbn_pipe::Timestamp>{},
+    dbn_pipe::Column<"ts_event", dbn_pipe::TimestampCol>{},
     dbn_pipe::Column<"instrument_id", dbn_pipe::Int32>{},
     dbn_pipe::Column<"underlying_id", dbn_pipe::Int32>{},
     dbn_pipe::Column<"price", dbn_pipe::Int64>{},
