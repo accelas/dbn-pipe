@@ -5,7 +5,7 @@
 
 #include "dbwriter/asio_event_loop.hpp"
 #include "dbwriter/batch_writer.hpp"
-#include "dbwriter/pg_types.hpp"
+#include "dbn_pipe/pg/pg_types.hpp"
 #include "dbwriter/transform.hpp"
 #include "dbn_pipe/table/table.hpp"
 #include "test/mock_libpq.hpp"

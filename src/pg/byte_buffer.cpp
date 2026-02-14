@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-#include "dbwriter/types.hpp"
+#include "dbn_pipe/pg/byte_buffer.hpp"
 #include <bit>
 
-namespace dbwriter {
+namespace dbn_pipe::pg {
 
 void ByteBuffer::put_int16_be(int16_t val) {
     if constexpr (std::endian::native == std::endian::little) {
@@ -37,4 +37,4 @@ void ByteBuffer::put_bytes(std::span<const std::byte> data) {
     data_.insert(data_.end(), data.begin(), data.end());
 }
 
-}  // namespace dbwriter
+}  // namespace dbn_pipe::pg

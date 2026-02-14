@@ -3,10 +3,11 @@ load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 cc_library(
     name = "dbwriter",
     hdrs = glob(["include/dbwriter/*.hpp"]),
-    srcs = glob(["src/*.cpp"]),
+    srcs = ["src/postgres.cpp"],
     includes = ["include"],
     deps = [
         "//lib/stream:event_loop",
+        "//src/pg:mapper",
         "//src/table:table",
         "@asio",
         "@libpq",
@@ -17,15 +18,6 @@ cc_library(
 cc_test(
     name = "types_test",
     srcs = ["test/types_test.cpp"],
-    deps = [
-        ":dbwriter",
-        "@googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "pg_types_test",
-    srcs = ["test/pg_types_test.cpp"],
     deps = [
         ":dbwriter",
         "@googletest//:gtest_main",
@@ -44,15 +36,6 @@ cc_test(
 cc_test(
     name = "table_test",
     srcs = ["test/table_test.cpp"],
-    deps = [
-        ":dbwriter",
-        "@googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "mapper_test",
-    srcs = ["test/mapper_test.cpp"],
     deps = [
         ":dbwriter",
         "@googletest//:gtest_main",

@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 
-#include "dbwriter/pg_types.hpp"
-#include "dbwriter/types.hpp"
+#include "dbn_pipe/pg/pg_types.hpp"
 #include <gtest/gtest.h>
 
-namespace dbwriter::pg {
+namespace dbn_pipe::pg {
 namespace {
 
 TEST(BigIntTest, Encode_WritesLengthAndValue) {
@@ -60,18 +59,6 @@ TEST(CharTest, Encode_WritesSingleByte) {
     EXPECT_EQ(view[3], std::byte{0x01});
     // Value
     EXPECT_EQ(view[4], std::byte{'A'});
-}
-
-TEST(TimestamptzTest, Encode_WritesLegacyPgTimestamp) {
-    ByteBuffer buf;
-    Timestamp ts{123456789LL};  // microseconds since PG epoch
-    Timestamptz::encode(ts, buf);
-
-    auto view = buf.view();
-    ASSERT_EQ(view.size(), 12);  // 4 (len) + 8 (data)
-
-    // Length = 8
-    EXPECT_EQ(view[3], std::byte{0x08});
 }
 
 TEST(TimestamptzTest, Encode_WritesFromUnixNanoseconds) {
@@ -153,4 +140,4 @@ TEST(NullTest, Encode_WritesMinusOne) {
 }
 
 }  // namespace
-}  // namespace dbwriter::pg
+}  // namespace dbn_pipe::pg

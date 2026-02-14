@@ -4,9 +4,9 @@
 // Run with: bazel test //example/dbwriter:integration_test --test_env=POSTGRES_HOST=... etc
 
 #include "dbwriter/postgres.hpp"
-#include "dbwriter/mapper.hpp"
-#include "dbwriter/pg_types.hpp"
 #include "dbwriter/types.hpp"
+#include "dbn_pipe/pg/mapper.hpp"
+#include "dbn_pipe/pg/pg_types.hpp"
 #include "dbn_pipe/table/table.hpp"
 #include <gtest/gtest.h>
 #include <cstdlib>
@@ -58,7 +58,7 @@ TEST_F(IntegrationTest, CopyWritesData) {
     using Row = decltype(trades_table)::RowType;
 
     // Create mapper
-    auto mapper = make_mapper(trades_table);
+    auto mapper = dbn_pipe::pg::make_mapper(trades_table);
 
     // Begin COPY
     auto columns = trades_table.column_names();
@@ -69,7 +69,7 @@ TEST_F(IntegrationTest, CopyWritesData) {
     auto write_task = [&]() -> asio::awaitable<void> {
         co_await writer->start();
 
-        ByteBuffer buf;
+        dbn_pipe::pg::ByteBuffer buf;
 
         // Write 3 test rows
         for (int i = 0; i < 3; ++i) {

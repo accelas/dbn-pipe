@@ -3,9 +3,9 @@
 #pragma once
 
 #include "dbwriter/database.hpp"
-#include "dbwriter/mapper.hpp"
 #include "dbwriter/transform.hpp"
-#include "dbwriter/types.hpp"
+#include "dbn_pipe/pg/byte_buffer.hpp"
+#include "dbn_pipe/pg/mapper.hpp"
 #include <asio.hpp>
 #include <atomic>
 #include <cassert>
@@ -161,12 +161,13 @@ public:
             co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
             drain_timer_ = nullptr;
             // ec == operation_aborted means cancelled by process_queue - loop will check writing_
-            if (timeout.count() > 0) {
+            if (timeout.count() > 0 && !stopping_) {
                 auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::steady_clock::now() - start);
                 if (elapsed >= timeout) {
                     stopping_ = true;  // Signal process_queue to exit after current batch
-                    break;
+                    // Don't break — keep looping until writing_ goes false
+                    // so process_queue finishes its current batch before we return.
                 }
             }
         }
@@ -224,7 +225,8 @@ private:
         // INSERT INTO target SELECT ... ON CONFLICT DO NOTHING
         std::string target{table_.name()};
         std::string staging = "_staging_" + target;
-        co_await db_.execute("DROP TABLE IF EXISTS " + staging);
+        // Explicitly scope to pg_temp to avoid accidentally dropping real tables
+        co_await db_.execute("DROP TABLE IF EXISTS pg_temp." + staging);
         co_await db_.execute(
             "CREATE TEMP TABLE " + staging +
             " (LIKE " + target + ")");
@@ -240,7 +242,7 @@ private:
             // Encode rows into buffer, flushing in chunks to cap memory.
             // Each flush is one PQputCopyData call instead of one per row,
             // eliminating ~2N coroutine frames per N rows.
-            ByteBuffer buf;
+            dbn_pipe::pg::ByteBuffer buf;
             constexpr size_t kFlushThreshold = 1024 * 1024;  // 1 MB
 
             for (auto& batch : batches) {
@@ -271,7 +273,7 @@ private:
             // Abort COPY session to leave connection in usable state
             try { co_await writer->abort(); } catch (...) {}
             // Clean up staging table before rethrowing
-            try { co_await db_.execute("DROP TABLE IF EXISTS " + staging); } catch (...) {}
+            try { co_await db_.execute("DROP TABLE IF EXISTS pg_temp." + staging); } catch (...) {}
             std::rethrow_exception(ex);
         }
 
@@ -281,7 +283,7 @@ private:
             " SELECT * FROM " + staging +
             " ON CONFLICT DO NOTHING");
 
-        co_await db_.execute("DROP TABLE " + staging);
+        co_await db_.execute("DROP TABLE pg_temp." + staging);
 
         // Update stats
         copies_completed_++;
@@ -309,7 +311,7 @@ private:
     IDatabase& db_;
     const Table& table_;
     TransformT transform_;
-    Mapper<Table> mapper_;
+    dbn_pipe::pg::Mapper<Table> mapper_;
     BackpressureConfig config_;
 
     std::deque<std::vector<Record>> pending_batches_;
