@@ -741,6 +741,80 @@ asio::awaitable<void> PostgresDatabase::execute(std::string_view sql) {
     co_return;
 }
 
+asio::awaitable<uint64_t> PostgresDatabase::execute_count(std::string_view sql) {
+    if (!is_connected()) {
+        throw std::runtime_error("Not connected to database");
+    }
+    check_no_operation_in_flight();
+
+    operation_in_flight_ = true;
+    struct OperationGuard {
+        bool& flag;
+        ~OperationGuard() { flag = false; }
+    } guard{operation_in_flight_};
+
+    PGconn* conn = state_->conn;
+
+    if (!pq_.sendQuery(conn, std::string(sql).c_str())) {
+        throw std::runtime_error(pq_.errorMessage(conn));
+    }
+
+    int fd = pq_.socket(conn);
+    if (fd < 0) {
+        throw std::runtime_error("Invalid socket from libpq connection");
+    }
+    asio::posix::stream_descriptor socket(ctx_, fd);
+
+    while (true) {
+        int flush_result = pq_.flush(conn);
+        if (flush_result == 0) break;
+        if (flush_result == -1) {
+            socket.release();
+            throw std::runtime_error(pq_.errorMessage(conn));
+        }
+        co_await wait_fd_writable(socket, fd);
+    }
+
+    ILibPq* pq = &pq_;
+    auto cleanup = [&socket, pq, conn]() {
+        socket.release();
+        PGresult* r;
+        while ((r = pq->getResult(conn)) != nullptr) {
+            pq->clear(r);
+        }
+    };
+    struct ScopeGuard {
+        std::function<void()> fn;
+        ~ScopeGuard() { fn(); }
+    } scope_guard{cleanup};
+
+    while (pq_.isBusy(conn)) {
+        if (!fd_readable(fd)) {
+            co_await wait_fd_readable(socket, fd);
+        }
+        pq_.consumeInput(conn);
+    }
+
+    PGresult* res = pq_.getResult(conn);
+    if (!res) {
+        throw std::runtime_error("Execute: no result received");
+    }
+    if (pq_.resultStatus(res) != PGRES_COMMAND_OK) {
+        std::string err = pq_.resultErrorMessage(res);
+        pq_.clear(res);
+        throw std::runtime_error("Execute failed: " + err);
+    }
+
+    uint64_t count = 0;
+    char* tuples = pq_.cmdTuples(res);
+    if (tuples && tuples[0] != '\0') {
+        count = std::stoull(tuples);
+    }
+    pq_.clear(res);
+
+    co_return count;
+}
+
 std::unique_ptr<ICopyWriter> PostgresDatabase::begin_copy(
     std::string_view table,
     std::span<const std::string_view> columns) {

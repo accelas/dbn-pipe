@@ -1,0 +1,28 @@
+load("@rules_cc//cc:defs.bzl", "cc_test")
+
+cc_test(
+    name = "byte_buffer_test",
+    srcs = ["byte_buffer_test.cpp"],
+    deps = [
+        "//src/pg:byte_buffer",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "pg_types_test",
+    srcs = ["pg_types_test.cpp"],
+    deps = [
+        "//src/pg:pg_types",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "mapper_test",
+    srcs = ["mapper_test.cpp"],
+    deps = [
+        "//src/pg:mapper",
+        "@googletest//:gtest_main",
+    ],
+)

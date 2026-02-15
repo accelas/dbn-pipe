@@ -66,6 +66,7 @@ public:
 
     asio::awaitable<QueryResult> query(std::string_view sql) override;
     asio::awaitable<void> execute(std::string_view sql) override;
+    asio::awaitable<uint64_t> execute_count(std::string_view sql) override;
 
     std::unique_ptr<ICopyWriter> begin_copy(
         std::string_view table,

@@ -32,6 +32,13 @@ pkg_files(
 )
 
 pkg_files(
+    name = "headers_pg",
+    srcs = ["//src/pg:public_headers"],
+    prefix = "dbn_pipe/pg",
+    strip_prefix = strip_prefix.files_only(),
+)
+
+pkg_files(
     name = "headers_stream",
     srcs = ["//lib/stream:public_headers"],
     prefix = "dbn_pipe/stream",
@@ -43,6 +50,7 @@ pkg_tar(
     name = "dbn_pipe_headers",
     srcs = [
         ":headers_api",
+        ":headers_pg",
         ":headers_src",
         ":headers_stream",
         ":headers_table",

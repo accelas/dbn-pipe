@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "dbwriter/schema_validator.hpp"
-#include "dbwriter/pg_types.hpp"
+#include "dbn_pipe/pg/pg_types.hpp"
 #include "dbn_pipe/table/table.hpp"
 #include <gtest/gtest.h>
 #include <asio.hpp>
@@ -52,6 +52,11 @@ public:
         execute_called = true;
         last_execute_sql = std::string(sql);
         co_return;
+    }
+    asio::awaitable<uint64_t> execute_count(std::string_view sql) override {
+        execute_called = true;
+        last_execute_sql = std::string(sql);
+        co_return 0;
     }
     std::unique_ptr<ICopyWriter> begin_copy(
             std::string_view,

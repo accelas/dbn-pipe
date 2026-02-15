@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-#include "dbwriter/mapper.hpp"
-#include "dbwriter/pg_types.hpp"
-#include "dbwriter/types.hpp"
+#include "dbn_pipe/pg/mapper.hpp"
+#include "dbn_pipe/pg/pg_types.hpp"
+#include "dbn_pipe/pg/byte_buffer.hpp"
 #include "dbn_pipe/table/table.hpp"
 #include <gtest/gtest.h>
 
-namespace dbwriter {
+namespace dbn_pipe::pg {
 namespace {
 
 constexpr auto test_table = dbn_pipe::Table{"test",
@@ -74,4 +74,4 @@ TEST(MapperTest, CopyTrailer_WritesMinusOne) {
 }
 
 }  // namespace
-}  // namespace dbwriter
+}  // namespace dbn_pipe::pg

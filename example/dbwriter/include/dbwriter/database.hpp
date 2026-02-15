@@ -60,6 +60,7 @@ public:
 
     virtual asio::awaitable<QueryResult> query(std::string_view sql) = 0;
     virtual asio::awaitable<void> execute(std::string_view sql) = 0;
+    virtual asio::awaitable<uint64_t> execute_count(std::string_view sql) = 0;
 
     virtual std::unique_ptr<ICopyWriter> begin_copy(
         std::string_view table,

@@ -3,15 +3,17 @@
 #pragma once
 
 #include "dbwriter/database.hpp"
-#include "dbwriter/mapper.hpp"
 #include "dbwriter/transform.hpp"
-#include "dbwriter/types.hpp"
+#include "dbn_pipe/pg/byte_buffer.hpp"
+#include "dbn_pipe/pg/mapper.hpp"
 #include <asio.hpp>
 #include <atomic>
 #include <cassert>
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace dbwriter {
@@ -28,6 +30,15 @@ enum class WriteError {
     CopyFailed,
     SerializationError,
     Timeout,
+};
+
+// Accumulated write statistics for monitoring
+struct WriteStats {
+    uint64_t copies_completed = 0;    // Number of COPY operations executed
+    uint64_t batches_coalesced = 0;   // Number of enqueued batches consumed
+    uint64_t rows_copied = 0;         // Total rows sent via COPY to staging
+    uint64_t rows_inserted = 0;       // Rows actually inserted (after dedup)
+    size_t batches_pending = 0;       // Batches waiting in queue
 };
 
 // Suspendable interface for backpressure
@@ -117,6 +128,11 @@ public:
 
     size_t pending_count() const { return pending_batches_.size(); }
 
+    WriteStats stats() const {
+        return {copies_completed_, batches_coalesced_, rows_copied_,
+                rows_inserted_, pending_batches_.size()};
+    }
+
     // Awaitable that completes when all pending work is processed.
     // MUST be awaited before destroying BatchWriter to prevent use-after-free.
     //
@@ -127,7 +143,7 @@ public:
     // stops accepting new work. Any enqueue() calls after drain() starts
     // will be silently ignored. If you need to flush without stopping,
     // wait for pending_count() == 0 and is_idle() instead.
-    asio::awaitable<void> drain() {
+    asio::awaitable<void> drain(std::chrono::seconds timeout = std::chrono::seconds{0}) {
         draining_ = true;  // Stop accepting new work, but keep processing
         // Resume suspended upstream so it's not stuck forever
         if (suspendable_ && suspended_) {
@@ -137,6 +153,7 @@ public:
         // Wait for process_queue to complete using timer cancellation.
         // process_queue cancels the timer when it finishes, waking us immediately.
         // The 1-second timeout is a fallback; normal wakeup is via cancel().
+        auto start = std::chrono::steady_clock::now();
         while (writing_) {
             asio::steady_timer timer(ctx_, std::chrono::seconds(1));
             drain_timer_ = &timer;
@@ -144,6 +161,15 @@ public:
             co_await timer.async_wait(asio::redirect_error(asio::use_awaitable, ec));
             drain_timer_ = nullptr;
             // ec == operation_aborted means cancelled by process_queue - loop will check writing_
+            if (timeout.count() > 0 && !stopping_) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - start);
+                if (elapsed >= timeout) {
+                    stopping_ = true;  // Signal process_queue to exit after current batch
+                    // Don't break — keep looping until writing_ goes false
+                    // so process_queue finishes its current batch before we return.
+                }
+            }
         }
     }
 
@@ -169,11 +195,16 @@ private:
         } guard{writing_, drain_timer_};
 
         while (!pending_batches_.empty() && !stopping_) {
-            auto batch = std::move(pending_batches_.front());
-            pending_batches_.pop_front();
+            // Coalesce: drain all available batches into one COPY operation.
+            // While the previous COPY ran (~50ms), new batches pile up naturally.
+            std::vector<std::vector<Record>> batches;
+            while (!pending_batches_.empty()) {
+                batches.push_back(std::move(pending_batches_.front()));
+                pending_batches_.pop_front();
+            }
 
             try {
-                co_await write_batch(batch);
+                co_await write_batch(batches);
             } catch (const std::exception& e) {
                 safe_error(WriteError::CopyFailed, e.what());
             } catch (...) {
@@ -185,23 +216,51 @@ private:
         // writing_ = false handled by guard destructor
     }
 
-    asio::awaitable<void> write_batch(const std::vector<Record>& batch) {
+    asio::awaitable<void> write_batch(std::vector<std::vector<Record>>& batches) {
         auto columns = table_.column_names();
         std::vector<std::string_view> col_views(columns.begin(), columns.end());
 
-        auto writer = db_.begin_copy(table_.name(), col_views);
+        // Stage via temp table for deduplication:
+        // COPY → temp table (no constraints, never fails on duplicates)
+        // INSERT INTO target SELECT ... ON CONFLICT DO NOTHING
+        std::string target{table_.name()};
+        std::string staging = "_staging_" + target;
+        // Explicitly scope to pg_temp to avoid accidentally dropping real tables
+        co_await db_.execute("DROP TABLE IF EXISTS pg_temp." + staging);
+        co_await db_.execute(
+            "CREATE TEMP TABLE " + staging +
+            " (LIKE " + target + ")");
+
+        auto writer = db_.begin_copy(staging, col_views);
 
         std::exception_ptr ex;
+        uint64_t batch_rows = 0;
 
         try {
             co_await writer->start();
 
-            ByteBuffer buf;
-            for (const auto& record : batch) {
-                auto row = transform_(record);
-                mapper_.encode_row(row, buf);
+            // Encode rows into buffer, flushing in chunks to cap memory.
+            // Each flush is one PQputCopyData call instead of one per row,
+            // eliminating ~2N coroutine frames per N rows.
+            dbn_pipe::pg::ByteBuffer buf;
+            constexpr size_t kFlushThreshold = 1024 * 1024;  // 1 MB
+
+            for (auto& batch : batches) {
+                for (const auto& record : batch) {
+                    auto row = transform_(record);
+                    mapper_.encode_row(row, buf);
+                    ++batch_rows;
+
+                    if (buf.size() >= kFlushThreshold) {
+                        co_await writer->write_row(buf.view());
+                        buf.clear();
+                    }
+                }
+            }
+
+            // Flush remaining data
+            if (buf.size() > 0) {
                 co_await writer->write_row(buf.view());
-                buf.clear();
             }
 
             co_await writer->finish();
@@ -213,8 +272,24 @@ private:
         if (ex) {
             // Abort COPY session to leave connection in usable state
             try { co_await writer->abort(); } catch (...) {}
+            // Clean up staging table before rethrowing
+            try { co_await db_.execute("DROP TABLE IF EXISTS pg_temp." + staging); } catch (...) {}
             std::rethrow_exception(ex);
         }
+
+        // Move from staging to target, skip duplicates
+        uint64_t inserted = co_await db_.execute_count(
+            "INSERT INTO " + target +
+            " SELECT * FROM " + staging +
+            " ON CONFLICT DO NOTHING");
+
+        co_await db_.execute("DROP TABLE pg_temp." + staging);
+
+        // Update stats
+        copies_completed_++;
+        batches_coalesced_ += batches.size();
+        rows_copied_ += batch_rows;
+        rows_inserted_ += inserted;
     }
 
     void check_backpressure() {
@@ -236,7 +311,7 @@ private:
     IDatabase& db_;
     const Table& table_;
     TransformT transform_;
-    Mapper<Table> mapper_;
+    dbn_pipe::pg::Mapper<Table> mapper_;
     BackpressureConfig config_;
 
     std::deque<std::vector<Record>> pending_batches_;
@@ -247,6 +322,12 @@ private:
     ISuspendable* suspendable_ = nullptr;
     ErrorHandler error_handler_;
     asio::steady_timer* drain_timer_ = nullptr;  // For signaling drain() completion
+
+    // Stats
+    uint64_t copies_completed_ = 0;
+    uint64_t batches_coalesced_ = 0;
+    uint64_t rows_copied_ = 0;
+    uint64_t rows_inserted_ = 0;
 };
 
 }  // namespace dbwriter

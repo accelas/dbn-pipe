@@ -2,12 +2,12 @@
 
 #pragma once
 
-#include "dbwriter/types.hpp"
+#include "dbn_pipe/pg/byte_buffer.hpp"
 #include "dbn_pipe/table/column_type.hpp"
 #include <cstdint>
 #include <cstring>
 
-namespace dbwriter::pg {
+namespace dbn_pipe::pg {
 
 // PostgreSQL BIGINT (8 bytes)
 struct BigInt {
@@ -48,17 +48,12 @@ struct Char {
 // PostgreSQL TIMESTAMPTZ (8 bytes, microseconds since 2000-01-01)
 struct Timestamptz {
     static constexpr const char* pg_type_name() { return "TIMESTAMPTZ"; }
-    // Encode from unix nanoseconds (dbn_pipe::Timestamp::cpp_type)
+    // Encode from unix nanoseconds (dbn_pipe::TimestampCol::cpp_type)
     static void encode(int64_t unix_ns, ByteBuffer& buf) {
         constexpr int64_t kPgEpochOffsetUsec = 946684800000000LL;
         int64_t pg_usec = unix_ns / 1000 - kPgEpochOffsetUsec;
         buf.put_int32_be(8);
         buf.put_int64_be(pg_usec);
-    }
-    // Legacy overload: encode from dbwriter::Timestamp (already PG epoch)
-    static void encode(Timestamp val, ByteBuffer& buf) {
-        buf.put_int32_be(8);
-        buf.put_int64_be(val.to_pg_timestamp());
     }
 };
 
@@ -107,9 +102,9 @@ template <> struct PgTypeFor<dbn_pipe::Int64>     { using type = BigInt;      st
 template <> struct PgTypeFor<dbn_pipe::Int32>     { using type = Integer;     static constexpr const char* name() { return "INTEGER"; } };
 template <> struct PgTypeFor<dbn_pipe::Int16>     { using type = SmallInt;    static constexpr const char* name() { return "SMALLINT"; } };
 template <> struct PgTypeFor<dbn_pipe::Char>      { using type = Char;        static constexpr const char* name() { return "CHAR(1)"; } };
-template <> struct PgTypeFor<dbn_pipe::Timestamp> { using type = Timestamptz; static constexpr const char* name() { return "TIMESTAMPTZ"; } };
+template <> struct PgTypeFor<dbn_pipe::TimestampCol> { using type = Timestamptz; static constexpr const char* name() { return "TIMESTAMPTZ"; } };
 template <> struct PgTypeFor<dbn_pipe::Text>      { using type = Text;            static constexpr const char* name() { return "TEXT"; } };
 template <> struct PgTypeFor<dbn_pipe::Bool>      { using type = Boolean;         static constexpr const char* name() { return "BOOLEAN"; } };
 template <> struct PgTypeFor<dbn_pipe::Float64>   { using type = DoublePrecision; static constexpr const char* name() { return "DOUBLE PRECISION"; } };
 
-}  // namespace dbwriter::pg
+}  // namespace dbn_pipe::pg

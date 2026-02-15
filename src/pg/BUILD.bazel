@@ -1,0 +1,40 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+filegroup(
+    name = "public_headers",
+    srcs = glob(["*.hpp"]),
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "byte_buffer",
+    hdrs = ["byte_buffer.hpp"],
+    srcs = ["byte_buffer.cpp"],
+    strip_include_prefix = "/src/pg",
+    include_prefix = "dbn_pipe/pg",
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "pg_types",
+    hdrs = ["pg_types.hpp"],
+    strip_include_prefix = "/src/pg",
+    include_prefix = "dbn_pipe/pg",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":byte_buffer",
+        "//src/table:column_type",
+    ],
+)
+
+cc_library(
+    name = "mapper",
+    hdrs = ["mapper.hpp"],
+    strip_include_prefix = "/src/pg",
+    include_prefix = "dbn_pipe/pg",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":pg_types",
+        "//src/table:table",
+    ],
+)

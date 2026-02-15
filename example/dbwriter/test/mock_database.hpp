@@ -29,6 +29,7 @@ class MockDatabase : public IDatabase {
 public:
     MOCK_METHOD(asio::awaitable<QueryResult>, query, (std::string_view), (override));
     MOCK_METHOD(asio::awaitable<void>, execute, (std::string_view), (override));
+    MOCK_METHOD(asio::awaitable<uint64_t>, execute_count, (std::string_view), (override));
     MOCK_METHOD(std::unique_ptr<ICopyWriter>, begin_copy,
         (std::string_view, std::span<const std::string_view>), (override));
     MOCK_METHOD(bool, is_connected, (), (const, override));
