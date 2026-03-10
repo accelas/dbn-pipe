@@ -200,6 +200,10 @@ private:
                 if (!chain.Empty()) {
                     downstream_->OnData(chain);
                 }
+                // Close the socket before signaling done. This deregisters
+                // the fd from the event loop, preventing the EPOLLET poll-drain
+                // loop from spinning indefinitely on the EOF-readable fd.
+                Close();
                 downstream_->OnDone();
                 return;
             } else {

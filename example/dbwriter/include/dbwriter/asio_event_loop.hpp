@@ -67,11 +67,15 @@ struct AsioEventHandleState : public std::enable_shared_from_this<AsioEventHandl
 
                     // Loop with poll() to drain data available after callback
                     // execution, and avoid leaving readable data unprocessed.
+                    // Safety limit prevents infinite loop when fd is at EOF
+                    // (poll reports POLLIN indefinitely for EOF sockets).
+                    static constexpr int kMaxDrainIterations = 1024;
                     self->in_read_callback = true;
-                    do {
+                    for (int i = 0; i < kMaxDrainIterations; ++i) {
                         if (self->on_read) self->on_read();
-                    } while (self->want_read && !self->destroyed &&
-                             fd_readable(fd_num));
+                        if (!self->want_read || self->destroyed ||
+                            !fd_readable(fd_num)) break;
+                    }
                     self->in_read_callback = false;
 
                     if (self->want_read && !self->destroyed && !self->read_wait_pending) {
@@ -99,11 +103,13 @@ struct AsioEventHandleState : public std::enable_shared_from_this<AsioEventHandl
                         self->start_write_wait();
                     }
 
+                    static constexpr int kMaxDrainIterations = 1024;
                     self->in_write_callback = true;
-                    do {
+                    for (int i = 0; i < kMaxDrainIterations; ++i) {
                         if (self->on_write) self->on_write();
-                    } while (self->want_write && !self->destroyed &&
-                             fd_writable(fd_num));
+                        if (!self->want_write || self->destroyed ||
+                            !fd_writable(fd_num)) break;
+                    }
                     self->in_write_callback = false;
 
                     if (self->want_write && !self->destroyed && !self->write_wait_pending) {
