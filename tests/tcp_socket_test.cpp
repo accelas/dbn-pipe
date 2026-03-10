@@ -321,6 +321,75 @@ TEST(TcpSocketTest, CloseResetsSuspendedState) {
     close(listener);
 }
 
+// Regression test: TcpSocket must close fd on EOF to prevent infinite
+// poll-drain loop in EPOLLET event loops (issue #188 follow-up).
+// Before fix: after EOF, poll() reports POLLIN indefinitely, causing
+// the drain loop to spin forever calling HandleReadable (read returns 0).
+TEST(TcpSocketTest, ClosesSocketOnEof) {
+    EpollEventLoop loop;
+    int port;
+    int listener = create_listener(port);
+
+    auto downstream = std::make_shared<MockDownstream>();
+    downstream->loop = &loop;
+
+    auto sock = TcpSocket<MockDownstream>::Create(loop, downstream);
+
+    int server_fd = -1;
+    std::unique_ptr<IEventHandle> server_handle;
+
+    sock->OnConnect([&]() {
+        // Connection established - do nothing, wait for server data + EOF
+    });
+
+    sock->Connect(make_addr("127.0.0.1", port));
+
+    // Accept and send data then close (triggers EOF)
+    auto listener_handle = loop.Register(
+        listener,
+        /*want_read=*/true,
+        /*want_write=*/false,
+        [&]() {
+            server_fd = accept(listener, nullptr, nullptr);
+            if (server_fd >= 0) {
+                fcntl(server_fd, F_SETFL, O_NONBLOCK);
+                server_handle = loop.Register(
+                    server_fd,
+                    /*want_read=*/false,
+                    /*want_write=*/true,
+                    []() {},
+                    [&]() {
+                        write(server_fd, "eof-test", 8);
+                        close(server_fd);
+                        server_fd = -1;
+                        server_handle.reset();
+                    },
+                    [](int) {}
+                );
+            }
+        },
+        []() {},
+        [](int) {}
+    );
+
+    loop.Run();
+
+    // Verify data was received
+    std::string received(reinterpret_cast<char*>(downstream->received_data.data()),
+                         downstream->received_data.size());
+    EXPECT_EQ(received, "eof-test");
+
+    // OnDone must have been called
+    EXPECT_TRUE(downstream->done_called);
+    EXPECT_FALSE(downstream->error_called);
+
+    // Socket must be closed after EOF (prevents infinite poll-drain loop)
+    EXPECT_EQ(sock->fd(), -1);
+    EXPECT_FALSE(sock->IsConnected());
+
+    close(listener);
+}
+
 TEST(TcpSocketTest, UsesProvidedAllocator) {
     EpollEventLoop loop;
     int port;
